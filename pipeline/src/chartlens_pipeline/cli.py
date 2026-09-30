@@ -87,6 +87,53 @@ def backfill(
     _not_yet(JobType.BACKFILL, "Milestone 2", {"start": first, "end": last}, dry_run)
 
 
+@app.command("calendar-derive")
+def calendar_derive(
+    start: Annotated[str, typer.Option("--start-date", help="YYYY-MM-DD")],
+    end: Annotated[str, typer.Option("--end-date", help="YYYY-MM-DD")],
+    output: Annotated[str, typer.Option(help="Write derived TOML here")] = "calendar-derived.toml",
+    exchange: Annotated[str, typer.Option(help="Exchange code")] = "NSE",
+    workers: Annotated[int, typer.Option(min=1, max=8)] = 4,
+) -> None:
+    """Derive calendar data from which daily files the exchange actually published."""
+    import logging
+    from pathlib import Path
+
+    from chartlens_core.logs import configure_logging, log_event
+    from chartlens_pipeline.calendar_derive import derive_calendar, to_toml
+    from chartlens_pipeline.http import HttpFetcher
+    from chartlens_pipeline.providers import get_provider
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    log = logging.getLogger("chartlens.pipeline.calendar")
+
+    def make_source():  # type: ignore[no-untyped-def]
+        return get_provider(exchange, settings, HttpFetcher(settings.http)).daily_bars
+
+    years = derive_calendar(
+        make_source,
+        date.fromisoformat(start),
+        date.fromisoformat(end),
+        workers=workers,
+        progress=lambda n, total: log_event(log, "calendar.progress", checked=n, total=total),
+    )
+    Path(output).write_text(to_toml(years, date.today()))  # noqa: DTZ011 — label only
+    summary = {
+        y.year: {
+            "sessions": y.sessions,
+            "holidays": len(y.holidays),
+            "special_sessions": [str(d) for d in y.special_sessions],
+            "undetermined": [(str(d), why) for d, why in y.undetermined],
+        }
+        for y in years.values()
+    }
+    _emit({"output": output, "years": summary})
+    if any(y.undetermined for y in years.values()):
+        typer.echo("Some dates could not be determined; re-run for those years.", err=True)
+        raise typer.Exit(code=4)
+
+
 @app.command("refresh-security")
 def refresh_security(
     symbol: Annotated[str, typer.Argument(help="Exchange symbol, e.g. RELIANCE")],

@@ -1,0 +1,51 @@
+# Derive NSE calendar data (weekday closures, weekend sessions) from which bhavcopies
+# NSE's archive actually serves. Publishes the TOML + summary to a throwaway branch.
+
+name: Calendar derive
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date: { description: "YYYY-MM-DD", default: "2006-01-01" }
+      end_date: { description: "YYYY-MM-DD", default: "2026-09-29" }
+  push:
+    branches: ["probe/calendar"]
+
+permissions:
+  contents: write   # to publish results to the throwaway probe-results/calendar branch
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      START: ${{ inputs.start_date || '2006-01-01' }}
+      END: ${{ inputs.end_date || '2026-09-29' }}
+      CHARTLENS_RUNTIME__LOG_JSON: "true"
+      CHARTLENS_HTTP__MIN_REQUEST_INTERVAL_SECONDS: "0.25"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - name: Derive
+        run: |
+          mkdir -p out
+          set +e
+          uv run --no-sync chartlens-pipeline calendar-derive \
+            --start-date "$START" --end-date "$END" --output out/nse-derived.toml \
+            > out/summary.json 2> out/log.jsonl
+          echo "exit=$?" > out/exit.txt
+          set -e
+          tail -c 2000 out/log.jsonl
+      - name: Publish results to a throwaway branch
+        run: |
+          set -euo pipefail
+          cd out
+          git init -q -b probe-results/calendar
+          git -c user.name=calendar-derive -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=calendar-derive -c user.email=probe@users.noreply.github.com commit -qm "Calendar derive ($GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/calendar

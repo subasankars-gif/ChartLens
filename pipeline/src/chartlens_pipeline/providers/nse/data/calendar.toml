@@ -1,0 +1,27 @@
+# NSE capital-market trading calendar (ADR-0008).
+#
+# Per year: `holidays` are WEEKDAYS the market was closed; `special_sessions` are
+# WEEKEND dates it traded. Every other weekday is a session; every other weekend
+# day is not. A year missing from this file is NOT assumed to be Mon–Fri — the
+# calendar raises instead.
+#
+# evidence = "official": NSE's published holiday list (holiday-master API).
+# evidence = "derived":  inferred from which bhavcopies NSE's archive actually serves
+#                        (a weekday with no file anywhere = closed; a weekend with a
+#                        file = special session). See ADR-0008 for what this can and
+#                        cannot detect.
+
+exchange = "NSE"
+version = "2026.09.30-1"
+
+[[years]]
+year = 2026
+evidence = "official"
+holidays = [
+  "2026-01-15", "2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31", "2026-04-03",
+  "2026-04-14", "2026-05-01", "2026-05-28", "2026-06-26", "2026-09-14", "2026-10-02",
+  "2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25",
+]
+special_sessions = ["2026-11-08"]
+[years.notes]
+"2026-11-08" = "Diwali Laxmi Pujan (Sunday): Muhurat trading session per NSE holiday list footnote"

@@ -1,0 +1,31 @@
+# Probe NSE from a GitHub-hosted runner: reachability + real file formats.
+# Uploads only trimmed samples and a JSON report (1-day retention). See scripts/nse_probe.py.
+
+name: NSE probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["probe/**"]
+
+permissions:
+  contents: write   # to publish trimmed results to the throwaway probe-results/nse branch
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python scripts/nse_probe.py probe-out
+      - name: Publish trimmed results to a throwaway branch
+        run: |
+          set -euo pipefail
+          cd probe-out
+          git init -q -b probe-results/nse
+          git -c user.name=nse-probe -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=nse-probe -c user.email=probe@users.noreply.github.com commit -qm "NSE probe results ($GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/nse

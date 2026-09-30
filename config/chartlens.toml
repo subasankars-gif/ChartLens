@@ -30,6 +30,18 @@ local_root = ".data"
 [api]
 cors_origins = ["http://localhost:3000"]
 
+[http]                          # outbound requests to market-data sources (bounded retries)
+timeout_seconds = 30
+max_attempts = 4
+backoff_seconds = 2.0           # waits 2s, 4s, 8s between attempts
+max_retry_after_seconds = 60
+min_request_interval_seconds = 0.5
+
+[providers.nse]                 # established by the NSE probe (ADR-0008)
+archive_base_url = "https://nsearchives.nseindia.com"
+udiff_first_date = 2024-01-01   # UDiFF tried first from here; legacy only before
+legacy_last_date = 2024-07-05   # last legacy bhavcopy NSE published
+
 # ----------------------------------------------------------------- METHODOLOGY
 
 [universe]
@@ -50,3 +62,9 @@ dividends = false              # charts show prices as traded
 [data_quality]
 max_unexplained_move = 0.25       # close-to-close move flagged when no corporate action explains it
 max_missing_session_ratio = 0.02  # above this, status degrades to WARN
+
+[identity]                      # ADR-0009 — which security a row belongs to
+link_same_issuer_isin = true    # new ISIN + same issuer + symbol evidence → same security
+resolve_without_isin = true     # pre-2011 NSE rows carry no ISIN: resolve by symbol continuity
+max_symbol_gap_days = 45        # longest gap across which a symbol counts as continuous
+active_within_sessions = 20     # traded within this many sessions of the latest session → ACTIVE
