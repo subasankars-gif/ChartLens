@@ -1,0 +1,105 @@
+[project]
+name = "chartlens"
+version = "0.1.0"
+description = "ChartLens — technical chart intelligence platform (workspace root)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "chartlens-core",
+    "chartlens-engine",
+    "chartlens-pipeline",
+    "chartlens-api",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["core", "engine", "pipeline", "backend"]
+
+[tool.uv.sources]
+chartlens-core = { workspace = true }
+chartlens-engine = { workspace = true }
+chartlens-pipeline = { workspace = true }
+chartlens-api = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.120",
+    "ruff>=0.8",
+    "pyright>=1.1.390",
+    "poethepoet>=0.31",
+    "httpx2",
+]
+
+# ---------------------------------------------------------------------------
+# Tasks — cross-platform (works on Windows without make): `uv run poe <task>`
+# ---------------------------------------------------------------------------
+[tool.poe.tasks]
+lint = "ruff check ."
+format = "ruff format ."
+format-check = "ruff format --check ."
+typecheck = "pyright"
+test = "pytest"
+api = "uvicorn chartlens_api.main:app --reload --port 8080"
+check = ["lint", "format-check", "typecheck", "test"]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["frontend"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F",   # pycodestyle / pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "SIM",           # simplify
+    "DTZ",           # timezone-naive datetime misuse
+    "PD",            # pandas-vet
+    "RUF",
+    "TID",           # banned imports (layer boundaries below)
+]
+ignore = ["RUF001", "RUF002", "RUF003"]  # en dashes in prose are intentional
+
+[tool.ruff.lint.isort]
+known-first-party = ["chartlens_core", "chartlens_engine", "chartlens_pipeline", "chartlens_api"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# Layer boundaries are enforced by tests/test_layer_boundaries.py; these bans
+# catch the most common violation (engine reaching into I/O layers) at lint time.
+"google.cloud".msg = "I/O clients belong in pipeline/backend, never in core or engine."
+
+[tool.ruff.lint.per-file-ignores]
+"pipeline/**" = ["TID251"]
+"backend/**" = ["TID251"]
+"**/tests/**" = ["TID251"]
+
+# ---------------------------------------------------------------------------
+# Pyright
+# ---------------------------------------------------------------------------
+[tool.pyright]
+include = ["core/src", "engine/src", "pipeline/src", "backend/src"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+venvPath = "."
+venv = ".venv"
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["core/tests", "engine/tests", "pipeline/tests", "backend/tests", "tests"]
+addopts = "-ra --strict-markers --import-mode=importlib"
+markers = [
+    "network: test requires outbound network access (skipped in CI by default)",
+]

@@ -1,0 +1,5 @@
+# Git checkouts on Windows must keep LF, or shell scripts and Docker builds break.
+* text=auto eol=lf
+*.png binary
+*.zip binary
+*.parquet binary

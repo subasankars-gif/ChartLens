@@ -1,0 +1,90 @@
+# Pipeline jobs (ADR-0007).
+#
+# One workflow, one entrypoint: every job is a `chartlens-pipeline` command. The
+# workflow holds no pipeline logic, so moving jobs to Cloud Run Jobs later means
+# changing where the container runs, not what it does.
+#
+# Triggered manually now; by the API's refresh endpoint (workflow_dispatch via the
+# GitHub REST API) from Milestone 7; and on a weekday schedule once ingestion lands.
+
+name: Pipeline job
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Job to run
+        type: choice
+        options: [info, ingest-daily, backfill, refresh-security]
+        default: info
+      trade_date:
+        description: "ingest-daily: YYYY-MM-DD (blank = latest session)"
+        required: false
+      start:
+        description: "backfill: start YYYY-MM-DD"
+        required: false
+      end:
+        description: "backfill: end YYYY-MM-DD"
+        required: false
+      symbol:
+        description: "refresh-security: exchange symbol"
+        required: false
+      dry_run:
+        description: Print the plan only
+        type: boolean
+        default: true
+  # Enabled in Milestone 2 once ingestion is implemented.
+  # NSE publishes the day's bhavcopy in the evening IST; 14:45 UTC = 20:15 IST.
+  # schedule:
+  #   - cron: "45 14 * * 1-5"
+
+# Jobs write to the data lake; never let two run at once.
+concurrency:
+  group: pipeline-writes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # id-token: write   # needed for GCP Workload Identity Federation (Milestone 2)
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      CHARTLENS_RUNTIME__ENVIRONMENT: prod
+      CHARTLENS_RUNTIME__LOG_JSON: "true"
+      # Inputs are passed through env, never interpolated into the script, so a
+      # crafted input value cannot inject shell commands.
+      JOB: ${{ inputs.job || 'ingest-daily' }}
+      TRADE_DATE: ${{ inputs.trade_date }}
+      START: ${{ inputs.start }}
+      END: ${{ inputs.end }}
+      SYMBOL: ${{ inputs.symbol }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+
+      # Milestone 2: authenticate to GCP without long-lived keys.
+      # - uses: google-github-actions/auth@v2
+      #   with:
+      #     workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+      #     service_account: ${{ vars.GCP_PIPELINE_SA }}
+
+      - name: Run ${{ env.JOB }}
+        run: |
+          set -euo pipefail
+          args=("$JOB")
+          case "$JOB" in
+            ingest-daily)     [ -n "$TRADE_DATE" ] && args+=(--trade-date "$TRADE_DATE") ;;
+            backfill)         args+=(--start "$START" --end "$END") ;;
+            refresh-security) args+=("$SYMBOL") ;;
+          esac
+          [ "$JOB" != "info" ] && [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          uv run --no-sync chartlens-pipeline "${args[@]}"

@@ -1,0 +1,52 @@
+# ChartLens configuration
+#
+# Precedence (highest first): environment variables → this file → code defaults.
+# Env vars use the CHARTLENS_ prefix and "__" for nesting, e.g.
+#   CHARTLENS_STORAGE__BACKEND=gcs
+#   CHARTLENS_STORAGE__GCS_BUCKET=chartlens-data
+#
+# Sections marked METHODOLOGY change computed results. They are hashed into the
+# methodology_hash stamped on every output. Changing any value here is a
+# methodology change: record it in docs/adr and expect a full recalculation.
+# A test (core/tests/test_config.py) keeps the methodology values below in sync
+# with the code defaults so this file stays the readable source of truth.
+
+# --------------------------------------------------------------- infrastructure
+
+[runtime]
+environment = "local"   # local | ci | prod
+log_level = "INFO"
+log_json = false        # true on Cloud Run for structured logs
+
+[storage]
+backend = "local"       # local | gcs
+local_root = ".data"
+# gcs_bucket = "chartlens-data"
+
+[firestore]
+# project_id = "chartlens-prod"
+# emulator_host = "localhost:8081"
+
+[api]
+cors_origins = ["http://localhost:3000"]
+
+# ----------------------------------------------------------------- METHODOLOGY
+
+[universe]
+exchange = "NSE"
+series = ["EQ", "BE"]          # a security moving between EQ and BE stays the same security
+history_target_years = 20      # target, not requirement: keep whatever history exists
+
+[weekly]
+grouping = "iso_week"          # sessions bucketed Monday–Sunday (ADR-0004)
+week_end_label = "last_session"
+
+[adjustment]                   # ADR-0005
+splits = true
+bonus = true
+rights = true                  # theoretical ex-rights price factor
+dividends = false              # charts show prices as traded
+
+[data_quality]
+max_unexplained_move = 0.25       # close-to-close move flagged when no corporate action explains it
+max_missing_session_ratio = 0.02  # above this, status degrades to WARN

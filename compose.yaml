@@ -1,0 +1,34 @@
+# Local stack. The frontend runs outside Docker with `pnpm dev` (fast reload).
+#
+#   docker compose up --build                   API on http://localhost:8080
+#   docker compose run --rm pipeline info       run a pipeline command
+#
+# Data written by the pipeline lands in ./.data (the local object store).
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: api
+    ports:
+      - "8080:8080"
+    environment:
+      CHARTLENS_RUNTIME__ENVIRONMENT: local
+      CHARTLENS_RUNTIME__LOG_JSON: "false"
+      CHARTLENS_STORAGE__LOCAL_ROOT: /data
+    volumes:
+      - ./.data:/data
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: pipeline
+    profiles: ["jobs"]
+    environment:
+      CHARTLENS_RUNTIME__ENVIRONMENT: local
+      CHARTLENS_RUNTIME__LOG_JSON: "false"
+      CHARTLENS_STORAGE__LOCAL_ROOT: /data
+    volumes:
+      - ./.data:/data

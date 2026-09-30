@@ -1,0 +1,18 @@
+[project]
+name = "chartlens-core"
+version = "0.1.0"
+description = "ChartLens shared domain types, configuration, versioning and point-in-time primitives"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "pandas>=2.2",
+    "numpy>=2.1",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chartlens_core"]
