@@ -36,8 +36,11 @@ class CalendarEvidence(StrEnum):
 
 
 class TradingCalendar(Protocol):
-    exchange: str
-    version: str
+    @property
+    def exchange(self) -> str: ...
+
+    @property
+    def version(self) -> str: ...
 
     def is_trading_day(self, day: date) -> bool: ...
 
@@ -64,7 +67,9 @@ class CalendarYear:
                 raise ValueError(f"{day} listed under year {self.year}")
         weekend_holidays = sorted(d for d in self.holidays if d.weekday() >= 5)
         if weekend_holidays:
-            raise ValueError(f"holidays must be weekdays (weekends are closed anyway): {weekend_holidays}")
+            raise ValueError(
+                f"holidays must be weekdays (weekends are closed anyway): {weekend_holidays}"
+            )
         weekday_specials = sorted(d for d in self.special_sessions if d.weekday() < 5)
         if weekday_specials:
             raise ValueError(f"special sessions must be weekend dates: {weekday_specials}")

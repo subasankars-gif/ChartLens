@@ -107,10 +107,30 @@ UDIFF: Final = FormatSpec(
     row_filters={"SGMT": frozenset({"CM"})},
     ignored=frozenset(
         {
-            "BIZDT", "SRC", "FININSTRMTP", "FININSTRMID", "XPRYDT", "FININSTRMACTLXPRYDT",
-            "STRKPRIC", "OPTNTP", "LASTPRIC", "UNDRLYGPRIC", "STTLMPRIC", "OPNINTRST",
-            "CHNGINOPNINTRST", "SSNID", "NEWBRDLOTQTY", "RMKS",
-            "RSVD1", "RSVD2", "RSVD3", "RSVD4", "RSVD01", "RSVD02", "RSVD03", "RSVD04",
+            "BIZDT",
+            "SRC",
+            "FININSTRMTP",
+            "FININSTRMID",
+            "XPRYDT",
+            "FININSTRMACTLXPRYDT",
+            "STRKPRIC",
+            "OPTNTP",
+            "LASTPRIC",
+            "UNDRLYGPRIC",
+            "STTLMPRIC",
+            "OPNINTRST",
+            "CHNGINOPNINTRST",
+            "SSNID",
+            "NEWBRDLOTQTY",
+            "RMKS",
+            "RSVD1",
+            "RSVD2",
+            "RSVD3",
+            "RSVD4",
+            "RSVD01",
+            "RSVD02",
+            "RSVD03",
+            "RSVD04",
         }
     ),
 )
@@ -129,7 +149,9 @@ def _unzip(content: bytes) -> tuple[bytes, str | None]:
             members = [n for n in zf.namelist() if not n.endswith("/")]
             csvs = [n for n in members if n.lower().endswith(".csv")]
             if len(csvs) != 1:
-                raise SourceParseError("ZIP_LAYOUT", f"expected exactly one CSV member, found {members}")
+                raise SourceParseError(
+                    "ZIP_LAYOUT", f"expected exactly one CSV member, found {members}"
+                )
             return zf.read(csvs[0]), csvs[0]
     except zipfile.BadZipFile as exc:
         raise SourceParseError("BAD_ZIP", str(exc)) from None
@@ -139,7 +161,9 @@ def _decode(data: bytes, warnings: list[str]) -> str:
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        warnings.append(f"ENCODING_FALLBACK: not valid UTF-8 ({exc.reason} at byte {exc.start}); read as cp1252")
+        warnings.append(
+            f"ENCODING_FALLBACK: not valid UTF-8 ({exc.reason} at byte {exc.start}); read as cp1252"
+        )
         return data.decode("cp1252", errors="replace")
 
 
@@ -173,9 +197,7 @@ def _row_text(cells: list[str]) -> str:
     return buffer.getvalue()
 
 
-def _parse_row(
-    spec: FormatSpec, values: Mapping[str, str], row_number: int
-) -> NormalizedRow:
+def _parse_row(spec: FormatSpec, values: Mapping[str, str], row_number: int) -> NormalizedRow:
     def get(field_name: str) -> str | None:
         col = spec.columns.get(field_name)
         return values.get(col) if col is not None else None
@@ -190,7 +212,9 @@ def _parse_row(
     series = required("series").strip().upper()
     isin_text = normalize_isin(get("isin"))
     if isin_text is not None and not is_valid_isin(isin_text):
-        raise FieldError(QuarantineReason.INVALID_ISIN, f"ISIN {isin_text!r} fails format/check digit")
+        raise FieldError(
+            QuarantineReason.INVALID_ISIN, f"ISIN {isin_text!r} fails format/check digit"
+        )
     prev_close = get("prev_close")
     traded_value = get("traded_value")
     trades = get("trades")
@@ -206,7 +230,9 @@ def _parse_row(
         high=parse_price(required("high"), "high"),
         low=parse_price(required("low"), "low"),
         close=parse_price(required("close"), "close"),
-        prev_close=parse_price(prev_close, "prev_close") if prev_close and prev_close.strip() else None,
+        prev_close=parse_price(prev_close, "prev_close")
+        if prev_close and prev_close.strip()
+        else None,
         volume=parse_quantity(required("volume"), "volume"),
         traded_value=parse_price(traded_value, "traded_value")
         if traded_value and traded_value.strip()
@@ -215,7 +241,9 @@ def _parse_row(
     )
 
 
-def parse_bhavcopy(content: bytes, expected_date: date, universe_series: frozenset[str]) -> ParsedDaily:
+def parse_bhavcopy(
+    content: bytes, expected_date: date, universe_series: frozenset[str]
+) -> ParsedDaily:
     """Parse one NSE bhavcopy file (zipped or plain CSV) into the canonical row model."""
     if not content:
         raise SourceParseError("EMPTY_SOURCE", "file is empty")
@@ -256,21 +284,36 @@ def parse_bhavcopy(content: bytes, expected_date: date, universe_series: frozens
         if len(trimmed) != width:
             quarantined.append(
                 QuarantinedRow(
-                    line_no, QuarantineReason.MALFORMED_ROW,
-                    f"{len(trimmed)} fields, header has {width}", None, None, None, raw,
+                    line_no,
+                    QuarantineReason.MALFORMED_ROW,
+                    f"{len(trimmed)} fields, header has {width}",
+                    None,
+                    None,
+                    None,
+                    raw,
                 )
             )
             continue
         values = dict(zip(header, (c.strip() for c in trimmed), strict=True))
-        if any(values.get(col, "").upper() not in allowed for col, allowed in spec.row_filters.items()):
+        if any(
+            values.get(col, "").upper() not in allowed for col, allowed in spec.row_filters.items()
+        ):
             out_of_scope["(other segment)"] += 1
             continue
         series = values.get(spec.columns["series"], "").strip().upper()
         symbol = values.get(spec.columns["symbol"], "").strip().upper() or None
-        isin = normalize_isin(values.get(spec.columns.get("isin", ""), None))
+        isin = normalize_isin(values.get(spec.columns.get("isin", "")))
         if not series:
             quarantined.append(
-                QuarantinedRow(line_no, QuarantineReason.MISSING_FIELD, "series is empty", symbol, None, isin, raw)
+                QuarantinedRow(
+                    line_no,
+                    QuarantineReason.MISSING_FIELD,
+                    "series is empty",
+                    symbol,
+                    None,
+                    isin,
+                    raw,
+                )
             )
             continue
         if series not in universe_series:
@@ -279,11 +322,15 @@ def parse_bhavcopy(content: bytes, expected_date: date, universe_series: frozens
         try:
             row = _parse_row(spec, values, line_no)
         except FieldError as err:
-            quarantined.append(QuarantinedRow(line_no, err.reason, err.detail, symbol, series, isin, raw))
+            quarantined.append(
+                QuarantinedRow(line_no, err.reason, err.detail, symbol, series, isin, raw)
+            )
             continue
         problem = structural_problem(row)
         if problem is not None:
-            quarantined.append(QuarantinedRow(line_no, problem[0], problem[1], symbol, series, isin, raw))
+            quarantined.append(
+                QuarantinedRow(line_no, problem[0], problem[1], symbol, series, isin, raw)
+            )
             continue
         rows.append(row)
 
@@ -302,8 +349,12 @@ def parse_bhavcopy(content: bytes, expected_date: date, universe_series: frozens
         if r.trading_date != expected_date:
             quarantined.append(
                 QuarantinedRow(
-                    r.row_number, QuarantineReason.DATE_MISMATCH,
-                    f"row dated {r.trading_date}, file is {expected_date}", r.symbol, r.series, r.isin,
+                    r.row_number,
+                    QuarantineReason.DATE_MISMATCH,
+                    f"row dated {r.trading_date}, file is {expected_date}",
+                    r.symbol,
+                    r.series,
+                    r.isin,
                     raw_lines[r.row_number],
                 )
             )
@@ -317,9 +368,13 @@ def parse_bhavcopy(content: bytes, expected_date: date, universe_series: frozens
         if counts[(r.symbol, r.series)] > 1:
             quarantined.append(
                 QuarantinedRow(
-                    r.row_number, QuarantineReason.DUPLICATE_ROW,
+                    r.row_number,
+                    QuarantineReason.DUPLICATE_ROW,
                     f"{r.symbol}/{r.series} appears {counts[(r.symbol, r.series)]} times",
-                    r.symbol, r.series, r.isin, raw_lines[r.row_number],
+                    r.symbol,
+                    r.series,
+                    r.isin,
+                    raw_lines[r.row_number],
                 )
             )
         else:
@@ -335,4 +390,5 @@ def parse_bhavcopy(content: bytes, expected_date: date, universe_series: frozens
         quarantined=sorted(quarantined, key=lambda q: q.row_number),
         out_of_scope=dict(sorted(out_of_scope.items())),
         warnings=warnings,
+        raw_lines={r.row_number: raw_lines[r.row_number] for r in final},
     )

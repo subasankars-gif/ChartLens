@@ -8,10 +8,10 @@ Outcome                   Meaning                                            Ret
 ``OK``                    200 with a non-empty body of the expected kind     —
 ``NOT_FOUND``             404: the source does not exist (e.g. a holiday)    no
 ``FORBIDDEN``             401/403: blocked (e.g. IP range refused)           no
-``RATE_LIMITED``          429                                                yes (Retry-After, capped)
+``RATE_LIMITED``          429                                                yes (Retry-After)
 ``SERVER_ERROR``          5xx                                                yes
 ``TIMEOUT`` / ``NETWORK`` no response                                        yes
-``INVALID_RESPONSE``      200 but empty, or HTML where a file was expected   yes
+``INVALID_RESPONSE``      200 but empty, or HTML instead of a file           yes
 ========================  =================================================  =========
 
 "Not found" is a *fact about the source*; every other failure is a *fact about this
@@ -143,7 +143,9 @@ class HttpFetcher:
                 self._sleep(wait)
         self._last_request = self._clock()
 
-    def _one(self, method: str, url: str, validate: Validator | None) -> tuple[Attempt, httpx.Response | None]:
+    def _one(
+        self, method: str, url: str, validate: Validator | None
+    ) -> tuple[Attempt, httpx.Response | None]:
         self._pace()
         started = self._clock()
         try:
@@ -155,9 +157,11 @@ class HttpFetcher:
         elapsed = self._clock() - started
         status = response.status_code
         if status == 200:
-            reason = validate(response.content, response.headers.get("content-type", "")) if (
-                validate and method == "GET"
-            ) else None
+            reason = (
+                validate(response.content, response.headers.get("content-type", ""))
+                if (validate and method == "GET")
+                else None
+            )
             if reason:
                 return Attempt(FetchOutcome.INVALID_RESPONSE, status, reason, elapsed), response
             return Attempt(FetchOutcome.OK, status, "", elapsed), response
@@ -179,7 +183,9 @@ class HttpFetcher:
                 wait = max(wait, float(header))
         return min(wait, self._config.max_retry_after_seconds)
 
-    def fetch(self, url: str, *, validate: Validator | None = None, method: str = "GET") -> FetchResult:
+    def fetch(
+        self, url: str, *, validate: Validator | None = None, method: str = "GET"
+    ) -> FetchResult:
         attempts: list[Attempt] = []
         response: httpx.Response | None = None
         for attempt_no in range(1, self._config.max_attempts + 1):

@@ -76,8 +76,11 @@ class DownloadResult:
 
 
 class DailyBarSource(Protocol):
-    source_dataset: str
-    parser_version: str
+    @property
+    def source_dataset(self) -> str: ...
+
+    @property
+    def parser_version(self) -> str: ...
 
     def download(self, day: date) -> DownloadResult: ...
 
@@ -89,8 +92,11 @@ class DailyBarSource(Protocol):
 
 
 class ExchangeProvider(Protocol):
-    exchange_code: str
-    daily_bars: DailyBarSource
+    @property
+    def exchange_code(self) -> str: ...
+
+    @property
+    def daily_bars(self) -> DailyBarSource: ...
 
     def trading_calendar(self) -> TradingCalendar: ...
 

@@ -98,7 +98,8 @@ class NseProviderConfig(_Section):
     """Earliest date for which the UDiFF bhavcopy is tried first (probe: present 2024-01-19,
     absent 2020-03-02). Before this, only the legacy file is requested."""
     legacy_last_date: date = date(2024, 7, 5)
-    """Last date the legacy bhavcopy was published (probe: present 2024-07-05, absent 2024-07-08)."""
+    """Last date the legacy bhavcopy was published
+    (probe: present 2024-07-05, absent 2024-07-08)."""
 
 
 class ProvidersConfig(_Section):

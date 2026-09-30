@@ -136,6 +136,7 @@ dev = [
     { name = "httpx2" },
     { name = "hypothesis" },
     { name = "poethepoet" },
+    { name = "pyarrow-stubs" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -155,6 +156,7 @@ dev = [
     { name = "httpx2" },
     { name = "hypothesis", specifier = ">=6.120" },
     { name = "poethepoet", specifier = ">=0.31" },
+    { name = "pyarrow-stubs" },
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-cov", specifier = ">=6.0" },
@@ -764,6 +766,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/80/53/8fb8359ff17cfb6263a1cf3ebf7caec9fe197de118719e84fcb1d0618026/pyarrow-25.0.1-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:d51592cb7561e87877c506113e7adbf1342ab579e6c21f0ef44b8ba41cb74c80", size = 49942424, upload-time = "2026-08-10T12:38:28.755Z" },
     { url = "https://files.pythonhosted.org/packages/e8/83/4e5ae02a9341571b18a6fca380ac7a58ce6ddae7ab3c060208c0a1e79f02/pyarrow-25.0.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:6109c94d8b9f3b17a041daca16cacb2f651ad8f1ef70a4232c2c0f37a23da2a8", size = 53144206, upload-time = "2026-08-10T12:38:34.862Z" },
     { url = "https://files.pythonhosted.org/packages/65/ee/197cbf47e49f83e6ebeb946a5259a48a638dea27ac774db42fe78022179d/pyarrow-25.0.1-cp312-cp312-win_amd64.whl", hash = "sha256:8858d7bfc22e3f51529aeaa4077225029724623e4595dc9eff8c793935c34140", size = 27953934, upload-time = "2026-08-10T12:38:39.808Z" },
+]
+
+[[package]]
+name = "pyarrow-stubs"
+version = "20.0.0.20260819"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyarrow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/a7/8a2ca91ffe4c6576207f932de655d7d8a36485c520dccce70ce7d492b256/pyarrow_stubs-20.0.0.20260819.tar.gz", hash = "sha256:150710a72248bc834bf048d3092713f070904a4af76d40289c43afb3ee189823", size = 238222, upload-time = "2026-08-19T05:52:53.618Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/6c/eea1d03e475217aea95b1d52aee09c97575d05bbc592c39c085b71dab89f/pyarrow_stubs-20.0.0.20260819-py3-none-any.whl", hash = "sha256:297e60b6e5314739c082b4757d090d8be6047465510eb0684ca954ef7ea58be3", size = 235949, upload-time = "2026-08-19T05:52:54.711Z" },
 ]
 
 [[package]]

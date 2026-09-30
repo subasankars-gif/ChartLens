@@ -118,6 +118,8 @@ class ParsedDaily:
     out_of_scope: dict[str, int] = field(default_factory=dict)
     """Rows skipped because their series is outside the configured universe, by series."""
     warnings: list[str] = field(default_factory=list)
+    raw_lines: dict[int, str] = field(default_factory=dict)
+    """Original text of every data line, by line number, so any row can be quarantined verbatim."""
 
 
 class SourceParseError(ValueError):
@@ -158,7 +160,9 @@ def parse_decimal(text: str, field_name: str) -> Decimal:
 def parse_quantity(text: str, field_name: str) -> int:
     value = parse_decimal(text, field_name)
     if value != value.to_integral_value():
-        raise FieldError(QuarantineReason.INVALID_NUMBER, f"{field_name}={text!r} is not a whole number")
+        raise FieldError(
+            QuarantineReason.INVALID_NUMBER, f"{field_name}={text!r} is not a whole number"
+        )
     return int(value)
 
 
@@ -169,7 +173,9 @@ def parse_date(text: str, fmt: str, field_name: str) -> date:
     try:
         return datetime.strptime(stripped, fmt).date()  # noqa: DTZ007 — a calendar date, no time
     except ValueError:
-        raise FieldError(QuarantineReason.INVALID_DATE, f"{field_name}={text!r} is not a valid date") from None
+        raise FieldError(
+            QuarantineReason.INVALID_DATE, f"{field_name}={text!r} is not a valid date"
+        ) from None
 
 
 def structural_problem(row: NormalizedRow) -> tuple[QuarantineReason, str] | None:

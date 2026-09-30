@@ -6,7 +6,7 @@ name: NSE probe
 on:
   workflow_dispatch:
   push:
-    branches: ["probe/**"]
+    branches: ["probe/nse"]
 
 permissions:
   contents: write   # to publish trimmed results to the throwaway probe-results/nse branch

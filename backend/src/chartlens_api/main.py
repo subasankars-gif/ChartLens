@@ -12,9 +12,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import chartlens_api
-from chartlens_core.logs import configure_logging
 from chartlens_api.routers import health
 from chartlens_core.config import ChartLensSettings, get_settings
+from chartlens_core.logs import configure_logging
 
 API_PREFIX = "/api/v1"
 

@@ -30,12 +30,26 @@ from chartlens_pipeline.providers.nse.bhavcopy import PARSER_VERSION, parse_bhav
 
 EXCHANGE: Final = "NSE"
 PROVIDER: Final = "nse"
-_MONTHS: Final = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC")
+_MONTHS: Final = (
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+)
 
 
 def legacy_url(base: str, day: date) -> str:
     mon = _MONTHS[day.month - 1]
-    return f"{base}/content/historical/EQUITIES/{day.year}/{mon}/cm{day.day:02d}{mon}{day.year}bhav.csv.zip"
+    name = f"cm{day.day:02d}{mon}{day.year}bhav.csv.zip"
+    return f"{base}/content/historical/EQUITIES/{day.year}/{mon}/{name}"
 
 
 def udiff_url(base: str, day: date) -> str:
@@ -70,20 +84,20 @@ class NseIdentityPolicy:
 
 
 class NseDailyBars:
-    source_dataset: Final = "bhavcopy"
-    parser_version: Final = PARSER_VERSION
-
     def __init__(self, config: NseProviderConfig, fetcher: HttpFetcher) -> None:
         self._config = config
         self._fetcher = fetcher
+        self.source_dataset = "bhavcopy"
+        self.parser_version = PARSER_VERSION
 
     def _run(self, day: date, *, keep_body: bool) -> DownloadResult:
+        # Always GET and validate the body. HEAD is not trustworthy on NSE's archive: the
+        # legacy path answers HEAD with 200 for files that do not exist (found by the
+        # calendar derivation, 2026-09-30), and HEAD cannot tell a zip from an HTML page.
         tried: list[tuple[str, str, int | None]] = []
         failures: list[str] = []
         for url in candidate_urls(self._config, day):
-            result = self._fetcher.fetch(url, validate=expect_zip, method="GET" if keep_body else "HEAD")
-            if keep_body is False and result.outcome is FetchOutcome.UNEXPECTED_STATUS:
-                result = self._fetcher.fetch(url, validate=expect_zip)  # server refused HEAD
+            result = self._fetcher.fetch(url, validate=expect_zip)
             last = result.attempts[-1] if result.attempts else None
             tried.append((url, str(result.outcome), last.status if last else None))
             if result.ok:
@@ -104,12 +118,17 @@ class NseDailyBars:
                 )
                 return DownloadResult(DownloadStatus.FOUND, artifact, tuple(tried))
             if result.outcome is not FetchOutcome.NOT_FOUND:
-                failures.append(f"{url}: {result.outcome}" + (f" ({last.detail})" if last and last.detail else ""))
+                detail = f" ({last.detail})" if last and last.detail else ""
+                failures.append(f"{url}: {result.outcome}{detail}")
         if not tried:
-            return DownloadResult(DownloadStatus.FAILED, None, (), f"no NSE source configured for {day}")
+            return DownloadResult(
+                DownloadStatus.FAILED, None, (), f"no NSE source configured for {day}"
+            )
         if failures:
             return DownloadResult(DownloadStatus.FAILED, None, tuple(tried), "; ".join(failures))
-        return DownloadResult(DownloadStatus.NOT_PUBLISHED, None, tuple(tried), "404 at every location")
+        return DownloadResult(
+            DownloadStatus.NOT_PUBLISHED, None, tuple(tried), "404 at every location"
+        )
 
     def download(self, day: date) -> DownloadResult:
         return self._run(day, keep_body=True)
@@ -149,15 +168,22 @@ def load_calendar(path: Path | None = None) -> DataCalendar:
 
 
 class NseProvider:
-    exchange_code: Final = EXCHANGE
+    exchange_code = EXCHANGE
 
-    def __init__(self, config: NseProviderConfig, fetcher: HttpFetcher) -> None:
+    def __init__(
+        self,
+        config: NseProviderConfig,
+        fetcher: HttpFetcher,
+        *,
+        calendar: DataCalendar | None = None,
+    ) -> None:
         self._config = config
         self._fetcher = fetcher
+        self._calendar = calendar
         self.daily_bars = NseDailyBars(config, fetcher)
 
     def trading_calendar(self) -> DataCalendar:
-        return load_calendar()
+        return self._calendar if self._calendar is not None else load_calendar()
 
     def identity_policy(self) -> NseIdentityPolicy:
         return NseIdentityPolicy()

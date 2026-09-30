@@ -20,7 +20,9 @@ class UnknownExchangeError(LookupError):
     pass
 
 
-def get_provider(exchange: str, settings: ChartLensSettings, fetcher: HttpFetcher) -> ExchangeProvider:
+def get_provider(
+    exchange: str, settings: ChartLensSettings, fetcher: HttpFetcher
+) -> ExchangeProvider:
     code = exchange.upper()
     if code == "NSE":
         from chartlens_pipeline.providers.nse import NseProvider

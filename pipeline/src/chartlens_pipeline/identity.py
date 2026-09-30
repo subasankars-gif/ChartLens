@@ -302,7 +302,9 @@ class SecurityMaster:
                 group.remove(s)
             group.append(replace(base, valid_from=merged_from, valid_to=merged_to))
         else:
-            group.append(IdentifierSpan(security_id, identifier_type, value, day, day, evidence, source_id))
+            group.append(
+                IdentifierSpan(security_id, identifier_type, value, day, day, evidence, source_id)
+            )
         return True
 
     def _touch(self, security_id: str, day: date, name: str | None) -> bool:
@@ -335,7 +337,9 @@ class SecurityMaster:
         result = Resolution()
         decisions: list[_Decision] = []
 
-        ordered = sorted(observations, key=lambda o: (o.isin is None, o.isin or "", o.symbol, o.series))
+        ordered = sorted(
+            observations, key=lambda o: (o.isin is None, o.isin or "", o.symbol, o.series)
+        )
         for obs in ordered:
             outcome = (
                 self._decide_with_isin(obs, day, policy, config, notices, overrides)
@@ -384,21 +388,43 @@ class SecurityMaster:
             if d.obs.isin:
                 isin_evidence = d.evidence if d.link_note else Evidence.OBSERVED
                 changed |= self._observe(
-                    d.security_id, IdentifierType.ISIN, d.obs.isin, day, isin_evidence, source_id, gap
+                    d.security_id,
+                    IdentifierType.ISIN,
+                    d.obs.isin,
+                    day,
+                    isin_evidence,
+                    source_id,
+                    gap,
                 )
             symbol_evidence = Evidence.OBSERVED if d.obs.isin else d.evidence
             changed |= self._observe(
-                d.security_id, IdentifierType.SYMBOL, d.obs.symbol, day, symbol_evidence, source_id, gap
+                d.security_id,
+                IdentifierType.SYMBOL,
+                d.obs.symbol,
+                day,
+                symbol_evidence,
+                source_id,
+                gap,
             )
             changed |= self._observe(
-                d.security_id, IdentifierType.SERIES, d.obs.series, day, Evidence.OBSERVED, source_id, gap
+                d.security_id,
+                IdentifierType.SERIES,
+                d.obs.series,
+                day,
+                Evidence.OBSERVED,
+                source_id,
+                gap,
             )
             changed |= self._touch(d.security_id, day, d.obs.name)
             if changed and d.security_id not in result.created:
                 result.updated.add(d.security_id)
             if d.link_note:
                 result.links.append(
-                    {"security_id": d.security_id, "row": str(d.obs.row_number), "evidence": d.link_note}
+                    {
+                        "security_id": d.security_id,
+                        "row": str(d.obs.row_number),
+                        "evidence": d.link_note,
+                    }
                 )
             result.assigned[d.obs.row_number] = d.security_id
         return result
@@ -504,9 +530,17 @@ class SecurityMaster:
         evidence, note = Evidence.SYMBOL_CONTINUITY, None
         if not candidates:
             for n in notices:
-                if n.old_symbol == obs.symbol and day < n.effective and (n.effective - day).days <= gap:
+                if (
+                    n.old_symbol == obs.symbol
+                    and day < n.effective
+                    and (n.effective - day).days <= gap
+                ):
                     found = self.symbol_holders(n.new_symbol, n.effective, gap)
-                elif n.new_symbol == obs.symbol and day >= n.effective and (day - n.effective).days <= gap:
+                elif (
+                    n.new_symbol == obs.symbol
+                    and day >= n.effective
+                    and (day - n.effective).days <= gap
+                ):
                     found = self.symbol_holders(n.old_symbol, n.effective, gap)
                 else:
                     continue
@@ -523,10 +557,17 @@ class SecurityMaster:
             sid = next(iter(candidates))
             holders = self._conflicting_holders(obs.symbol, day, sid)
             if holders:
-                return QuarantineReason.IDENTITY_CONFLICT, f"symbol {obs.symbol} held by {sorted(holders)}"
+                return (
+                    QuarantineReason.IDENTITY_CONFLICT,
+                    f"symbol {obs.symbol} held by {sorted(holders)}",
+                )
             return _Decision(obs, sid, evidence, link_note=note)
-        new_id = security_id_for(self.exchange, IdentityBasis.SYMBOL_CONTINUITY, f"{obs.symbol}:{day}")
-        return _Decision(obs, new_id, Evidence.SYMBOL_CONTINUITY, create=IdentityBasis.SYMBOL_CONTINUITY)
+        new_id = security_id_for(
+            self.exchange, IdentityBasis.SYMBOL_CONTINUITY, f"{obs.symbol}:{day}"
+        )
+        return _Decision(
+            obs, new_id, Evidence.SYMBOL_CONTINUITY, create=IdentityBasis.SYMBOL_CONTINUITY
+        )
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -548,7 +589,11 @@ class SecurityMaster:
             if sec.security_id in forced and forced[sec.security_id].effective <= as_of:
                 status = forced[sec.security_id].status
             else:
-                status = ListingStatus.ACTIVE if sec.last_seen >= active_cutoff else ListingStatus.INACTIVE
+                status = (
+                    ListingStatus.ACTIVE
+                    if sec.last_seen >= active_cutoff
+                    else ListingStatus.INACTIVE
+                )
             if status != sec.listing_status:
                 changed += 1
             sec.listing_status, sec.status_as_of = status, as_of

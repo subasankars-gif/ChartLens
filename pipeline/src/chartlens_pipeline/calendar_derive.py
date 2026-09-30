@@ -23,6 +23,11 @@ from datetime import date
 from chartlens_pipeline.calendar import all_days
 from chartlens_pipeline.providers.base import DailyBarSource, DownloadStatus
 
+MAX_PLAUSIBLE_SESSIONS = 262
+"""A full year has at most ~261 weekdays; more sessions than that means the evidence is bad."""
+MAX_PLAUSIBLE_WEEKEND_SESSIONS = 6
+"""Weekend sessions are rare (Budget days, Muhurat, DR drills) — a handful a year at most."""
+
 
 @dataclass
 class DerivedYear:
@@ -31,6 +36,17 @@ class DerivedYear:
     special_sessions: list[date] = field(default_factory=list)
     sessions: int = 0
     undetermined: list[tuple[date, str]] = field(default_factory=list)
+    days_checked: int = 0
+
+    def implausible(self) -> str | None:
+        """Why this year's evidence cannot be trusted, if it cannot."""
+        if self.sessions > MAX_PLAUSIBLE_SESSIONS:
+            return f"{self.sessions} sessions in one year"
+        if len(self.special_sessions) > MAX_PLAUSIBLE_WEEKEND_SESSIONS:
+            return f"{len(self.special_sessions)} weekend sessions"
+        if self.days_checked >= 360 and not self.holidays:
+            return "no weekday closures in a full year"
+        return None
 
 
 def derive_calendar(
@@ -58,6 +74,7 @@ def derive_calendar(
         for n, (day, status, detail) in enumerate(pool.map(check, days), start=1):
             y = years[day.year]
             y.year = day.year
+            y.days_checked += 1
             weekend = day.weekday() >= 5
             if status is DownloadStatus.FOUND:
                 y.sessions += 1
@@ -73,7 +90,14 @@ def derive_calendar(
     return dict(sorted(years.items()))
 
 
+class ImplausibleCalendarError(ValueError):
+    pass
+
+
 def to_toml(years: dict[int, DerivedYear], derived_on: date) -> str:
+    bad = {y.year: why for y in years.values() if (why := y.implausible())}
+    if bad:
+        raise ImplausibleCalendarError(f"refusing to emit implausible calendar data: {bad}")
     lines: list[str] = []
     for y in years.values():
         lines += [

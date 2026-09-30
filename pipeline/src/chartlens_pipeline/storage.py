@@ -241,11 +241,15 @@ class DataLakeLayout:
 
     @staticmethod
     def conflict_key(exchange: str, day: date) -> str:
-        return validate_key(f"quarantine/conflicts/exchange={exchange.upper()}/{day.isoformat()}.json")
+        return validate_key(
+            f"quarantine/conflicts/exchange={exchange.upper()}/{day.isoformat()}.json"
+        )
 
     @staticmethod
     def ingestion_manifest_key(exchange: str, day: date) -> str:
-        return validate_key(f"metadata/ingestion/{exchange.lower()}/{day.year:04d}/{day.isoformat()}.json")
+        return validate_key(
+            f"metadata/ingestion/{exchange.lower()}/{day.year:04d}/{day.isoformat()}.json"
+        )
 
     @staticmethod
     def ingestion_manifest_prefix(exchange: str) -> str:
@@ -257,7 +261,9 @@ class DataLakeLayout:
 
     @staticmethod
     def identifier_history_key(exchange: str) -> str:
-        return validate_key(f"metadata/security_master/{exchange.lower()}/identifier_history.parquet")
+        return validate_key(
+            f"metadata/security_master/{exchange.lower()}/identifier_history.parquet"
+        )
 
     @staticmethod
     def curated_weekly_key(exchange: str, security_id: str) -> str:
