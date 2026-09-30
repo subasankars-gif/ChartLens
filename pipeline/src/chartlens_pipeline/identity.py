@@ -219,15 +219,26 @@ class SecurityMaster:
     ) -> None:
         self.exchange = exchange
         self.securities: dict[str, Security] = {s.security_id: s for s in securities}
+        # Two indexes over the same spans: by identifier (resolution lookups) and by
+        # security (current identifiers, persistence). Mutated only via _add/_remove.
         self._spans: dict[tuple[IdentifierType, str], list[IdentifierSpan]] = defaultdict(list)
+        self._by_security: dict[str, list[IdentifierSpan]] = defaultdict(list)
         for span in spans:
-            self._spans[(span.identifier_type, span.value)].append(span)
+            self._add(span)
+
+    def _add(self, span: IdentifierSpan) -> None:
+        self._spans[(span.identifier_type, span.value)].append(span)
+        self._by_security[span.security_id].append(span)
+
+    def _remove(self, span: IdentifierSpan) -> None:
+        self._spans[(span.identifier_type, span.value)].remove(span)
+        self._by_security[span.security_id].remove(span)
 
     # ------------------------------------------------------------------ queries
 
     def spans(self) -> list[IdentifierSpan]:
         return sorted(
-            (s for group in self._spans.values() for s in group),
+            (s for group in self._by_security.values() for s in group),
             key=lambda s: (s.security_id, s.identifier_type, s.valid_from, s.value),
         )
 
@@ -235,10 +246,8 @@ class SecurityMaster:
         return sorted(
             (
                 s
-                for (t, _), group in self._spans.items()
-                if t is identifier_type
-                for s in group
-                if s.security_id == security_id
+                for s in self._by_security.get(security_id, ())
+                if s.identifier_type is identifier_type
             ),
             key=lambda s: (s.valid_from, s.value),
         )
@@ -286,9 +295,11 @@ class SecurityMaster:
         source_id: str,
         gap_days: int,
     ) -> bool:
-        key = (identifier_type, value)
-        group = self._spans[key]
-        mine = [s for s in group if s.security_id == security_id]
+        mine = [
+            s
+            for s in self._by_security.get(security_id, ())
+            if s.identifier_type is identifier_type and s.value == value
+        ]
         if any(s.covers(day) for s in mine):
             return False
         # Merge only with spans backed by the same kind of evidence, so an inferred
@@ -299,10 +310,10 @@ class SecurityMaster:
             merged_to = max([day, *(s.valid_to for s in near)])
             base = min(near, key=lambda s: s.valid_from)
             for s in near:
-                group.remove(s)
-            group.append(replace(base, valid_from=merged_from, valid_to=merged_to))
+                self._remove(s)
+            self._add(replace(base, valid_from=merged_from, valid_to=merged_to))
         else:
-            group.append(
+            self._add(
                 IdentifierSpan(security_id, identifier_type, value, day, day, evidence, source_id)
             )
         return True

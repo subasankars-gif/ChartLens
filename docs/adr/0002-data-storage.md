@@ -18,7 +18,7 @@ interface. **Firestore holds application state only.**
 ```
 raw/{exchange}/{source_dataset}/{YYYY}/{YYYY-MM-DD}__{sha12}__{filename}
 raw/{exchange}/{source_dataset}/snapshots/{fetched}__{sha12}__{filename}
-curated/daily/{exchange}/{security_id}.parquet
+curated/daily/{exchange}/{security_id}.parquet      ← superseded by ADR-0010 (per-date files)
 curated/weekly/{exchange}/{security_id}.parquet
 metadata/security_master/{exchange}/…
 metadata/calendars/{exchange}/…

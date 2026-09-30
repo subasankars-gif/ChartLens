@@ -143,3 +143,15 @@ def test_implausible_evidence_is_refused() -> None:
     assert years[2006].implausible() == "365 sessions in one year"
     with pytest.raises(ImplausibleCalendarError):
         to_toml(years, date(2026, 9, 30))
+
+
+def test_shipped_nse_calendar_covers_2006_to_2026_with_evidence() -> None:
+    nse = load_calendar()
+    assert nse.covered_years == list(range(2006, 2027))
+    assert all(nse.evidence(y) is CalendarEvidence.DERIVED for y in range(2006, 2026))
+    for y in range(2006, 2026):  # every derived year is plausible (ADR-0008 guard)
+        assert 240 <= len(nse.expected_sessions(date(y, 1, 1), date(y, 12, 31))) <= 262
+    assert not nse.is_trading_day(REPUBLIC_DAY_2024)
+    for special in (SAT_SESSION_2024, date(2025, 2, 1), date(2026, 2, 1), date(2020, 2, 1)):
+        assert nse.is_trading_day(special), special  # Budget days and DR sessions
+    assert nse.note(date(2026, 2, 1)) == "Union Budget (Sunday session)"

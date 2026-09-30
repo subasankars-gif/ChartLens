@@ -15,7 +15,7 @@ on:
       job:
         description: Job to run
         type: choice
-        options: [info, ingest-daily, backfill, refresh-security]
+        options: [info, ingest-daily, backfill, reprocess-pending, refresh-security]
         default: info
       trade_date:
         description: "ingest-daily: YYYY-MM-DD (blank = latest session)"
@@ -33,8 +33,10 @@ on:
         description: Print the plan only
         type: boolean
         default: true
-  # Enabled in Milestone 2 once ingestion is implemented.
-  # NSE publishes the day's bhavcopy in the evening IST; 14:45 UTC = 20:15 IST.
+  # Enable once GCS + Workload Identity Federation are configured (see README →
+  # "Production storage"). Without them a scheduled run would write to the runner's
+  # disk and lose everything. NSE publishes the day's bhavcopy in the evening IST;
+  # 14:45 UTC = 20:15 IST.
   # schedule:
   #   - cron: "45 14 * * 1-5"
 
@@ -81,10 +83,10 @@ jobs:
         run: |
           set -euo pipefail
           args=("$JOB")
-          case "$JOB" in
-            ingest-daily)     [ -n "$TRADE_DATE" ] && args+=(--trade-date "$TRADE_DATE") ;;
-            backfill)         args+=(--start "$START" --end "$END") ;;
-            refresh-security) args+=("$SYMBOL") ;;
-          esac
-          [ "$JOB" != "info" ] && [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
+          if [ "$JOB" = "ingest-daily" ] && [ -n "$TRADE_DATE" ]; then args+=(--trade-date "$TRADE_DATE"); fi
+          if [ "$JOB" = "backfill" ]; then args+=(--start-date "$START" --end-date "$END"); fi
+          if [ "$JOB" = "refresh-security" ]; then args+=("$SYMBOL"); fi
+          if [ "$DRY_RUN" = "true" ] && [ "$JOB" != "info" ] && [ "$JOB" != "reprocess-pending" ]; then
+            args+=(--dry-run)
+          fi
           uv run --no-sync chartlens-pipeline "${args[@]}"
