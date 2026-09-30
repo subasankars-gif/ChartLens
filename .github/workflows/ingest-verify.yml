@@ -22,7 +22,6 @@ jobs:
     env:
       START: ${{ inputs.start_date || '2006-01-01' }}
       END: ${{ inputs.end_date || '2026-09-29' }}
-      CHARTLENS_STORAGE__LOCAL_ROOT: ${{ github.workspace }}/lake
       CHARTLENS_RUNTIME__LOG_JSON: "true"
     steps:
       - uses: actions/checkout@v5
@@ -32,28 +31,30 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --frozen --no-dev --package chartlens-pipeline
-      - name: Backfill (twice, to prove idempotency)
+      - name: Backfill each window twice (second run proves idempotency), then summarise
         run: |
           mkdir -p out
-          set +e
-          /usr/bin/time -v uv run --no-sync chartlens-pipeline backfill \
-            --start-date "$START" --end-date "$END" --report-file out/run1.json \
-            > out/run1.txt 2> out/run1.log
-          echo "run1_exit=$?" >> out/exits.txt
-          uv run --no-sync chartlens-pipeline backfill \
-            --start-date "$START" --end-date "$END" --report-file out/run2.json \
-            > out/run2.txt 2> out/run2.log
-          echo "run2_exit=$?" >> out/exits.txt
-          set -e
-          cat out/run1.txt out/run2.txt
-      - name: Summarise
-        run: |
-          uv run --no-sync python scripts/verify_ingestion.py lake out
-          grep -E '"severity": "(WARNING|ERROR)"' out/run1.log | head -300 > out/run1-warnings.jsonl || true
-          grep '"message": "ingest.date"' out/run1.log | head -3 > out/log-sample.jsonl || true
-          tail -60 out/run1.log | grep -v '"message": "ingest.date"' > out/run1-tail.log || true
-          rm -f out/run1.log out/run2.log
-          du -sh lake >> out/exits.txt
+          # Windows: .github/verify-windows.txt (one "START:END" per line) if present,
+          # otherwise the single START:END range from the inputs.
+          if [ -f .github/verify-windows.txt ]; then windows=$(grep -v '^#' .github/verify-windows.txt); else windows="$START:$END"; fi
+          n=0
+          for w in $windows; do
+            n=$((n+1)); s="${w%%:*}"; e="${w##*:}"; lake="$GITHUB_WORKSPACE/lake-$n"; o="out/w$n"
+            mkdir -p "$o"; echo "$w" > "$o/window.txt"
+            export CHARTLENS_STORAGE__LOCAL_ROOT="$lake"
+            set +e
+            uv run --no-sync chartlens-pipeline backfill --start-date "$s" --end-date "$e" \
+              --report-file "$o/run1.json" > "$o/run1.txt" 2> "$o/run1.log"; echo "run1_exit=$?" >> "$o/exits.txt"
+            uv run --no-sync chartlens-pipeline backfill --start-date "$s" --end-date "$e" \
+              --report-file "$o/run2.json" > "$o/run2.txt" 2> "$o/run2.log"; echo "run2_exit=$?" >> "$o/exits.txt"
+            set -e
+            uv run --no-sync python scripts/verify_ingestion.py "$lake" "$o" > "$o/verify-summary.json"
+            grep -E '"severity": "(WARNING|ERROR)"' "$o/run1.log" | head -300 > "$o/run1-warnings.jsonl" || true
+            grep '"message": "ingest.date"' "$o/run1.log" | head -3 > "$o/log-sample.jsonl" || true
+            rm -f "$o/run1.log" "$o/run2.log"
+            du -sh "$lake" >> "$o/exits.txt"
+            cat "$o/run1.txt" "$o/run2.txt"
+          done
       - name: Publish report to a throwaway branch
         if: always()
         run: |

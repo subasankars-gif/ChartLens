@@ -365,16 +365,25 @@ class SecurityMaster:
         # Cross-row checks for the day: one security per row, one security per symbol.
         by_security: dict[str, list[_Decision]] = defaultdict(list)
         by_symbol: dict[str, set[str]] = defaultdict(set)
+        by_isin: dict[str, list[_Decision]] = defaultdict(list)
         for d in decisions:
             by_security[d.security_id].append(d)
             by_symbol[d.obs.symbol].add(d.security_id)
+            if d.obs.isin:
+                by_isin[d.obs.isin].append(d)
         accepted: list[_Decision] = []
         for d in decisions:
-            if len(by_security[d.security_id]) > 1:
-                rows = sorted(x.obs.row_number for x in by_security[d.security_id])
+            same_isin = by_isin.get(d.obs.isin or "", [])
+            if len(by_security[d.security_id]) > 1 or len(same_isin) > 1:
+                # One instrument twice in one day (same security, or same ISIN under
+                # different symbols) — never pick one, and never split it across securities.
+                group = (
+                    by_security[d.security_id] if len(by_security[d.security_id]) > 1 else same_isin
+                )
+                rows = sorted(x.obs.row_number for x in group)
                 result.quarantined[d.obs.row_number] = (
                     QuarantineReason.DUPLICATE_SECURITY_DATE,
-                    f"rows {rows} all resolve to {d.security_id}",
+                    f"rows {rows} are the same instrument on {day}",
                 )
             elif len(by_symbol[d.obs.symbol]) > 1:
                 result.quarantined[d.obs.row_number] = (

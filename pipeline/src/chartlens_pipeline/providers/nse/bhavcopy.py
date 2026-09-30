@@ -44,7 +44,9 @@ from chartlens_pipeline.daily import (
 )
 from chartlens_pipeline.isin import is_valid_isin, normalize_isin
 
-PARSER_VERSION: Final = "nse_bhavcopy_v1"
+PARSER_VERSION: Final = "nse_bhavcopy_v2"
+"""v2 (2026-09-30): legacy dates may also use a two-digit year (``13-Jul-20``), seen in
+the 2020-07-13 file during the 20-year verification run. v1 quarantined that day."""
 
 
 @dataclass(frozen=True)
@@ -54,7 +56,9 @@ class FormatSpec:
     """canonical field → source column (normalised to upper case)."""
     optional: frozenset[str]
     """canonical fields that may be absent from the header."""
-    date_format: str
+    date_formats: tuple[str, ...]
+    """Accepted date formats, tried in order. The file-date check still requires every
+    accepted row to carry exactly the requested session date."""
     row_filters: Mapping[str, frozenset[str]] = field(default_factory=dict)
     """source column → accepted values; other rows are not part of this dataset."""
     ignored: frozenset[str] = frozenset()
@@ -81,7 +85,7 @@ LEGACY: Final = FormatSpec(
         "isin": "ISIN",
     },
     optional=frozenset({"trades", "isin"}),
-    date_format="%d-%b-%Y",
+    date_formats=("%d-%b-%Y", "%d-%b-%y"),
     ignored=frozenset({"LAST"}),
 )
 
@@ -103,7 +107,7 @@ UDIFF: Final = FormatSpec(
         "name": "FININSTRMNM",
     },
     optional=frozenset({"trades", "name"}),
-    date_format="%Y-%m-%d",
+    date_formats=("%Y-%m-%d",),
     row_filters={"SGMT": frozenset({"CM"})},
     ignored=frozenset(
         {
@@ -221,7 +225,7 @@ def _parse_row(spec: FormatSpec, values: Mapping[str, str], row_number: int) -> 
     name = get("name")
     return NormalizedRow(
         row_number=row_number,
-        trading_date=parse_date(required("date"), spec.date_format, "date"),
+        trading_date=parse_date(required("date"), spec.date_formats, "date"),
         symbol=symbol,
         series=series,
         isin=isin_text,

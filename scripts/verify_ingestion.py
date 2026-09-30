@@ -19,7 +19,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from chartlens_pipeline.identity import SecurityMaster
+from chartlens_pipeline.identity import IdentifierType, SecurityMaster
 from chartlens_pipeline.sources import RawSourceStore
 from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
 
@@ -50,8 +50,9 @@ def main(lake_dir: str, out_dir: str) -> None:
     }
     status = Counter(m["status"] for m in manifests.values())
     ingested = sorted(d for d, m in manifests.items() if m["status"] == "INGESTED")
-    with_isin = [d for d in ingested if manifests[d].get("has_isin")]
-    without_isin = [d for d in ingested if not manifests[d].get("has_isin")]
+    with_rows = [d for d in ingested if manifests[d]["counts"]["rows_accepted"] > 0]
+    with_isin = [d for d in with_rows if manifests[d].get("has_isin")]
+    without_isin = [d for d in with_rows if not manifests[d].get("has_isin")]
     formats = Counter(manifests[d].get("source_format") for d in ingested)
     format_ranges = {
         f: [
@@ -179,12 +180,15 @@ def main(lake_dir: str, out_dir: str) -> None:
             "by_identity_basis": dict(Counter(r["identity_basis"] for r in sec_rows)),
             "by_listing_status": dict(Counter(r["listing_status"] for r in sec_rows)),
             "with_multiple_isins": sum(
-                1 for r in sec_rows if len(master.spans_for(r["security_id"], "ISIN")) > 1
-            ),  # type: ignore[arg-type]
+                1
+                for r in sec_rows
+                if len(master.spans_for(r["security_id"], IdentifierType.ISIN)) > 1
+            ),
             "with_multiple_symbols": sum(
                 1
                 for r in sec_rows
-                if len({s.value for s in master.spans_for(r["security_id"], "SYMBOL")}) > 1  # type: ignore[arg-type]
+                if len({s.value for s in master.spans_for(r["security_id"], IdentifierType.SYMBOL)})
+                > 1
             ),
         },
         "identifier_spans_by_evidence": dict(Counter(r["evidence"] for r in history.to_pylist())),

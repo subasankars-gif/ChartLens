@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 
 from chartlens_core.config import IdentityConfig
@@ -139,6 +139,17 @@ def test_same_isin_in_two_series_on_one_day_is_quarantined() -> None:
     res = resolve(m, D1, o(1, "ABC", TCS, "EQ"), o(2, "ABC", TCS, "BE"))
     assert res.assigned == {}
     assert {r for r, _ in res.quarantined.values()} == {QuarantineReason.DUPLICATE_SECURITY_DATE}
+
+
+def test_one_isin_under_two_symbols_on_one_day_is_never_split() -> None:
+    """Regression (found by the property test): one row could link to an existing
+    security while its twin created a new one, putting one ISIN on two securities."""
+    m = SecurityMaster("NSE")
+    old = only_id(resolve(m, D1, o(1, "3IINFOTECH", THREE_I_OLD)))
+    res = resolve(m, D2, o(1, "3IINFOTECH", THREE_I_NEW), o(2, "OTHER", THREE_I_NEW))
+    assert res.assigned == {}
+    assert {r for r, _ in res.quarantined.values()} == {QuarantineReason.DUPLICATE_SECURITY_DATE}
+    assert m.by_isin(THREE_I_NEW) == set() and m.by_isin(THREE_I_OLD) == {old}
 
 
 def test_known_isin_whose_symbol_is_held_by_another_security_is_a_conflict() -> None:
@@ -366,7 +377,6 @@ SYMBOLS = ["AAA", "BBB", "CCC", "DDD"]
 ISINS = [RELIANCE, TCS, THREE_I_OLD, THREE_I_NEW, "INE144J01027", None]
 
 
-@settings(max_examples=80, deadline=None)
 @given(
     st.lists(
         st.lists(

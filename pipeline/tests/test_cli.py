@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -13,10 +15,14 @@ runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
-def _local_lake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def _local_lake(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("CHARTLENS_STORAGE__LOCAL_ROOT", str(tmp_path / "lake"))
     get_settings.cache_clear()
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
     yield
+    # The CLI installs a handler on the runner's (now closed) stderr; restore logging.
+    root.handlers[:], _ = handlers, root.setLevel(level)
     get_settings.cache_clear()
 
 

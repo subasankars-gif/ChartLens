@@ -97,15 +97,20 @@ class IngestionMetrics:
     unresolved_identifiers: int = 0
     securities_created: int = 0
     securities_updated: int = 0
+    """Distinct existing securities whose identifiers or dates changed during the run."""
     identity_links: int = 0
     source_conflicts: int = 0
     listing_status_changes: int = 0
     quarantine_by_reason: Counter[str] = field(default_factory=Counter)
+    created_ids: set[str] = field(default_factory=set, repr=False)
+    updated_ids: set[str] = field(default_factory=set, repr=False)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        data.pop("created_ids")
+        data.pop("updated_ids")
         data["quarantine_by_reason"] = dict(sorted(self.quarantine_by_reason.items()))
         return data
 
@@ -539,7 +544,9 @@ class IngestionService:
         )
         metrics.unresolved_identifiers += pending
         metrics.securities_created += len(resolution.created)
-        metrics.securities_updated += len(resolution.updated)
+        metrics.updated_ids |= resolution.updated - metrics.created_ids
+        metrics.created_ids |= resolution.created
+        metrics.securities_updated = len(metrics.updated_ids)
         metrics.identity_links += len(resolution.links)
         metrics.quarantine_by_reason.update(reasons)
         metrics.warnings += [f"{day}: {w}" for w in parsed.warnings]

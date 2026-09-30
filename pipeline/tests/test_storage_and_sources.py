@@ -10,6 +10,7 @@ import pytest
 
 from chartlens_core.config import StorageConfig
 from chartlens_pipeline.providers.base import Dataset, RawArtifact
+from chartlens_pipeline.providers.nse.bhavcopy import PARSER_VERSION
 from chartlens_pipeline.sources import RawSourceStore, SourceIntegrityError
 from chartlens_pipeline.storage import (
     DataLakeLayout,
@@ -166,12 +167,12 @@ def test_storage_key_embeds_date_and_content_hash() -> None:
 
 def test_store_writes_bytes_metadata_and_hash_index(store: ObjectStore) -> None:
     raw = RawSourceStore(store)
-    record, created = raw.store(artifact(b"original"), parser_version="nse_bhavcopy_v1")
+    record, created = raw.store(artifact(b"original"), parser_version=PARSER_VERSION)
     assert created
     assert store.get(record.storage_key) == b"original"
     meta = json.loads(store.get(record.storage_key + ".meta.json"))
     assert meta["content_hash"] == hashlib.sha256(b"original").hexdigest()
-    assert meta["byte_size"] == 8 and meta["parser_version"] == "nse_bhavcopy_v1"
+    assert meta["byte_size"] == 8 and meta["parser_version"] == PARSER_VERSION
     assert meta["mime_type"] == "application/zip" and meta["source_date"] == "2024-01-10"
     assert raw.get_by_hash("NSE", record.content_hash) == record
 

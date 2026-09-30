@@ -6,7 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import given
 from hypothesis import strategies as st
 from nse_fakes import fixture_csv, zipped
 
@@ -286,7 +286,6 @@ def test_blank_lines_are_ignored() -> None:
 prices = st.decimals(min_value=Decimal("0.05"), max_value=Decimal("99999"), places=2)
 
 
-@settings(max_examples=150, deadline=None)
 @given(a=prices, b=prices, c=prices, d=prices, qty=st.integers(0, 10**9))
 def test_every_accepted_row_satisfies_ohlc_invariants(
     a: Decimal, b: Decimal, c: Decimal, d: Decimal, qty: int
@@ -303,3 +302,17 @@ def test_every_accepted_row_satisfies_ohlc_invariants(
     assert len(parsed.rows) + len(parsed.quarantined) == 1
     valid = b >= max(a, d) and c <= min(a, d) and b >= c
     assert bool(parsed.rows) == valid
+
+
+@pytest.mark.parametrize("stamp", ["13-JUL-20", "13-Jul-20", "13-JUL-2020"])
+def test_legacy_two_digit_year_dates_are_accepted(stamp: str) -> None:
+    """Regression: NSE's 2020-07-13 file writes dates as '13-Jul-20' (found in the
+    20-year verification run, where parser v1 quarantined the whole day)."""
+    day = date(2020, 7, 13)
+    parsed = parse_bhavcopy(legacy(row(day=stamp)), day, U)
+    assert [r.trading_date for r in parsed.rows] == [day] and parsed.quarantined == []
+
+
+def test_two_digit_year_still_has_to_match_the_session() -> None:
+    with pytest.raises(SourceParseError, match="SOURCE_DATE_MISMATCH"):
+        parse_bhavcopy(legacy(row(day="13-Jul-19")), date(2020, 7, 13), U)

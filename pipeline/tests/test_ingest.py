@@ -23,6 +23,7 @@ from chartlens_pipeline.daily import (
 )
 from chartlens_pipeline.identity import IdentifierType
 from chartlens_pipeline.ingest import DateAction, DateStatus, IngestionService
+from chartlens_pipeline.providers.nse.bhavcopy import PARSER_VERSION
 from chartlens_pipeline.sources import RawSourceStore
 from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
 
@@ -101,7 +102,7 @@ def test_single_day_end_to_end(fake: FakeNse, lake: LocalObjectStore) -> None:
         table.schema.metadata[b"chartlens.schema_version"] == str(DAILY_BAR_SCHEMA_VERSION).encode()
     )
     rel = next(r for r in table.to_pylist() if r["symbol"] == "RELIANCE")
-    assert rel["close"] == Decimal("2500") and rel["parser_version"] == "nse_bhavcopy_v1"
+    assert rel["close"] == Decimal("2500") and rel["parser_version"] == PARSER_VERSION
     assert rel["trading_date"] == MON and rel["source_file_date"] == MON
 
     man = manifest(lake, MON)
@@ -263,7 +264,7 @@ def test_parser_version_change_reprocesses_from_stored_bytes(
     service(fake, lake).backfill(MON, MON)
     fake.requests.clear()
     svc = service(fake, lake)
-    svc.provider.daily_bars.parser_version = "nse_bhavcopy_v2"  # type: ignore[misc]
+    svc.provider.daily_bars.parser_version = "nse_bhavcopy_test_bump"  # type: ignore[misc]
     assert svc.plan_date(MON, refetch=False, reprocess=False) is DateAction.PROCESS_STORED
     svc.backfill(MON, MON)
     assert not any("bhav.csv.zip" in r for r in fake.requests)
@@ -283,7 +284,7 @@ def test_invalid_rows_go_to_quarantine_with_context(fake: FakeNse, lake: LocalOb
         pa.BufferReader(lake.get(DataLakeLayout.quarantine_daily_key("NSE", MON)))
     ).to_pylist()
     assert q[0]["symbol"] == "BADROW" and q[0]["raw"].startswith("BADROW,EQ,10,5")
-    assert q[0]["source_file_hash"] and q[0]["parser_version"] == "nse_bhavcopy_v1"
+    assert q[0]["source_file_hash"] and q[0]["parser_version"] == PARSER_VERSION
     assert "BADROW" not in canonical(lake, MON).column("symbol").to_pylist()
 
 
@@ -403,7 +404,7 @@ def test_structured_log_per_date(
     assert (
         fields["rows_read"] == 2 and fields["rows_accepted"] == 2 and fields["rows_rejected"] == 0
     )
-    assert len(fields["source_hash"]) == 64 and fields["parser_version"] == "nse_bhavcopy_v1"
+    assert len(fields["source_hash"]) == 64 and fields["parser_version"] == PARSER_VERSION
     assert "duration" in fields
 
 
@@ -414,3 +415,16 @@ def test_check_published_never_trusts_a_bare_200(fake: FakeNse, lake: LocalObjec
     result = service(fake, lake).provider.daily_bars.check_published(MON)
     assert result.status.value == "FAILED"
     assert not any(r.startswith("HEAD") for r in fake.requests)
+
+
+def test_updated_securities_counts_distinct_securities(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    """Regression: the 20-year run reported 8.3M 'updated securities' (per-day touches)."""
+    serve_week(fake)
+    report = service(fake, lake).backfill(MON, THU)
+    assert report.metrics.securities_created == 2
+    assert report.metrics.securities_updated == 0  # created this run, so not "updated"
+    fake.serve(*legacy_zip(date(2024, 1, 29), bhav(date(2024, 1, 29), BASE_ROWS)))
+    again = service(fake, lake).backfill(date(2024, 1, 29), date(2024, 1, 29))
+    assert again.metrics.securities_updated == 2

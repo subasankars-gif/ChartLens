@@ -166,16 +166,16 @@ def parse_quantity(text: str, field_name: str) -> int:
     return int(value)
 
 
-def parse_date(text: str, fmt: str, field_name: str) -> date:
+def parse_date(text: str, formats: tuple[str, ...], field_name: str) -> date:
     stripped = text.strip()
     if not stripped:
         raise FieldError(QuarantineReason.MISSING_FIELD, f"{field_name} is empty")
-    try:
-        return datetime.strptime(stripped, fmt).date()  # noqa: DTZ007 — a calendar date, no time
-    except ValueError:
-        raise FieldError(
-            QuarantineReason.INVALID_DATE, f"{field_name}={text!r} is not a valid date"
-        ) from None
+    for fmt in formats:
+        try:
+            return datetime.strptime(stripped, fmt).date()  # noqa: DTZ007 — a calendar date
+        except ValueError:
+            continue
+    raise FieldError(QuarantineReason.INVALID_DATE, f"{field_name}={text!r} is not a valid date")
 
 
 def structural_problem(row: NormalizedRow) -> tuple[QuarantineReason, str] | None:
