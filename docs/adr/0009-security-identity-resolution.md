@@ -98,7 +98,34 @@ Absence from a file never implies delisting.
 The overrides file's hash is part of every ingestion manifest. Changing it makes
 affected dates reprocess.
 
+## Verified on real data (20-year run, 2026-09-30)
+
+5,144 sessions (2006-01-02 → 2026-09-29) resolved to 4,055 securities with **0
+unresolved rows**:
+* 3,854 securities have ISIN basis; 201 are pre-ISIN-only (SYMBOL_CONTINUITY).
+* Identity links: 513 same-issuer ISIN spans, 166 symbol-change-notice spans.
+* NSE's ISINs first appear on **2011-06-22**.
+
+Spot checks against known history:
+* RELIANCE and TCS are single securities 2006 → 2026.
+* INFOSYSTCH → INFY (2011-06-29) is one security.
+* HDFC Bank's two face-value splits (ISIN re-issued 2011-07-14 and 2019-09-19) link
+  into one security.
+* ZOMATO → ETERNAL (2025-04-09) is one security.
+* 3i Infotech (`3IINFOTECH`/`…01020` last traded 2021-08-27; `3IINFOLTD`/`…01038` from
+  2021-10-22) stays **two** securities: both identifiers changed across a 56-day gap and
+  no notice links them. This is a review candidate for a `link_isin` override, if
+  evidence confirms continuity.
+
 ## Determinism
+
+**ID stability caveat.** A security's ID is minted from the ISIN seen first. Backfills
+run newest first, so that is the newest ISIN in the first range ingested. Once minted, the
+ID never changes. But **rebuilding a lake from scratch in different chunks can mint a
+different ID for a security whose ISIN was re-issued**. Single-ISIN securities, the vast
+majority, always get the same ID. Rule: build a lake with **one full-range backfill**,
+then ingest forward only. (Observed: HDFC Bank received different IDs in the 20-year run
+and in a 2011-only test run; RELIANCE received the same ID in both.)
 
 Resolution is a pure function of master state, the day's rows, notices, overrides and
 config. Rows are processed in a fixed order, so file row order does not matter. A

@@ -100,6 +100,19 @@ number, reason, detail and the **verbatim source line**.
 `chartlens-pipeline quarantine-report` summarises them for review. Rows outside the
 universe (other series) are counted, not quarantined; they remain in the raw file.
 
+## Scale (20-year run on a GitHub-hosted runner, 2026-09-30)
+
+| Measure | Value |
+|---|---|
+| Sessions | 5,144 (2006-01-02 → 2026-09-29) |
+| Rows read | 9,431,333 |
+| Rows accepted | 8,313,728 |
+| Rows outside the universe | 1,115,946 |
+| Securities | 4,055 |
+| Lake size | about 1.0 GB (raw zips + canonical + master) |
+| First run | 3.2 h, network-bound at a 0.5 s politeness delay |
+| Second run | 90 s, every date skipped as already ingested |
+
 ## Observability
 
 * Every date logs `ingest.date` with `job_id`, `trading_date`, `source_file`,

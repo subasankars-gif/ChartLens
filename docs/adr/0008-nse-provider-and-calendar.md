@@ -18,6 +18,9 @@ Nothing below is assumed; each point was observed.
 | Special sessions | Files exist for Sat 2024-01-20, Fri 2024-11-01 (Muhurat), Sat 2025-02-01 (Budget). |
 | Cross-format agreement | Legacy and UDiFF for 2024-07-05 have identical row counts and identical values for shared rows. |
 | Identity evidence | `content/equities/symbolchange.csv` (no header: company, old, new, date). |
+| ISIN start | First legacy file with ISINs: **2011-06-22** (from the 20-year run). |
+| Date variant | The 2020-07-13 legacy file writes dates as `13-Jul-20` (two-digit year); parser v2 accepts it. |
+| Weekend files | Every weekend file in the calendar parsed with rows dated that weekend day (no `SOURCE_DATE_MISMATCH` in the 20-year run), so they are genuine sessions, including those whose event is not identified. |
 
 ## Decision
 
