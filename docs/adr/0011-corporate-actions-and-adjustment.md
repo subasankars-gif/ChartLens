@@ -57,6 +57,16 @@ must be held by exactly one security within the symbol gap on the ex-date. If th
 and the symbol disagree, the result is `CONFLICT`, and nothing is attached. Series
 outside the universe are `OUT_OF_UNIVERSE`.
 
+There is one evidence-based exception, `STALE_ISIN`. NSE's feed sometimes carries an
+issuer's *earlier* ISIN. This happens like `faceVal`, which is always the current value.
+Examples are SUMEETINDS (split 2025-10-03) and TATAMTRDVR (rights 2015). Such a record
+belongs to the live security when all three of these hold:
+- the ISIN's own security was not trading within the symbol gap of the ex-date;
+- exactly one security held the symbol then;
+- that security has an ISIN of the same issuer under the exchange's identity policy.
+
+Price validation still applies.
+
 ## Exact factors
 
 A factor multiplies prices dated **before** the ex-date. Volumes are multiplied by
@@ -87,14 +97,21 @@ Let `raw` = ln(first open on/after ex-date ÷ last close before it), and
 | Status | Condition | Applied |
 |---|---|---|
 | `VERIFIED` | \|residual\| < \|raw\| and \|residual\| ≤ tol | Yes |
+| `CONSISTENT` | \|ln f\| ≤ tol: the factor is smaller than the stock's normal overnight noise, so prices cannot confirm it; and \|residual\| ≤ min(tol, ln 1.25) | Yes |
 | `SUSPECT` | \|residual\| < \|raw\|, \|residual\| > tol | Yes, flagged |
 | `REJECTED_BY_PRICE` | \|residual\| ≥ \|raw\|: the factor would not shrink the gap | No |
 | `NO_ADJUSTMENT` | factor = 1 | — |
 | `NOT_APPLICABLE` | no trades on both sides of the ex-date | — |
 | `UNQUANTIFIED` / `CONFLICTING_RECORDS` | no factor | No; hard break |
 
-* If a rejected factor fits the session before or after the ex-date, the event is
-  *reported* as a possible ex-date error. It is **never moved automatically**.
+* `VERIFIED` requires an *informative* factor: \|ln f\| > tol. Small rights issues and
+  small bonuses are usually below the noise floor. Rejecting them for failing to shrink
+  a gap that is pure noise would drop real, sourced events. They are applied as
+  `CONSISTENT` only if the gap after applying them stays within noise and below a large
+  gap, so they can never create one. On the first 20-year run this rule moved about 95
+  events from `REJECTED_BY_PRICE` to `CONSISTENT`.
+* If a rejected, informative factor fits the session before or after the ex-date, the
+  event is *reported* as a possible ex-date error. It is **never moved automatically**.
 * Factors whose discontinuity falls on the same session (for example, two ex-dates
   with no trade between them) are validated **jointly**. Otherwise each could pass
   alone and the two together would overshoot.

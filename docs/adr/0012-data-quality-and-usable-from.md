@@ -37,7 +37,7 @@ Findings are stored in `metadata/data_quality/nse/findings.parquet`.
 | `MISSING_SESSIONS`: share > `max_missing_session_ratio` | WARN | No |
 | `SESSION_QUARANTINED`, `SESSION_FAILED`, `SESSION_MISSING` (market) | WARN | No; they count for every security trading through them |
 | `ACTION_UNRESOLVED`, `ACTION_CONFLICT` (market, price-relevant records that are not attached) | WARN | No; this is a review queue |
-| `FACTOR_APPLIED`, `NO_ADJUSTMENT_NEEDED`, `ACTION_PENDING`, `SYMBOL_CHANGE`, `ISIN_CHANGE`, `DERIVED_CALENDAR` | INFO | No |
+| `FACTOR_APPLIED`, `FACTOR_APPLIED_WITHIN_NOISE`, `NO_ADJUSTMENT_NEEDED`, `ACTION_PENDING`, `SYMBOL_CHANGE`, `ISIN_CHANGE`, `DERIVED_CALENDAR` | INFO | No |
 | `ADJUSTED_FILE_HASH_MISMATCH` | FAIL | — |
 
 ## Status (point-in-time)

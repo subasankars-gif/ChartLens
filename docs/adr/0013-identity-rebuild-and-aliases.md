@@ -36,6 +36,10 @@ rebuild is deterministic.
 
 ## Reviewed links that join identity but not prices
 
+The override fingerprint pinned as an identity input covers the *decisions*: links,
+distinct ISINs and statuses. Editing evidence text or comments does not require a
+rebuild. Data quality quotes the whole file, so it versions by the file hash.
+
 A `[[link_isin]]` entry may declare `price_continuity = "break"`. The link makes the
 two ISINs one security, so the history, the watch-lists and the identity are
 continuous. But the prices across the change are **not** comparable, so data quality
@@ -47,6 +51,7 @@ starts `usable_from` at the first session under the linked ISIN
 | Field | Value |
 |---|---|
 | Old identifiers | `3IINFOTECH` / `INE748C01020`, last traded 2021-08-27 |
+| Feed record | **None**: the NSE corporate-action feed (2006–2026) has no record for this change, so no factor can exist |
 | New identifiers | `3IINFOLTD` / `INE748C01038`, first traded 2021-10-22 |
 | Link | Approved |
 | Price factor | None (the broker's 1/10 figure is not used) |

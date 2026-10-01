@@ -397,7 +397,7 @@ class DataQualityService:
                         "methodology": self.settings.data_quality.model_dump(mode="json"),
                         "adjustment": adjustment_version,
                         "calendar": calendar.version,
-                        "identity_overrides": self.identity_overrides.fingerprint,
+                        "identity_overrides": self.identity_overrides.document_hash,
                     },
                     sort_keys=True,
                 ).encode()

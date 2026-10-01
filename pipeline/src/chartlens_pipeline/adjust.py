@@ -69,7 +69,12 @@ from chartlens_pipeline.corporate_actions_model import (
     SubjectInterpretation,
 )
 from chartlens_pipeline.daily import PRICE_TYPE, to_parquet_bytes
-from chartlens_pipeline.identity import IdentifierType, IdentityOverrides, SecurityMaster
+from chartlens_pipeline.identity import (
+    IdentifierType,
+    IdentityOverrides,
+    IdentityPolicy,
+    SecurityMaster,
+)
 from chartlens_pipeline.providers.base import CorporateActionRecord, ExchangeProvider
 from chartlens_pipeline.sources import SourceRecord
 from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
@@ -88,6 +93,7 @@ discontinuity."""
 
 class Resolution(StrEnum):
     ISIN = "ISIN"
+    STALE_ISIN = "STALE_ISIN"
     SYMBOL = "SYMBOL"
     UNRESOLVED = "UNRESOLVED"
     CONFLICT = "CONFLICT"
@@ -314,11 +320,29 @@ class ResolvedAction:
     suppressed: str | None = None
 
 
+def _live(master: SecurityMaster, sid: str, day: date, gap_days: int) -> bool:
+    return any(
+        span.covers(day, gap_days)
+        for kind in (IdentifierType.SYMBOL, IdentifierType.ISIN)
+        for span in master.spans_for(sid, kind)
+    )
+
+
 def resolve_action(
-    rec: CorporateActionRecord, master: SecurityMaster, universe: frozenset[str], gap_days: int
+    rec: CorporateActionRecord,
+    master: SecurityMaster,
+    universe: frozenset[str],
+    gap_days: int,
+    policy: IdentityPolicy | None = None,
 ) -> tuple[str | None, Resolution, str]:
     """Which security a feed record is about. ISIN first; symbol as of the ex-date only
-    when the ISIN is unknown; any disagreement is a conflict, never a guess."""
+    when the ISIN is unknown; any disagreement is a conflict, never a guess.
+
+    One evidence-based exception (``STALE_ISIN``): NSE's feed sometimes carries an
+    issuer's *earlier* ISIN. When the ISIN's security was not trading around the ex-date,
+    exactly one security held the symbol then, and that security has an ISIN of the same
+    issuer under the exchange's identity policy, the record belongs to the live security.
+    """
     if rec.series is not None and rec.series not in universe:
         return None, Resolution.OUT_OF_UNIVERSE, f"series {rec.series}"
     if rec.ex_date is None:
@@ -329,6 +353,22 @@ def resolve_action(
         return None, Resolution.CONFLICT, f"ISIN {rec.isin} maps to {sorted(by_isin)}"
     if by_isin:
         sid = next(iter(by_isin))
+        if (
+            policy is not None
+            and rec.isin is not None
+            and len(by_symbol) == 1
+            and sid not in by_symbol
+            and not _live(master, sid, rec.ex_date, gap_days)
+        ):
+            live = next(iter(by_symbol))
+            issuer = policy.issuer_key(rec.isin)
+            live_issuers = {
+                policy.issuer_key(span.value)
+                for span in master.spans_for(live, IdentifierType.ISIN)
+            }
+            if issuer is not None and issuer in live_issuers:
+                detail = f"ISIN {rec.isin} → {sid} (not trading then); same issuer as {live}"
+                return live, Resolution.STALE_ISIN, detail
         if by_symbol and sid not in by_symbol:
             detail = f"ISIN {rec.isin} → {sid} but symbol {rec.symbol} → {sorted(by_symbol)}"
             return None, Resolution.CONFLICT, detail
@@ -976,9 +1016,10 @@ class AdjustmentService:
         universe = frozenset(self.settings.universe.series)
         gap = self.settings.identity.max_symbol_gap_days
         source = self.provider.corporate_actions
+        policy = self.provider.identity_policy()
         out: list[ResolvedAction] = []
         for rec, src in records.records:
-            sid, how, detail = resolve_action(rec, master, universe, gap)
+            sid, how, detail = resolve_action(rec, master, universe, gap, policy)
             out.append(
                 ResolvedAction(
                     rec,

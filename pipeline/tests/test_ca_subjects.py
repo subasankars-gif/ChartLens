@@ -113,10 +113,7 @@ def test_priced_rights(
         ("Demerger", ComponentKind.UNQUANTIFIED_EVENT),
         ("Scheme Of Arrangement", ComponentKind.UNQUANTIFIED_EVENT),
         ("Sch Of Arngment-Demerger", ComponentKind.UNQUANTIFIED_EVENT),
-        (
-            "Capital Reduction Pursuant To Nclt Order",
-            ComponentKind.UNQUANTIFIED_EVENT,
-        ),  # 3i Infotech
+        ("Capital Reduction Pursuant To Nclt Order", ComponentKind.UNQUANTIFIED_EVENT),
         ("Composite Scheme Of Amalgamation And Arrangement", ComponentKind.UNQUANTIFIED_EVENT),
         ("Merger/Demerger", ComponentKind.UNQUANTIFIED_EVENT),
         ("Bonus Ncrps 1:116", ComponentKind.NON_EQUITY_BONUS),

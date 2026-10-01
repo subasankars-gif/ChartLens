@@ -33,14 +33,15 @@ from chartlens_pipeline.adjust import (
     component_factor,
     decide_security,
     face_value_at,
+    resolve_action,
     tally_gaps,
 )
 from chartlens_pipeline.corporate_actions import CorporateActionStore
 from chartlens_pipeline.corporate_actions_model import ActionClass, ActionComponent, ComponentKind
-from chartlens_pipeline.identity import IdentityOverrides
+from chartlens_pipeline.identity import IdentifierType, IdentityOverrides, SecurityMaster
 from chartlens_pipeline.ingest import IngestionService
 from chartlens_pipeline.providers.base import CorporateActionRecord
-from chartlens_pipeline.providers.nse import NseProvider
+from chartlens_pipeline.providers.nse import NseIdentityPolicy, NseProvider
 from chartlens_pipeline.providers.nse.ca_subjects import interpret
 from chartlens_pipeline.sources import SourceRecord
 from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
@@ -651,3 +652,50 @@ def test_override_for_an_unknown_isin_blocks_publication(tmp_path: Path) -> None
     result = svc.run()
     assert not result.published and result.unresolved_overrides
     assert not lake.exists(DataLakeLayout.adjusted_manifest_key("NSE"))
+
+
+# ----------------------------------------------------------------------------- resolution
+
+
+def _master_sumeet() -> SecurityMaster:
+    """SUMEETINDS: old security (INE235C01010) stops trading in 2024; a new one
+    (INE235C01028 → …36) trades the same symbol from 2025. Modelled on the real case."""
+    from chartlens_pipeline.identity import Evidence, IdentifierSpan, IdentityBasis, Security
+
+    def sec(sid: str, first: date, last: date) -> Security:
+        return Security(sid, "NSE", IdentityBasis.ISIN, first, last, "test")
+
+    def span(sid: str, kind: IdentifierType, value: str, a: date, b: date) -> IdentifierSpan:
+        return IdentifierSpan(sid, kind, value, a, b, Evidence.OBSERVED, "test")
+
+    old, new = date(2024, 10, 17), date(2025, 6, 19)
+    return SecurityMaster(
+        "NSE",
+        [sec("OLD", date(2011, 6, 22), old), sec("NEW", new, date(2026, 9, 30))],
+        [
+            span("OLD", IdentifierType.ISIN, "INE235C01010", date(2011, 6, 22), old),
+            span("OLD", IdentifierType.SYMBOL, "SUMEETINDS", date(2011, 6, 22), old),
+            span("NEW", IdentifierType.ISIN, "INE235C01028", new, date(2025, 10, 1)),
+            span("NEW", IdentifierType.ISIN, "INE235C01036", date(2025, 10, 3), date(2026, 9, 30)),
+            span("NEW", IdentifierType.SYMBOL, "SUMEETINDS", new, date(2026, 9, 30)),
+        ],
+    )
+
+
+def _record(isin: str, ex: date, symbol: str = "SUMEETINDS") -> CorporateActionRecord:
+    return CorporateActionRecord(
+        "NSE", symbol, "EQ", isin, None, "Bonus 1:1", ex, ex, None, None, f"{isin}{ex}"
+    )
+
+
+def test_stale_isin_resolves_to_the_live_security_of_the_same_issuer() -> None:
+    m, universe = _master_sumeet(), frozenset({"EQ", "BE"})
+    policy = NseIdentityPolicy()
+    rec = _record("INE235C01010", date(2025, 10, 3))
+    assert resolve_action(rec, m, universe, 45, policy)[:2] == ("NEW", Resolution.STALE_ISIN)
+    # Without the issuer policy, or for a different issuer, it stays a conflict.
+    assert resolve_action(rec, m, universe, 45)[1] is Resolution.CONFLICT
+    # While the ISIN's own security was still trading, ISIN wins as before.
+    assert resolve_action(_record("INE235C01010", date(2020, 1, 6)), m, universe, 45, policy)[
+        :2
+    ] == ("OLD", Resolution.ISIN)

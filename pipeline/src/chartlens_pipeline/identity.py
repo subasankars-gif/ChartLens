@@ -38,6 +38,7 @@ overrides, config), and rows are processed in a fixed order, so reruns are ident
 
 from __future__ import annotations
 
+import json
 import tomllib
 import uuid
 from collections import defaultdict
@@ -126,6 +127,12 @@ class IdentityOverrides:
     → reason. The link joins *identity* only: prices across it are not comparable, so
     data quality starts ``usable_from`` at the first session under this ISIN (ADR-0013)."""
     fingerprint: str = "none"
+    """Hash of the *decisions* that affect resolution (links, distinct ISINs, statuses).
+    Pinned as an identity input: changing it requires an identity rebuild. Wording,
+    evidence and comments do not change it."""
+    document_hash: str = "none"
+    """Hash of the whole file (decisions + evidence text + price continuity), for
+    outputs that quote it (data quality)."""
 
     def partners(self, isin: str) -> set[str]:
         """ISINs a reviewed ``link_isin`` entry declares to be the same security as ``isin``.
@@ -149,17 +156,27 @@ class IdentityOverrides:
                 raise ValueError(f"{path}: price_continuity must be continuous|break: {e}")
             if continuity == "break":
                 breaks[e["isin"]] = e["reason"]
+        link_isin = {e["isin"]: e["existing_isin"] for e in data.get("link_isin", [])}
+        distinct = frozenset(e["isin"] for e in data.get("distinct_isin", []))
+        status = {
+            e["isin"]: StatusOverride(
+                ListingStatus(e["status"]), date.fromisoformat(str(e["effective"])), e["reason"]
+            )
+            for e in data.get("status", [])
+        }
+        decisions = {
+            "link_isin": sorted(link_isin.items()),
+            "distinct_isin": sorted(distinct),
+            "status": sorted((k, str(v.status), str(v.effective)) for k, v in status.items()),
+        }
+        semantic = json.dumps(decisions, sort_keys=True, separators=(",", ":")).encode()
         return cls(
-            link_isin={e["isin"]: e["existing_isin"] for e in data.get("link_isin", [])},
+            link_isin=link_isin,
             link_breaks_continuity=breaks,
-            distinct_isin=frozenset(e["isin"] for e in data.get("distinct_isin", [])),
-            status={
-                e["isin"]: StatusOverride(
-                    ListingStatus(e["status"]), date.fromisoformat(str(e["effective"])), e["reason"]
-                )
-                for e in data.get("status", [])
-            },
-            fingerprint=hashlib.sha256(raw).hexdigest()[:12],
+            distinct_isin=distinct,
+            status=status,
+            fingerprint=hashlib.sha256(semantic).hexdigest()[:12],
+            document_hash=hashlib.sha256(raw).hexdigest()[:12],
         )
 
 

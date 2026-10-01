@@ -1,8 +1,9 @@
 # Reviewed identity decisions for NSE (ADR-0009, ADR-0013).
 #
-# Every entry is a human decision backed by evidence. This file is an identity input:
-# changing it changes the security master's pinned inputs, so incremental ingestion
-# refuses until `chartlens-pipeline identity-rebuild` has re-resolved stored history.
+# Every entry is a human decision backed by evidence. The *decisions* (links, distinct
+# ISINs, statuses) are an identity input: changing them changes the security master's
+# pinned inputs, so incremental ingestion refuses until `chartlens-pipeline
+# identity-rebuild` has re-resolved stored history. Wording and evidence edits do not.
 #
 # [[link_isin]]      isin → existing_isin are the same security (symmetric).
 #   price_continuity = "continuous" (default) | "break"
@@ -16,6 +17,6 @@
 isin = "INE748C01038"           # 3IINFOLTD, first traded 2021-10-22
 existing_isin = "INE748C01020"  # 3IINFOTECH, last traded 2021-08-27
 price_continuity = "break"
-reason = "3i Infotech: same issuer (INE748C), NCLT-sanctioned capital reduction and re-issued ISIN; trading resumed under a new symbol after a 56-day gap"
-evidence = "NSE corporate-action feed subject 'Capital Reduction Pursuant To Nclt Order'; NSE bhavcopies 2021-08-27 (last 3IINFOTECH/INE748C01020) and 2021-10-22 (first 3IINFOLTD/INE748C01038)"
+reason = "3i Infotech: same issuer code (INE748C) with a re-issued equity ISIN; trading resumed under a new symbol after a 56-day gap"
+evidence = "NSE bhavcopies: last 3IINFOTECH/INE748C01020 on 2021-08-27, first 3IINFOLTD/INE748C01038 on 2021-10-22. The NSE corporate-action feed has NO record for this change (verified on the 2006-2026 feed, 2026-10-01), so no factor exists"
 reviewed_by = "Subasankar S, 2026-10-01: approve identity link; no price factor (the broker's 1/10 figure is not used); hard discontinuity, usable_from = 2021-10-22"
