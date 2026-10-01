@@ -25,7 +25,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from chartlens_core.adjustment import adjust_price, parse_fraction
-from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
+from chartlens_core.config import get_settings
+from chartlens_pipeline.storage import (
+    DataLakeLayout,
+    LocalObjectStore,
+    ObjectStore,
+    object_store_from_config,
+)
 
 EX = "NSE"
 EXAMPLES = [
@@ -43,7 +49,7 @@ EXAMPLES = [
 ]
 
 
-def table(store: LocalObjectStore, key: str) -> list[dict[str, Any]]:
+def table(store: ObjectStore, key: str) -> list[dict[str, Any]]:
     return pq.read_table(pa.BufferReader(store.get(key))).to_pylist()
 
 
@@ -82,7 +88,12 @@ def factor_from_components(
 
 
 def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
-    store = LocalObjectStore(Path(lake_dir))
+    # "-" = the configured store (e.g. GCS via CHARTLENS_STORAGE__BACKEND=gcs)
+    store = (
+        object_store_from_config(get_settings().storage)
+        if lake_dir == "-"
+        else LocalObjectStore(Path(lake_dir))
+    )
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     adj_report = json.loads(store.get(DataLakeLayout.adjustment_report_key(EX)))

@@ -1,0 +1,95 @@
+# Bootstrap the production lake on GCS straight from NSE (the production path:
+# NSE → runner → GCS raw immutable → GCS curated → adjusted → data quality).
+#
+# Resumable: the master is committed before every session and already-ingested
+# sessions are skipped, so if "ingest" hits the runner time limit, push again and it
+# continues. "analyse" runs only after a complete ingest. Report → probe-results/gcs-bootstrap.
+
+name: GCS bootstrap
+
+on:
+  push:
+    branches: ["probe/gcs-bootstrap"]
+
+concurrency:
+  group: pipeline-writes
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  START: "2006-01-01"
+  END: "2026-09-30"
+  CHARTLENS_RUNTIME__LOG_JSON: "true"
+  CHARTLENS_STORAGE__BACKEND: gcs
+  CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Backfill into GCS (resumable)
+        run: |
+          uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
+            --report-file backfill.json > backfill.txt 2> backfill.log || echo "backfill exit $?"
+          tail -25 backfill.txt
+      - name: Corporate-action feed into GCS
+        run: uv run --no-sync chartlens-pipeline corporate-actions fetch 2> ca.log | head -20
+
+  analyse:
+    needs: ingest
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Adjust, data quality, adjust again, report
+        run: |
+          mkdir -p out
+          set +e
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline adjust --report-file out/adjust1.json > /dev/null 2> adjust1.log
+          echo "adjust1_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/exits.txt
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline data-quality --report-file out/dq.json > /dev/null 2> dq.log
+          echo "dq_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/exits.txt
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline adjust --report-file out/adjust2.json > /dev/null 2> adjust2.log
+          echo "adjust2_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/exits.txt
+          uv run --no-sync chartlens-pipeline corporate-actions summary > out/ca-summary.json
+          uv run --no-sync chartlens-pipeline quarantine-report --start-date "$START" --end-date "$END" \
+            --limit 50 > out/quarantine.json
+          set -e
+          grep -E '"severity": "(WARNING|ERROR)"' adjust1.log dq.log | head -100 > out/analyse-warnings.jsonl || true
+          uv run --no-sync python scripts/verify_m3.py - out out/adjust2.json | tee out/m3-headline.json
+      - name: Publish report
+        if: always()
+        run: |
+          mkdir -p out && cd out
+          git init -q -b probe-results/gcs-bootstrap
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com commit -qm "GCS bootstrap ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/gcs-bootstrap
