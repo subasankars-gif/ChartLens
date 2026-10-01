@@ -458,7 +458,44 @@ def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
     if store.exists(gaps_key):
         for g in table(store, gaps_key):
             z_by_kind[kind(g["security_id"])] += 1
+    new_2026 = [
+        s
+        for s in active
+        if first_dates[s["security_id"]].year == 2026
+        and kind(s["security_id"]) == "equity share (01)"
+    ]
+    holders: dict[str, set[str]] = {}
+    for sid, syms in symbols_of.items():
+        for sym in syms:
+            holders.setdefault(sym, set()).add(sid)
+    series_first: dict[str, list[str]] = {}
+    for h in history:
+        if h["identifier_type"] == "SERIES":
+            series_first.setdefault(h["security_id"], []).append(
+                f"{h['identifier_value']}@{h['valid_from']}"
+            )
+    samples_2026 = [
+        {
+            "symbol": s["symbol"],
+            "isins": sorted(isins_of.get(s["security_id"], set())),
+            "first_date": s["first_date"],
+            "series": sorted(series_first.get(s["security_id"], []))[:3],
+            "other_holders_of_symbol": sorted(
+                set().union(
+                    *(holders.get(x, set()) for x in symbols_of.get(s["security_id"], set()))
+                )
+                - {s["security_id"]}
+            ),
+        }
+        for s in sorted(new_2026, key=lambda s: s["first_date"])
+    ]
+    first_month_2026 = Counter(f"{s['first_date']:%Y-%m}" for s in new_2026)
     investigations_extra = {
+        "equity_first_listed_2026_by_month": dict(sorted(first_month_2026.items())),
+        "equity_first_listed_2026_with_symbol_held_before": sum(
+            1 for x in samples_2026 if x["other_holders_of_symbol"]
+        ),
+        "equity_first_listed_2026_samples": samples_2026[:40],
         "instrument_kinds_all": dict(kinds_all.most_common()),
         "instrument_kinds_active": dict(kinds_active.most_common()),
         "instrument_kinds_active_first_listed_2026": dict(kinds_2026.most_common()),
