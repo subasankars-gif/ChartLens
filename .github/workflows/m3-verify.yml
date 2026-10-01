@@ -14,10 +14,13 @@ on:
       start_date: { description: "YYYY-MM-DD", default: "2006-01-01" }
       end_date: { description: "YYYY-MM-DD", default: "2026-09-30" }
   push:
-    branches: ["probe/m3"]
+    branches: ["probe/m3", "probe/m3-analyse"]
+# probe/m3: full run. probe/m3-analyse: skip the download and analyse the lake artifact
+# of the run named in .github/m3-lake-run.txt with the current code.
 
 permissions:
   contents: write   # to publish the report to the throwaway results branch
+  actions: read     # to download an earlier run's lake artifact
 
 env:
   START: ${{ inputs.start_date || '2006-01-01' }}
@@ -27,6 +30,7 @@ env:
 
 jobs:
   ingest:
+    if: github.ref_name != 'probe/m3-analyse'
     runs-on: ubuntu-latest
     timeout-minutes: 340
     steps:
@@ -69,6 +73,7 @@ jobs:
 
   analyse:
     needs: ingest
+    if: ${{ !cancelled() && (needs.ingest.result == 'success' || github.ref_name == 'probe/m3-analyse') }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -79,10 +84,26 @@ jobs:
           python-version: "3.12"
           enable-cache: true
       - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - name: Which run's lake
+        id: src
+        run: |
+          if [ "$GITHUB_REF_NAME" = "probe/m3-analyse" ]; then
+            echo "run_id=$(tr -d '[:space:]' < .github/m3-lake-run.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
-        with: { name: lake, path: lake }
+        with:
+          name: lake
+          path: lake
+          run-id: ${{ steps.src.outputs.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
-        with: { name: ingest-out, path: out }
+        with:
+          name: ingest-out
+          path: out
+          run-id: ${{ steps.src.outputs.run_id }}
+          github-token: ${{ github.token }}
       - name: Adjust, assess data quality, adjust again (reproducibility), report
         run: |
           set +e

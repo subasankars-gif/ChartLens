@@ -81,8 +81,9 @@ ADJUSTED_SCHEMA_VERSION: Final = 1
 ADJ_PRICE_TYPE: Final = pa.decimal128(24, 6)
 ADJ_VOLUME_TYPE: Final = pa.decimal128(28, 4)
 MATERIAL_LOG_CHANGE: Final = 1e-4
-"""A gap only counts as new/worsened if it grew by more than this in log terms; smaller
-differences are the single half-even rounding of adjusted prices, not a discontinuity."""
+"""A gap only counts as new/worsened if it grew by more than this (plus the bound of the
+adjusted prices' own rounding) in log terms; smaller differences are rounding, not a
+discontinuity."""
 
 
 class Resolution(StrEnum):
@@ -811,10 +812,17 @@ def tally_gaps(
     cash_at = {h.dates[i] for cd in cash_dates if (i := h.boundary(cd)) is not None}
     unexplained: list[tuple[date, float]] = []
     for i in range(1, len(h.dates)):
+        if series.adj_open[i] <= 0 or series.adj_close[i - 1] <= 0:
+            report.new_gaps_introduced += 1  # an adjusted price that rounds to zero
+            report.new_gap_examples.append(f"{h.security_id} {h.dates[i]} adjusted price ≤ 0")
+            continue
         raw_ratio = float(h.open[i]) / float(h.close[i - 1])
         adj_ratio = float(series.adj_open[i]) / float(series.adj_close[i - 1])
         raw_big, adj_big = abs(raw_ratio - 1) > t, abs(adj_ratio - 1) > t
-        grew = abs(math.log(adj_ratio)) - abs(math.log(raw_ratio)) > MATERIAL_LOG_CHANGE
+        # Rounding each adjusted price to 1e-6 moves the log ratio by at most
+        # 0.5e-6/open + 0.5e-6/close; only growth beyond that (and MATERIAL) is real.
+        rounding = 0.5e-6 / float(series.adj_open[i]) + 0.5e-6 / float(series.adj_close[i - 1])
+        grew = abs(math.log(adj_ratio)) - abs(math.log(raw_ratio)) > MATERIAL_LOG_CHANGE + rounding
         day = h.dates[i]
         if raw_big:
             report.raw_large_gaps += 1
