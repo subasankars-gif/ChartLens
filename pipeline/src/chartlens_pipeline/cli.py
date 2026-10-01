@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
 from typing import Annotated
@@ -29,7 +30,7 @@ DryRun = Annotated[
 Exchange = Annotated[str, typer.Option(help="Exchange code")]
 
 
-def _emit(payload: dict[str, object]) -> None:
+def _emit(payload: Mapping[str, object]) -> None:
     typer.echo(json.dumps(payload, indent=2, default=str))
 
 
@@ -42,15 +43,28 @@ def _parse_day(value: str | None, name: str) -> date | None:
         raise typer.BadParameter(f"{name} must be YYYY-MM-DD, got {value!r}") from None
 
 
-def _service(settings: ChartLensSettings, exchange: str):  # type: ignore[no-untyped-def]
+def _provider(settings: ChartLensSettings, exchange: str):  # type: ignore[no-untyped-def]
     from chartlens_pipeline.http import HttpFetcher
-    from chartlens_pipeline.ingest import IngestionService
     from chartlens_pipeline.providers import get_provider
+
+    return get_provider(exchange, settings, HttpFetcher(settings.http))
+
+
+def _store(settings: ChartLensSettings):  # type: ignore[no-untyped-def]
     from chartlens_pipeline.storage import object_store_from_config
 
-    fetcher = HttpFetcher(settings.http)
-    provider = get_provider(exchange, settings, fetcher)
-    return IngestionService(settings, provider, object_store_from_config(settings.storage))
+    return object_store_from_config(settings.storage)
+
+
+def _service(settings: ChartLensSettings, exchange: str):  # type: ignore[no-untyped-def]
+    from chartlens_pipeline.ingest import IngestionService
+
+    return IngestionService(settings, _provider(settings, exchange), _store(settings))
+
+
+def _write_report(report_file: str | None, payload: Mapping[str, object]) -> None:
+    if report_file:
+        Path(report_file).write_text(json.dumps(payload, indent=2, default=str))
 
 
 @app.command()
@@ -318,6 +332,230 @@ def refresh_security(
             "refresh-security is implemented in Milestone 7; only --dry-run is available.", err=True
         )
         raise typer.Exit(code=3)
+
+
+# ----------------------------------------------------------------------------- Milestone 3
+
+ca_app = typer.Typer(no_args_is_help=True, help="Corporate-action feed (ADR-0011)")
+app.add_typer(ca_app, name="corporate-actions")
+
+
+@ca_app.command("fetch")
+def ca_fetch(
+    start: Annotated[str | None, typer.Option("--start-date", help="YYYY-MM-DD")] = None,
+    end: Annotated[str | None, typer.Option("--end-date", help="YYYY-MM-DD")] = None,
+    exchange: Exchange = "NSE",
+    refetch: Annotated[
+        bool, typer.Option("--refetch", help="Download every window again, not only live ones.")
+    ] = False,
+) -> None:
+    """Download the feed window by window and store each response immutably."""
+    from datetime import timedelta
+
+    from chartlens_pipeline.corporate_actions import CorporateActionStore
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    provider = _provider(settings, exchange)
+    first = (
+        _parse_day(start, "--start-date")
+        or getattr(settings.providers, exchange.lower()).corporate_actions_first_month
+    )
+    last = _parse_day(end, "--end-date") or date.today() + timedelta(days=90)  # noqa: DTZ011
+    store = CorporateActionStore(exchange, provider.corporate_actions, _store(settings))
+    report = store.fetch(first, last, refetch=refetch)
+    _emit({"start": first, "end": last, **report.__dict__})
+    if report.failed:
+        raise typer.Exit(code=2)
+
+
+@ca_app.command("summary")
+def ca_summary(
+    exchange: Exchange = "NSE",
+    show: Annotated[int, typer.Option(help="Unrecognised subjects to list")] = 30,
+) -> None:
+    """Classify every stored record (no network): counts by class, unrecognised subjects."""
+    from collections import Counter
+    from datetime import timedelta
+
+    from chartlens_pipeline.corporate_actions import CorporateActionStore
+
+    settings = get_settings()
+    provider = _provider(settings, exchange)
+    source = provider.corporate_actions
+    first = getattr(settings.providers, exchange.lower()).corporate_actions_first_month
+    records = CorporateActionStore(exchange, source, _store(settings)).current_records(
+        first,
+        date.today() + timedelta(days=366),  # noqa: DTZ011
+    )
+    classes: Counter[str] = Counter()
+    unrecognised: Counter[str] = Counter()
+    for rec, _ in records.records:
+        cls = source.interpret(rec.subject).action_class
+        classes[str(cls)] += 1
+        if cls == "UNRECOGNISED":
+            unrecognised[rec.subject] += 1
+    _emit(
+        {
+            "records": len(records.records),
+            "rejected_by_parser": len(records.rejected),
+            "windows_missing": len(records.windows_missing),
+            "by_class": dict(classes.most_common()),
+            "by_ex_year": records.by_year,
+            "unrecognised": unrecognised.most_common(show),
+            "grammar_version": source.grammar_version,
+        }
+    )
+
+
+@app.command()
+def adjust(
+    exchange: Exchange = "NSE",
+    report_file: Annotated[str | None, typer.Option(help="Also write the JSON report here")] = None,
+) -> None:
+    """Build the adjusted analytical dataset from stored canonical rows and feed versions.
+
+    Exit 5 when a hard requirement fails (a new or worsened large gap, an override that
+    resolves to no security): the report is written, the dataset is not published.
+    """
+    from dataclasses import asdict
+
+    from chartlens_pipeline.adjust import AdjustmentService
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    result = AdjustmentService(settings, _provider(settings, exchange), _store(settings)).run()
+    payload: dict[str, object] = {
+        "adjustment_version": result.adjustment_version,
+        "identity_version": result.identity_version,
+        "data_end": result.data_end,
+        "published": result.published,
+        "unresolved_overrides": result.unresolved_overrides,
+        "counts": result.counts,
+        "discontinuity": asdict(result.report),
+    }
+    _emit(payload)
+    _write_report(report_file, payload)
+    if not result.published:
+        raise typer.Exit(code=5)
+
+
+def _lookup_ids(store, exchange: str, symbol: str | None, isin: str | None) -> set[str]:  # type: ignore[no-untyped-def]
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from chartlens_pipeline.storage import DataLakeLayout
+
+    history = pq.read_table(
+        pa.BufferReader(store.get(DataLakeLayout.identifier_history_key(exchange)))
+    ).to_pylist()
+    wanted = {
+        ("SYMBOL", symbol.upper()) if symbol else None,
+        ("ISIN", isin.upper()) if isin else None,
+    }
+    return {
+        r["security_id"] for r in history if (r["identifier_type"], r["identifier_value"]) in wanted
+    }
+
+
+@app.command("adjustment-report")
+def adjustment_report(
+    symbol: Annotated[str | None, typer.Option(help="Current or past symbol")] = None,
+    isin: Annotated[str | None, typer.Option(help="ISIN")] = None,
+    exchange: Exchange = "NSE",
+) -> None:
+    """Every corporate-action event decided for a security, with factor and evidence."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from chartlens_pipeline.storage import DataLakeLayout
+
+    settings = get_settings()
+    store = _store(settings)
+    ids = _lookup_ids(store, exchange, symbol, isin)
+    if not ids:
+        typer.echo("no matching security", err=True)
+        raise typer.Exit(code=1)
+    events = pq.read_table(
+        pa.BufferReader(store.get(DataLakeLayout.adjustment_events_key(exchange)))
+    ).to_pylist()
+    _emit({sid: [e for e in events if e["security_id"] == sid] for sid in sorted(ids)})
+
+
+@app.command("data-quality")
+def data_quality(
+    exchange: Exchange = "NSE",
+    report_file: Annotated[
+        str | None, typer.Option(help="Also write the JSON summary here")
+    ] = None,
+) -> None:
+    """Assess the published adjusted dataset: findings, continuity breaks, usable_from."""
+    from chartlens_pipeline.data_quality import AdjustedDataNotPublished, DataQualityService
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    try:
+        result = DataQualityService(settings, _provider(settings, exchange), _store(settings)).run()
+    except AdjustedDataNotPublished as err:
+        typer.echo(f"No published adjusted dataset ({err}); run `adjust` first.", err=True)
+        raise typer.Exit(code=5) from None
+    payload = {
+        "dq_version": result.dq_version,
+        "adjustment_version": result.adjustment_version,
+        **result.summary,
+    }
+    _emit(payload)
+    _write_report(report_file, payload)
+
+
+@app.command("identity-rebuild")
+def identity_rebuild(exchange: Exchange = "NSE") -> None:
+    """Re-resolve all stored history with the current identity inputs (ADR-0013)."""
+    from dataclasses import asdict
+
+    from chartlens_pipeline.identity_rebuild import IdentityRebuildService
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    report = IdentityRebuildService(settings, _provider(settings, exchange), _store(settings)).run()
+    _emit(asdict(report))
+    if report.errors:
+        raise typer.Exit(code=2)
+
+
+@app.command("security-quality")
+def security_quality(
+    symbol: Annotated[str | None, typer.Option(help="Current or past symbol")] = None,
+    isin: Annotated[str | None, typer.Option(help="ISIN")] = None,
+    exchange: Exchange = "NSE",
+) -> None:
+    """A security's data-quality status, usable_from and findings."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from chartlens_pipeline.storage import DataLakeLayout
+
+    settings = get_settings()
+    store = _store(settings)
+    ids = _lookup_ids(store, exchange, symbol, isin)
+    if not ids:
+        typer.echo("no matching security", err=True)
+        raise typer.Exit(code=1)
+
+    def table(key: str) -> list[dict[str, object]]:
+        return pq.read_table(pa.BufferReader(store.get(key))).to_pylist()
+
+    statuses = table(DataLakeLayout.data_quality_status_key(exchange))
+    findings = table(DataLakeLayout.data_quality_findings_key(exchange))
+    _emit(
+        {
+            sid: {
+                "status": next((s for s in statuses if s["security_id"] == sid), None),
+                "findings": [f for f in findings if f["security_id"] == sid],
+            }
+            for sid in sorted(ids)
+        }
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

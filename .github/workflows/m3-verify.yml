@@ -1,0 +1,113 @@
+# Milestone 3 verification on real data: 20-year NSE backfill + corporate-action feed
+# (job "ingest"), then adjustment, data quality and the M3 review report (job "analyse").
+#
+# The lake travels between the two jobs as a short-lived workflow artifact so the
+# analysis can be re-run ("Re-run failed jobs") without repeating the 3-hour download.
+# It is a transport only — the primary dataset will live on GCS once configured.
+# A compact report (no bulk data) is published to the throwaway branch probe-results/m3.
+
+name: M3 verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date: { description: "YYYY-MM-DD", default: "2006-01-01" }
+      end_date: { description: "YYYY-MM-DD", default: "2026-09-30" }
+  push:
+    branches: ["probe/m3"]
+
+permissions:
+  contents: write   # to publish the report to the throwaway results branch
+
+env:
+  START: ${{ inputs.start_date || '2006-01-01' }}
+  END: ${{ inputs.end_date || '2026-09-30' }}
+  CHARTLENS_RUNTIME__LOG_JSON: "true"
+  CHARTLENS_STORAGE__LOCAL_ROOT: ${{ github.workspace }}/lake
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - name: Backfill 20 years of daily bhavcopies
+        run: |
+          mkdir -p out
+          set +e
+          uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
+            --report-file out/backfill.json > out/backfill.txt 2> backfill.log
+          echo "backfill_exit=$?" >> out/exits.txt
+          set -e
+          grep -E '"severity": "(WARNING|ERROR)"' backfill.log | head -300 > out/backfill-warnings.jsonl || true
+          tail -5 out/backfill.txt
+      - name: Fetch the corporate-action feed (2006 → 90 days ahead)
+        run: |
+          set +e
+          uv run --no-sync chartlens-pipeline corporate-actions fetch > out/ca-fetch.json 2> ca.log
+          echo "ca_fetch_exit=$?" >> out/exits.txt
+          set -e
+          cat out/ca-fetch.json | head -30
+          du -sh lake >> out/exits.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lake
+          path: lake
+          retention-days: 3
+          compression-level: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ingest-out
+          path: out
+          retention-days: 3
+
+  analyse:
+    needs: ingest
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: actions/download-artifact@v4
+        with: { name: lake, path: lake }
+      - uses: actions/download-artifact@v4
+        with: { name: ingest-out, path: out }
+      - name: Adjust, assess data quality, adjust again (reproducibility), report
+        run: |
+          set +e
+          T=""; [ -x /usr/bin/time ] && T="/usr/bin/time -v"
+          $T uv run --no-sync chartlens-pipeline adjust --report-file out/adjust1.json \
+            > /dev/null 2> adjust1.log
+          echo "adjust1_exit=$?" >> out/exits.txt
+          grep -E "Elapsed|Maximum resident" adjust1.log >> out/exits.txt
+          uv run --no-sync chartlens-pipeline data-quality --report-file out/dq.json > /dev/null 2> dq.log
+          echo "dq_exit=$?" >> out/exits.txt
+          uv run --no-sync chartlens-pipeline adjust --report-file out/adjust2.json > /dev/null 2> adjust2.log
+          echo "adjust2_exit=$?" >> out/exits.txt
+          uv run --no-sync chartlens-pipeline corporate-actions summary > out/ca-summary.json
+          uv run --no-sync chartlens-pipeline quarantine-report --start-date "$START" --end-date "$END" \
+            --limit 50 > out/quarantine.json
+          set -e
+          grep -E '"severity": "(WARNING|ERROR)"' adjust1.log dq.log | head -100 > out/analyse-warnings.jsonl || true
+          uv run --no-sync python scripts/verify_m3.py lake out out/adjust2.json | tee out/m3-headline.json
+          cat out/exits.txt
+      - name: Publish report to a throwaway branch
+        if: always()
+        run: |
+          set -euo pipefail
+          cd out
+          git init -q -b probe-results/m3
+          git -c user.name=m3-verify -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=m3-verify -c user.email=probe@users.noreply.github.com commit -qm "M3 verify ($GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/m3
