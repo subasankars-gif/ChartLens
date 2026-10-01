@@ -15,7 +15,7 @@
 * Inputs reach the shell through environment variables, never by expression
   interpolation, so a crafted input cannot inject commands.
 
-## Known risk
+## Known risk (resolved 2026-09-30 — see ADR-0008: hosted runners reach NSE's archive)
 
 NSE is widely reported to block requests from cloud/datacenter IP ranges, which
 include GitHub-hosted runners. Milestone 2 starts with a connectivity probe from a

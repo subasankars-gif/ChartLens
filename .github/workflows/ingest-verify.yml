@@ -1,0 +1,66 @@
+# Live verification: run a real backfill from NSE on a hosted runner into a
+# temporary local lake, then publish a compact review report (no bulk data) to the
+# throwaway branch probe-results/ingest. The lake itself is discarded with the runner.
+
+name: Ingest verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_date: { description: "YYYY-MM-DD", default: "2006-01-01" }
+      end_date: { description: "YYYY-MM-DD", default: "2026-09-29" }
+  push:
+    branches: ["probe/ingest"]
+
+permissions:
+  contents: write   # to publish the report to the throwaway results branch
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      START: ${{ inputs.start_date || '2006-01-01' }}
+      END: ${{ inputs.end_date || '2026-09-29' }}
+      CHARTLENS_RUNTIME__LOG_JSON: "true"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - name: Backfill each window twice (second run proves idempotency), then summarise
+        run: |
+          mkdir -p out
+          # Windows: .github/verify-windows.txt (one "START:END" per line) if present,
+          # otherwise the single START:END range from the inputs.
+          if [ -f .github/verify-windows.txt ]; then windows=$(grep -v '^#' .github/verify-windows.txt); else windows="$START:$END"; fi
+          n=0
+          for w in $windows; do
+            n=$((n+1)); s="${w%%:*}"; e="${w##*:}"; lake="$GITHUB_WORKSPACE/lake-$n"; o="out/w$n"
+            mkdir -p "$o"; echo "$w" > "$o/window.txt"
+            export CHARTLENS_STORAGE__LOCAL_ROOT="$lake"
+            set +e
+            uv run --no-sync chartlens-pipeline backfill --start-date "$s" --end-date "$e" \
+              --report-file "$o/run1.json" > "$o/run1.txt" 2> "$o/run1.log"; echo "run1_exit=$?" >> "$o/exits.txt"
+            uv run --no-sync chartlens-pipeline backfill --start-date "$s" --end-date "$e" \
+              --report-file "$o/run2.json" > "$o/run2.txt" 2> "$o/run2.log"; echo "run2_exit=$?" >> "$o/exits.txt"
+            set -e
+            uv run --no-sync python scripts/verify_ingestion.py "$lake" "$o" > "$o/verify-summary.json"
+            grep -E '"severity": "(WARNING|ERROR)"' "$o/run1.log" | head -300 > "$o/run1-warnings.jsonl" || true
+            grep '"message": "ingest.date"' "$o/run1.log" | head -3 > "$o/log-sample.jsonl" || true
+            rm -f "$o/run1.log" "$o/run2.log"
+            du -sh "$lake" >> "$o/exits.txt"
+            cat "$o/run1.txt" "$o/run2.txt"
+          done
+      - name: Publish report to a throwaway branch
+        if: always()
+        run: |
+          set -euo pipefail
+          cd out
+          git init -q -b probe-results/ingest
+          git -c user.name=ingest-verify -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=ingest-verify -c user.email=probe@users.noreply.github.com commit -qm "Ingest verify ($GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/ingest

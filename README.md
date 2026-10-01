@@ -7,9 +7,10 @@ they show — structure, trend, patterns, and the conditions that would confirm 
 invalidate each scenario. Deterministic, explainable, point-in-time correct. No
 fundamentals, no news, no buy/sell calls.
 
-> **Status: Phase 1 · Milestone 1 (skeleton) complete.** The repository, configuration,
-> core contracts, API health service, frontend shell, Docker images and CI are in place.
-> No market data is ingested yet — that is Milestone 2.
+> **Status: Phase 1 · Milestone 2 (NSE ingestion) complete.** ChartLens downloads NSE
+> bhavcopies (both historical formats), stores the original bytes immutably, resolves
+> every row to a stable internal security, and writes exact-decimal canonical daily bars
+> to Parquet. No corporate-action adjustment yet (Milestone 3).
 
 ## Repository layout
 
@@ -53,10 +54,23 @@ cp .env.example .env.local
 pnpm install
 pnpm dev
 
-# Pipeline CLI
+# Pipeline CLI (writes to ./.data by default — see "Production storage")
 uv run chartlens-pipeline info
-uv run chartlens-pipeline backfill --start 2006-01-01 --end 2006-01-31 --dry-run
+uv run chartlens-pipeline backfill --date 2026-09-29 --dry-run        # plan only
+uv run chartlens-pipeline backfill --date 2026-09-29                  # one session
+uv run chartlens-pipeline backfill --start-date 2026-09-01 --end-date 2026-09-29
+uv run chartlens-pipeline security --symbol RELIANCE                  # identity + history
+uv run chartlens-pipeline quarantine-report --start-date 2026-09-01 --end-date 2026-09-29
+uv run chartlens-pipeline reprocess-pending                           # retry unresolved identities
 ```
+
+`backfill` flags: `--refetch` downloads again even if stored (catches re-issued files;
+a different file for the same date is kept alongside, never overwritten), `--reprocess`
+re-parses stored files. Dates are processed newest first. Re-running is safe: already
+ingested dates are skipped.
+
+NSE blocks many networks. If your machine cannot reach `nsearchives.nseindia.com`, run
+backfills from GitHub Actions (hosted runners can reach it — ADR-0008).
 
 Everything above works on Windows (PowerShell) as well — tasks run through
 `poethepoet`, not `make`. If a compiled dependency has no wheel for your platform
@@ -68,6 +82,17 @@ Everything above works on Windows (PowerShell) as well — tasks run through
 docker compose up --build                  # API on :8080
 docker compose run --rm pipeline info      # any pipeline command
 ```
+
+## Production storage
+
+Market data belongs in GCS (ADR-0002); the code is ready (`GcsObjectStore`), the cloud
+project is not yet created. To switch on:
+
+1. Create a GCS bucket and a service account with object read/write on it.
+2. Set up Workload Identity Federation for this repository (no JSON keys) and store
+   `GCP_WIF_PROVIDER` / `GCP_PIPELINE_SA` as repository variables.
+3. Uncomment the auth step and the schedule in `.github/workflows/pipeline-job.yml`, and
+   set `CHARTLENS_STORAGE__BACKEND=gcs`, `CHARTLENS_STORAGE__GCS_BUCKET=<bucket>`.
 
 ## Configuration
 
@@ -85,8 +110,8 @@ impossible. Changing one means writing an ADR and recalculating.
 | # | Milestone | Status |
 |---|---|---|
 | 1 | Skeleton: repo, config, core contracts, API health, frontend shell, Docker, CI | ✅ |
-| 2 | Security master, exchange calendar, NSE bhavcopy provider, immutable raw store, GCS, backfill | Next |
-| 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | |
+| 2 | Security master, exchange calendar, NSE bhavcopy provider, immutable raw store, GCS, backfill | ✅ |
+| 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | Next |
 | 4 | Weekly builder + property tests | |
 | 5 | API: securities, weekly bars, data quality; Firestore; auth | |
 | 6 | Frontend: search, weekly chart, last update, data-quality badge | |
@@ -97,5 +122,7 @@ impossible. Changing one means writing an ADR and recalculating.
 See [`docs/adr`](docs/adr/README.md). In short: NSE bhavcopy archives + NSE
 corporate actions as the source; 20-year target history; EQ + BE series; Parquet on
 GCS as the canonical store; Firestore for application state only; GitHub-hosted
-runners behind a CLI; immutable internal security IDs; weekly bars by ISO week;
-splits, bonuses and rights adjusted, dividends not; `as_of` enforced everywhere.
+runners behind a CLI; immutable internal security IDs resolved ISIN-first with
+evidence-only linking; exact-decimal prices; calendars as versioned data; weekly bars
+by ISO week; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
+everywhere.

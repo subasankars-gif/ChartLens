@@ -31,6 +31,7 @@ dev = [
     "pyright>=1.1.390",
     "poethepoet>=0.31",
     "httpx2",
+    "pyarrow-stubs",
 ]
 
 # ---------------------------------------------------------------------------
@@ -78,7 +79,7 @@ known-first-party = ["chartlens_core", "chartlens_engine", "chartlens_pipeline",
 [tool.ruff.lint.per-file-ignores]
 "pipeline/**" = ["TID251"]
 "backend/**" = ["TID251"]
-"**/tests/**" = ["TID251"]
+"**/tests/**" = ["TID251", "E501"]  # tests carry long CSV fixture lines
 
 # ---------------------------------------------------------------------------
 # Pyright
@@ -99,6 +100,7 @@ venv = ".venv"
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["core/tests", "engine/tests", "pipeline/tests", "backend/tests", "tests"]
+pythonpath = ["pipeline/tests"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 markers = [
     "network: test requires outbound network access (skipped in CI by default)",

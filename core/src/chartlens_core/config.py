@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from datetime import date
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -72,6 +73,39 @@ class ApiConfig(_Section):
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
 
 
+class HttpConfig(_Section):
+    """Outbound HTTP to market-data sources. Retries are bounded (spec §30)."""
+
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    max_attempts: int = Field(default=4, ge=1, le=10)
+    backoff_seconds: float = Field(default=2.0, ge=0)
+    """Base of exponential backoff: waits of b, 2b, 4b, ... between attempts."""
+    max_retry_after_seconds: float = Field(default=60.0, ge=0)
+    """Upper bound on honouring a server's Retry-After header."""
+    min_request_interval_seconds: float = Field(default=0.5, ge=0)
+    """Politeness delay between consecutive requests to the same host."""
+    user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+    )
+
+
+class NseProviderConfig(_Section):
+    """Where NSE publishes daily bhavcopies. Established by the NSE probe (ADR-0008)."""
+
+    archive_base_url: str = "https://nsearchives.nseindia.com"
+    udiff_first_date: date = date(2024, 1, 1)
+    """Earliest date for which the UDiFF bhavcopy is tried first (probe: present 2024-01-19,
+    absent 2020-03-02). Before this, only the legacy file is requested."""
+    legacy_last_date: date = date(2024, 7, 5)
+    """Last date the legacy bhavcopy was published
+    (probe: present 2024-07-05, absent 2024-07-08)."""
+
+
+class ProvidersConfig(_Section):
+    nse: NseProviderConfig = NseProviderConfig()
+
+
 # --------------------------------------------------------------------------- methodology
 
 
@@ -103,6 +137,24 @@ class DataQualityConfig(_Section):
     """Close-to-close move (as a fraction) that is flagged when no corporate action explains it."""
     max_missing_session_ratio: float = Field(default=0.02, ge=0, le=1)
     """Fraction of expected sessions that may be missing before status degrades to WARN."""
+    max_session_quarantine_ratio: float = Field(default=0.05, ge=0, le=1)
+    """Share of a session's in-scope rows the parser may reject before the session is
+    treated as QUARANTINED rather than ingested (the 2020-07-13 case rejected 100%)."""
+
+
+class IdentityConfig(_Section):
+    """Security identity resolution (ADR-0009). Changing any value can change which
+    security a row is assigned to, so this is methodology."""
+
+    link_same_issuer_isin: bool = True
+    """Link a new ISIN to an existing security when the exchange's identity policy says both
+    ISINs belong to the same issuer AND symbol evidence connects them."""
+    resolve_without_isin: bool = True
+    """Resolve rows that carry no ISIN (NSE legacy files before ~2011) by symbol continuity."""
+    max_symbol_gap_days: int = Field(default=45, ge=1)
+    """Longest calendar-day gap across which two observations of a symbol count as continuous."""
+    active_within_sessions: int = Field(default=20, ge=1)
+    """A security traded within this many sessions of the latest ingested session is ACTIVE."""
 
 
 class ChartLensSettings(BaseSettings):
@@ -117,17 +169,21 @@ class ChartLensSettings(BaseSettings):
     storage: StorageConfig = StorageConfig()
     firestore: FirestoreConfig = FirestoreConfig()
     api: ApiConfig = ApiConfig()
+    http: HttpConfig = HttpConfig()
+    providers: ProvidersConfig = ProvidersConfig()
 
     universe: UniverseConfig = UniverseConfig()
     weekly: WeeklyConfig = WeeklyConfig()
     adjustment: AdjustmentConfig = AdjustmentConfig()
     data_quality: DataQualityConfig = DataQualityConfig()
+    identity: IdentityConfig = IdentityConfig()
 
     METHODOLOGY_SECTIONS: ClassVar[tuple[str, ...]] = (
         "universe",
         "weekly",
         "adjustment",
         "data_quality",
+        "identity",
     )
 
     @classmethod
@@ -171,6 +227,13 @@ def resolve_config_file(start: Path | None = None) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+def config_dir() -> Path | None:
+    """Directory holding the active config file; versioned data files (identity overrides)
+    live beside it. None when running on code defaults only."""
+    path = resolve_config_file()
+    return path.parent if path is not None else None
 
 
 @lru_cache(maxsize=1)

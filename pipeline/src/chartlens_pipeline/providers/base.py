@@ -1,33 +1,34 @@
-"""Exchange-independent market-data provider contract.
+"""Exchange-independent provider contract (ADR-0008).
 
-Every provider method comes as a **download / parse pair**. Downloads return the
-exchange's original bytes, which are stored immutably before anything else
-happens. Parsing is a pure function of those bytes. This means:
+An exchange is plugged in by implementing :class:`ExchangeProvider`. Downstream code
+(ingestion, security master, backfill) depends only on this module, so adding BSE,
+NYSE or NASDAQ means adding a provider — not changing consumers.
 
-* a parser bug is fixed by re-parsing stored files — no re-download, and no
-  dependence on the exchange still serving an old file;
-* every canonical row can be traced back to the exact source file (by sha256).
-
-Parsed outputs use the exchange-neutral schemas below. Anything exchange-specific
-(series codes, file formats, URL layouts) stays inside the provider.
+Downloading and parsing are separate on purpose. ``download`` returns the source's
+original bytes, which are stored immutably before anything else happens; ``parse``
+is a pure function of those bytes. A parser bug is therefore fixed by re-parsing
+stored files, and every canonical row traces back to one exact file by its hash.
 """
 
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Final, Protocol
+from typing import Protocol
 
-import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from chartlens_core.domain import utc_now
 from chartlens_pipeline.calendar import TradingCalendar
+from chartlens_pipeline.daily import ParsedDaily
+from chartlens_pipeline.identity import IdentityPolicy, SymbolChangeNotice
 
 
 class Dataset(StrEnum):
     DAILY_BARS = "daily_bars"
+    SYMBOL_CHANGES = "symbol_changes"
     CORPORATE_ACTIONS = "corporate_actions"
     SECURITIES = "securities"
     CALENDAR = "calendar"
@@ -47,6 +48,8 @@ class RawArtifact(BaseModel):
     """The market date the file describes (None for undated snapshots)."""
     filename: str
     content: bytes = Field(repr=False)
+    url: str = ""
+    content_type: str = ""
     fetched_at: datetime = Field(default_factory=utc_now)
 
     @computed_field  # type: ignore[prop-decorator]
@@ -55,31 +58,58 @@ class RawArtifact(BaseModel):
         return hashlib.sha256(self.content).hexdigest()
 
 
-# Parsed daily bars: one row per security per session, prices exactly as traded.
-RAW_DAILY_COLUMNS: Final = (
-    "trade_date",  # datetime64[ns], tz-naive
-    "exchange",
-    "symbol",
-    "series",
-    "isin",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "source_sha256",  # the RawArtifact this row came from
-)
+class DownloadStatus(StrEnum):
+    FOUND = "FOUND"
+    NOT_PUBLISHED = "NOT_PUBLISHED"
+    """Every candidate location answered 'not found'. A fact about the source."""
+    FAILED = "FAILED"
+    """At least one candidate failed for another reason; nothing can be concluded."""
 
 
-class SecurityListing(BaseModel):
-    model_config = ConfigDict(frozen=True)
+@dataclass(frozen=True)
+class DownloadResult:
+    status: DownloadStatus
+    artifact: RawArtifact | None
+    tried: tuple[tuple[str, str, int | None], ...]
+    """(url, outcome, http status) for every location tried, in order."""
+    detail: str = ""
 
-    exchange: str
-    symbol: str
-    series: str
-    isin: str | None
-    name: str | None
-    listing_date: date | None = None
+
+class DailyBarSource(Protocol):
+    @property
+    def source_dataset(self) -> str: ...
+
+    @property
+    def parser_version(self) -> str: ...
+
+    def download(self, day: date) -> DownloadResult: ...
+
+    def check_published(self, day: date) -> DownloadResult:
+        """Like ``download`` but only establishes whether a file exists (no artifact)."""
+        ...
+
+    def parse(self, content: bytes, day: date, universe_series: frozenset[str]) -> ParsedDaily: ...
+
+
+class ExchangeProvider(Protocol):
+    @property
+    def exchange_code(self) -> str: ...
+
+    @property
+    def daily_bars(self) -> DailyBarSource: ...
+
+    def trading_calendar(self) -> TradingCalendar: ...
+
+    def identity_policy(self) -> IdentityPolicy: ...
+
+    def download_symbol_changes(self) -> DownloadResult:
+        """The exchange's list of symbol changes (identity evidence), if it publishes one."""
+        ...
+
+    def parse_symbol_changes(self, content: bytes) -> list[SymbolChangeNotice]: ...
+
+
+# --------------------------------------------------------------- corporate actions (Milestone 3)
 
 
 class CorporateActionType(StrEnum):
@@ -96,9 +126,8 @@ class CorporateActionType(StrEnum):
 class CorporateActionRecord(BaseModel):
     """A parsed corporate action. The original text is always kept for audit.
 
-    Ratios are expressed as ``numerator:denominator`` in the exchange's own terms
-    (e.g. bonus 1:1, split face value 10→2 as 10:2). Converting them into price
-    adjustment factors is the adjustment stage's job (Milestone 3), not the parser's.
+    Ratios are expressed as ``numerator:denominator`` in the exchange's own terms.
+    Converting them into price adjustment factors is Milestone 3's job, not the parser's.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -111,29 +140,5 @@ class CorporateActionRecord(BaseModel):
     numerator: float | None = None
     denominator: float | None = None
     issue_price: float | None = None
-    """Rights issues only."""
     raw_description: str
     source_sha256: str
-
-
-class MarketDataProvider(Protocol):
-    exchange: str
-    name: str
-
-    def calendar(self, start: date, end: date) -> TradingCalendar: ...
-
-    def download_daily(self, trade_date: date) -> RawArtifact | None:
-        """The full-market daily file for ``trade_date``, or None if no session was held."""
-        ...
-
-    def parse_daily(self, artifact: RawArtifact) -> pd.DataFrame:
-        """Rows in ``RAW_DAILY_COLUMNS`` order, restricted to the configured universe."""
-        ...
-
-    def download_corporate_actions(self, start: date, end: date) -> RawArtifact: ...
-
-    def parse_corporate_actions(self, artifact: RawArtifact) -> list[CorporateActionRecord]: ...
-
-    def download_securities(self) -> RawArtifact: ...
-
-    def parse_securities(self, artifact: RawArtifact) -> list[SecurityListing]: ...
