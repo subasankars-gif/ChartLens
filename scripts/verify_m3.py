@@ -416,7 +416,57 @@ def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
             if h["identifier_value"] in ("TATAMTRDVR", "IN9155A01012", "SUMEETINDS", "INE235C01010")
         }
     }
+
+    isins_of: dict[str, set[str]] = {}
+    symbols_of: dict[str, set[str]] = {}
+    for h in history:
+        if h["identifier_type"] == "ISIN":
+            isins_of.setdefault(h["security_id"], set()).add(h["identifier_value"])
+        elif h["identifier_type"] == "SYMBOL":
+            symbols_of.setdefault(h["security_id"], set()).add(h["identifier_value"])
+
+    def kind(sid: str) -> str:
+        isins, symbols = isins_of.get(sid, set()), symbols_of.get(sid, set())
+        if any(i.startswith("INF") for i in isins):
+            return "ETF/MF unit (INF ISIN)"
+        if any(sym.endswith("-RE") for sym in symbols):
+            return "rights entitlement (-RE)"
+        if any(len(i) == 12 and i[7:9] != "01" for i in isins):
+            return f"non-01 security type ({sorted(i[7:9] for i in isins)[0]})"
+        if not isins:
+            return "no ISIN (pre-2011 only)"
+        return "equity share (01)"
+
+    kinds_all = Counter(kind(sid) for sid in statuses)
+    kinds_active = Counter(kind(s["security_id"]) for s in active)
+    kinds_2026 = Counter(
+        kind(s["security_id"]) for s in active if first_dates[s["security_id"]].year == 2026
+    )
+    re_isins = sorted(
+        {
+            h["identifier_value"]
+            for h in history
+            if h["identifier_type"] == "ISIN"
+            and any(
+                x["identifier_value"].endswith("-RE")
+                for x in history
+                if x["security_id"] == h["security_id"] and x["identifier_type"] == "SYMBOL"
+            )
+        }
+    )[:15]
+    z_by_kind: Counter[str] = Counter()
+    if store.exists(gaps_key):
+        for g in table(store, gaps_key):
+            z_by_kind[kind(g["security_id"])] += 1
+    investigations_extra = {
+        "instrument_kinds_all": dict(kinds_all.most_common()),
+        "instrument_kinds_active": dict(kinds_active.most_common()),
+        "instrument_kinds_active_first_listed_2026": dict(kinds_2026.most_common()),
+        "re_isin_samples": re_isins,
+        "z_by_instrument_kind": dict(z_by_kind.most_common()),
+    }
     investigations = {
+        **investigations_extra,
         "active_moved_usable_from_by_year_and_latest_break": {
             f"{y} {c}": n for (y, c), n in sorted(latest_break.items())
         },
