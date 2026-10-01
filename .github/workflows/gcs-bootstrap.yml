@@ -81,8 +81,18 @@ jobs:
           keys = store.list(DataLakeLayout.ingestion_manifest_prefix("NSE"))
           dates = sorted(k.rsplit("/", 1)[-1].removesuffix(".json") for k in keys)
           status = Counter(json.loads(store.get(k))["status"] for k in keys[-200:])
+          rebuilds = []
+          for k in store.list("metadata/security_master/nse/rebuilds/"):
+              r = json.loads(store.get(k))
+              rebuilds.append({k2: r[k2] for k2 in ("rebuild_id", "status", "securities_before",
+                               "securities_after", "sessions", "old_inputs", "new_inputs")}
+                              | {"aliases": len(r["aliases"]), "errors": len(r["errors"]),
+                                 "merged_into": r["merged_into"],
+                                 "new_security_ids": len(r["new_security_ids"])})
+          state = json.loads(store.get(DataLakeLayout.identity_state_key("NSE")))
           print(json.dumps({"manifests": len(dates), "oldest": dates[:1], "newest": dates[-1:],
-                            "status_of_newest_200": status}, indent=2))
+                            "status_of_newest_200": status, "identity_state": state,
+                            "rebuilds": rebuilds}, indent=2))
           PY
           cp backfill.txt out/ 2>/dev/null || true
           grep -h '"severity": "ERROR"' backfill.log rebuild.log 2>/dev/null | tail -20 > out/errors.jsonl || true
