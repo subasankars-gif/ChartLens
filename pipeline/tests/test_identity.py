@@ -290,10 +290,34 @@ def test_override_links_an_isin_that_rules_would_not() -> None:
     assert only_id(res) == sid and res.links[0]["evidence"].startswith("OVERRIDE")
 
 
-def test_override_to_an_unknown_isin_waits_instead_of_guessing() -> None:
+@pytest.mark.parametrize("direction", ["old_to_new", "new_to_old"])
+def test_override_links_regardless_of_which_isin_is_seen_first(direction: str) -> None:
+    """H1 regression: overrides are symmetric and beat the known-ISIN rule, so a descending
+    build links 3i Infotech whichever way round the reviewed entry is written."""
+    links = {THREE_I_OLD: THREE_I_NEW} if direction == "old_to_new" else {THREE_I_NEW: THREE_I_OLD}
+    ov = IdentityOverrides(link_isin=links)
+    m = SecurityMaster("NSE")
+    new = only_id(resolve(m, date(2021, 10, 22), o(1, "3IINFOLTD", THREE_I_NEW), overrides=ov))
+    res = resolve(m, date(2021, 8, 27), o(1, "3IINFOTECH", THREE_I_OLD), overrides=ov)
+    assert only_id(res) == new and len(m.securities) == 1
+    assert res.links[0]["evidence"].startswith("OVERRIDE")
+    assert m.spans_for(new, IdentifierType.ISIN)[0].evidence is Evidence.OVERRIDE
+
+
+def test_override_with_unseen_partner_creates_the_security_normally() -> None:
     m = SecurityMaster("NSE")
     res = resolve(m, D1, o(1, "BBB", TCS), overrides=IdentityOverrides(link_isin={TCS: RELIANCE}))
-    assert res.quarantined[1][0] is QuarantineReason.UNRESOLVED_IDENTITY
+    assert res.created == {only_id(res)}
+
+
+def test_override_contradicting_the_existing_master_is_a_conflict_not_a_silent_merge() -> None:
+    """If a master was built without the override, an override cannot quietly re-point an
+    already-assigned ISIN; the ingestion guard requires a rebuild instead."""
+    m = SecurityMaster("NSE")
+    resolve(m, D1, o(1, "AAA", RELIANCE), o(2, "BBB", TCS))
+    res = resolve(m, D2, o(1, "BBB", TCS), overrides=IdentityOverrides(link_isin={TCS: RELIANCE}))
+    assert res.quarantined[1][0] is QuarantineReason.IDENTITY_CONFLICT
+    assert "rebuilt" in res.quarantined[1][1]
 
 
 def test_distinct_override_blocks_same_issuer_linking() -> None:

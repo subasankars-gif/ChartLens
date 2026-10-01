@@ -16,6 +16,7 @@ fresh manifest and is simply processed again, producing identical results.
 from __future__ import annotations
 
 import bisect
+import hashlib
 import json
 import logging
 import os
@@ -66,8 +67,17 @@ RECHECK_UNPUBLISHED_DAYS = 7
 """A date that was 'not published' is re-checked while it is this recent (files can appear late)."""
 
 
+class IdentityInputsChanged(RuntimeError):
+    """The identity inputs differ from the ones the existing security master was built with.
+    Continuing would mix two identity states, so incremental processing refuses."""
+
+
 class DateStatus(StrEnum):
     INGESTED = "INGESTED"
+    QUARANTINED = "QUARANTINED"
+    """The file parsed, but an abnormal share of its rows was rejected (or none were in
+    scope). Not a successful ingestion: counted as an error and reprocessed every run
+    (from stored bytes) until a parser fix makes it pass."""
     NOT_PUBLISHED = "NOT_PUBLISHED"
     FAILED = "FAILED"
 
@@ -209,6 +219,7 @@ class IngestionService:
         self._manifests: dict[date, dict[str, Any]] | None = None
         self._notices: list[SymbolChangeNotice] | None = None
         self._notices_source: str | None = None
+        self._notices_hash: str | None = None
 
     # ------------------------------------------------------------------ setup
 
@@ -232,6 +243,55 @@ class IngestionService:
         self.store.put(
             DataLakeLayout.identifier_history_key(self.exchange), to_parquet_bytes(history)
         )
+        state = {"exchange": self.exchange, "inputs": self.identity_inputs()}
+        self.store.put(
+            DataLakeLayout.identity_state_key(self.exchange),
+            json.dumps(state, indent=2, sort_keys=True).encode(),
+        )
+
+    def identity_state(self) -> dict[str, Any] | None:
+        key = DataLakeLayout.identity_state_key(self.exchange)
+        return json.loads(self.store.get(key)) if self.store.exists(key) else None
+
+    def identity_inputs(self) -> dict[str, str]:
+        """Everything that can change which security a row is assigned to.
+
+        Only identity-relevant settings are included (identity + universe), so changing,
+        say, adjustment methodology never invalidates identity."""
+        config = {
+            "identity": self.settings.identity.model_dump(mode="json"),
+            "universe": self.settings.universe.model_dump(mode="json"),
+        }
+        canonical = json.dumps(config, sort_keys=True, separators=(",", ":"))
+        return {
+            "config": hashlib.sha256(canonical.encode()).hexdigest()[:12],
+            "overrides": self.overrides.fingerprint,
+            "symbol_changes": self._notices_hash or "none",
+        }
+
+    def check_identity_inputs(self) -> None:
+        """Refuse to continue an existing master with different identity inputs (ADR-0009)."""
+        if not self.store.exists(DataLakeLayout.securities_key(self.exchange)):
+            return
+        state = self.identity_state()
+        if state is None:
+            raise IdentityInputsChanged(
+                "the security master has no recorded identity inputs (built before they were "
+                "tracked); rebuild it from stored sources before continuing"
+            )
+        current = self.identity_inputs()
+        changed = {
+            k: (state["inputs"].get(k), v)
+            for k, v in current.items()
+            if state["inputs"].get(k) != v
+        }
+        if changed:
+            detail = ", ".join(f"{k}: {old} → {new}" for k, (old, new) in sorted(changed.items()))
+            raise IdentityInputsChanged(
+                f"identity inputs changed since the security master was built ({detail}). "
+                "Continuing would mix two identity states; rebuild the security master "
+                "from stored sources instead."
+            )
 
     def manifests(self) -> dict[date, dict[str, Any]]:
         if self._manifests is None:
@@ -243,29 +303,51 @@ class IngestionService:
         return self._manifests
 
     def identity_fingerprint(self) -> str:
-        return f"{self.settings.methodology_hash()}/{self.overrides.fingerprint}"
+        i = self.identity_inputs()
+        return f"{i['config']}/{i['overrides']}/{i['symbol_changes'][:12]}"
 
     def load_notices(
         self, *, download: bool, metrics: IngestionMetrics
     ) -> list[SymbolChangeNotice]:
+        """Symbol-change evidence for identity resolution.
+
+        The snapshot is **pinned** to the one the security master was built with. A newer
+        snapshot is still downloaded and stored (raw, immutable), but adopting it changes
+        identity inputs and therefore requires a rebuild — never a silent switch."""
         if self._notices is not None:
             return self._notices
-        record: SourceRecord | None = None
+        downloaded: SourceRecord | None = None
         if download:
             result = self.provider.download_symbol_changes()
             if result.status is DownloadStatus.FOUND and result.artifact is not None:
-                record, _ = self.sources.store(result.artifact, parser_version="symbol_changes_v1")
-            else:
-                metrics.warnings.append(
-                    f"symbol-change list unavailable ({result.detail}); using stored copy"
+                downloaded, _ = self.sources.store(
+                    result.artifact, parser_version="symbol_changes_v1"
                 )
+            else:
+                metrics.warnings.append(f"symbol-change list unavailable ({result.detail})")
+
+        state = self.identity_state()
+        record: SourceRecord | None
+        if state is not None:
+            pinned = state["inputs"].get("symbol_changes", "none")
+            record = None if pinned == "none" else self.sources.get_by_hash(self.exchange, pinned)
+            if pinned != "none" and record is None:
+                raise IdentityInputsChanged(
+                    f"pinned symbol-change snapshot {pinned[:12]} is missing from the raw store"
+                )
+            if downloaded is not None and downloaded.content_hash != pinned:
+                metrics.warnings.append(
+                    f"a newer symbol-change snapshot was stored ({downloaded.source_id}); the "
+                    "security master stays pinned to the previous one until it is rebuilt"
+                )
+        else:
+            record = downloaded or self.sources.latest_snapshot(self.exchange, "symbolchange")
+
         if record is None:
-            record = self.sources.latest_snapshot(self.exchange, "symbolchange")
-        if record is None:
-            self._notices, self._notices_source = [], None
+            self._notices, self._notices_source, self._notices_hash = [], None, None
         else:
             self._notices = self.provider.parse_symbol_changes(self.sources.load(record))
-            self._notices_source = record.source_id
+            self._notices_source, self._notices_hash = record.source_id, record.content_hash
         return self._notices
 
     # ------------------------------------------------------------------ planning
@@ -486,8 +568,10 @@ class IngestionService:
 
         reasons = Counter(str(q.reason) for q in quarantined)
         pending = sum(n for r, n in reasons.items() if QuarantineReason(r) in IDENTITY_REASONS)
+        abnormal = self._abnormal_quarantine(parsed)
         manifest = {
-            "status": DateStatus.INGESTED,
+            "status": DateStatus.QUARANTINED if abnormal else DateStatus.INGESTED,
+            "dq_condition": abnormal,
             "job_id": job_id,
             "selected_source": {
                 "source_id": selected.source_id,
@@ -534,7 +618,19 @@ class IngestionService:
             ]
         self._write_manifest(day, manifest)
 
-        metrics.dates_ingested += 1
+        if abnormal:
+            metrics.dates_failed += 1
+            metrics.errors.append(f"{day}: {abnormal}")
+            log_event(
+                log,
+                "ingest.date.quarantined",
+                logging.ERROR,
+                job_id=job_id,
+                trading_date=str(day),
+                condition=abnormal,
+            )
+        else:
+            metrics.dates_ingested += 1
         metrics.rows_parsed += parsed.rows_read
         metrics.rows_accepted += len(accepted)
         metrics.rows_quarantined += len(quarantined)
@@ -569,6 +665,20 @@ class IngestionService:
             duration=round(time.monotonic() - started, 3),
         )
         return action
+
+    def _abnormal_quarantine(self, parsed: ParsedDaily) -> str | None:
+        """Why this session must not count as ingested, if it must not."""
+        in_scope = len(parsed.rows) + len(parsed.quarantined)
+        if in_scope == 0:
+            return "NO_IN_SCOPE_ROWS: the file has no rows in the configured series"
+        ratio = len(parsed.quarantined) / in_scope
+        limit = self.settings.data_quality.max_session_quarantine_ratio
+        if ratio > limit:
+            return (
+                f"ABNORMAL_QUARANTINE_RATIO: {len(parsed.quarantined)} of {in_scope} in-scope "
+                f"rows rejected by the parser ({ratio:.1%} > {limit:.1%})"
+            )
+        return None
 
     def _fail(
         self,
@@ -764,6 +874,8 @@ class IngestionService:
         metrics.trading_sessions = len(sessions)
         report = BackfillReport(job_id, self.exchange, start, end, dry_run, metrics)
 
+        self.load_notices(download=not dry_run, metrics=metrics)
+        self.check_identity_inputs()
         if dry_run:
             for day in sorted(sessions, reverse=True):
                 report.plan[day.isoformat()] = str(
@@ -780,7 +892,6 @@ class IngestionService:
             end=str(end),
             sessions=len(sessions),
         )
-        self.load_notices(download=True, metrics=metrics)
         horizon = self._anchor_horizon(end, sessions)
         for day in sorted(sessions, reverse=True):
             try:
@@ -833,6 +944,7 @@ class IngestionService:
         start, end = (min(pending), max(pending)) if pending else (self._today(), self._today())
         report = BackfillReport(job_id, self.exchange, start, end, False, metrics)
         self.load_notices(download=False, metrics=metrics)
+        self.check_identity_inputs()
         horizon = self._anchor_horizon(end, pending)
         t0 = time.monotonic()
         for day in pending:

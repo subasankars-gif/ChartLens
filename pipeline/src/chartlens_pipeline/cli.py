@@ -19,6 +19,7 @@ import chartlens_pipeline
 from chartlens_core.config import ChartLensSettings, get_settings, resolve_config_file
 from chartlens_core.domain import JobType
 from chartlens_core.logs import configure_logging, log_event
+from chartlens_pipeline.ingest import IdentityInputsChanged
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="ChartLens data pipeline")
 
@@ -107,7 +108,13 @@ def backfill(
     settings = get_settings()
     configure_logging(settings.runtime)
     service = _service(settings, exchange)
-    report = service.backfill(first, last, dry_run=dry_run, refetch=refetch, reprocess=reprocess)
+    try:
+        report = service.backfill(
+            first, last, dry_run=dry_run, refetch=refetch, reprocess=reprocess
+        )
+    except IdentityInputsChanged as err:
+        typer.echo(f"Refusing to run: {err}", err=True)
+        raise typer.Exit(code=4) from None
     typer.echo(report.render())
     payload = {
         "job_type": JobType.BACKFILL,
@@ -143,8 +150,14 @@ def reprocess_pending(exchange: Exchange = "NSE") -> None:
     """Retry every date that still has identity-pending quarantined rows."""
     settings = get_settings()
     configure_logging(settings.runtime)
-    report = _service(settings, exchange).reprocess_pending()
+    try:
+        report = _service(settings, exchange).reprocess_pending()
+    except IdentityInputsChanged as err:
+        typer.echo(f"Refusing to run: {err}", err=True)
+        raise typer.Exit(code=4) from None
     typer.echo(report.render())
+    if report.metrics.errors:
+        raise typer.Exit(code=2)
 
 
 @app.command("quarantine-report")

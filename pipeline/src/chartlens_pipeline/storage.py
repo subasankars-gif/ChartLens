@@ -260,6 +260,10 @@ class DataLakeLayout:
         return validate_key(f"metadata/security_master/{exchange.lower()}/securities.parquet")
 
     @staticmethod
+    def identity_state_key(exchange: str) -> str:
+        return validate_key(f"metadata/security_master/{exchange.lower()}/identity_state.json")
+
+    @staticmethod
     def identifier_history_key(exchange: str) -> str:
         return validate_key(
             f"metadata/security_master/{exchange.lower()}/identifier_history.parquet"

@@ -87,7 +87,35 @@ quarantined.
 
 Absence from a file never implies delisting.
 
+## Identity inputs are pinned (added 2026-10-01, review finding H1)
+
+The security master records the inputs it was built with in
+`metadata/security_master/{ex}/identity_state.json`:
+
+| Input | What it is |
+|---|---|
+| `config` | A hash of the `identity` and `universe` settings only, so changing an unrelated methodology section, such as adjustment, never touches identity |
+| `overrides` | A hash of `config/identity/{ex}.toml` |
+| `symbol_changes` | The SHA-256 of the exact symbol-change snapshot used |
+
+* **Mismatched inputs stop the run.** Before any processing, including a dry run, the
+  current inputs are compared with the recorded ones. On any difference the run stops
+  with `IdentityInputsChanged` (CLI exit code 4), and nothing is written. Reprocessing
+  against the old master would otherwise mix two identity states. The old master only
+  ever adds, so an override could never re-point an ISIN it had already assigned.
+* **The symbol-change snapshot is pinned.** Each run still downloads and stores the
+  latest snapshot (raw, immutable), but the master keeps using its pinned snapshot. A
+  newer one produces a warning.
+* **Adopting a new snapshot, or any changed override, means rebuilding the master**
+  from stored sources. That rebuild command is Milestone 3.
+
 ## Overrides
+
+Overrides are consulted **before** every inferred rule, including the known-ISIN rule,
+and `link_isin` entries are **symmetric**: the result does not depend on which ISIN a
+backfill meets first. If an override contradicts the existing master, the row is
+quarantined as `IDENTITY_CONFLICT` rather than silently merged. In practice the
+identity-inputs check above prevents this from ever arising.
 
 `config/identity/nse.toml` (versioned, reviewed) supports three entries:
 

@@ -86,6 +86,25 @@ not-published dates (7 days) are re-checked on the next run, since files can app
 Backfills process sessions **newest first** (identity anchoring, ADR-0009). One failing
 date is recorded (`FAILED` manifest, error in the summary) and never stops the run.
 
+## Quarantined sessions (added 2026-10-01, review finding H2)
+
+A session counts as ingested only if the parser accepted it as a whole. A manifest gets
+status `QUARANTINED`, with a `dq_condition`, when either:
+
+* the parser rejects more than `data_quality.max_session_quarantine_ratio` (5%) of the
+  in-scope rows (`ABNORMAL_QUARANTINE_RATIO`); or
+* the file has no rows in the configured series (`NO_IN_SCOPE_ROWS`).
+
+Such a session:
+* counts as a run error, so the CLI exits 2;
+* still writes its valid rows and its quarantine file;
+* is reprocessed from stored bytes on every run, so a parser fix heals it with no
+  re-download.
+
+Previously, 2020-07-13 (100% rejected) was recorded as `INGESTED` with 0 errors.
+Identity-pending rows do not count towards the ratio; they are expected while pre-ISIN
+history is anchored.
+
 ## Quarantine
 
 Nothing is discarded. Quarantined rows keep the source hash, parser version, row

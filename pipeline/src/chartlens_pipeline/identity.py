@@ -123,6 +123,13 @@ class IdentityOverrides:
     status: dict[str, StatusOverride] = field(default_factory=dict)
     fingerprint: str = "none"
 
+    def partners(self, isin: str) -> set[str]:
+        """ISINs a reviewed ``link_isin`` entry declares to be the same security as ``isin``.
+        Links are symmetric, so the result does not depend on which ISIN is seen first."""
+        found = {target for source, target in self.link_isin.items() if source == isin}
+        found |= {source for source, target in self.link_isin.items() if target == isin}
+        return found
+
     @classmethod
     def load(cls, path: Path | None) -> IdentityOverrides:
         if path is None or not path.is_file():
@@ -468,18 +475,30 @@ class SecurityMaster:
             return QuarantineReason.IDENTITY_CONFLICT, f"ISIN {isin} maps to {sorted(known)}"
 
         decision: _Decision | None = None
+        # Reviewed overrides are consulted first, so they win over every inferred rule.
+        partners = overrides.partners(isin)
+        linked_by_override = set[str]().union(*(self.by_isin(p) for p in partners))
+        if len(linked_by_override) > 1:
+            return (
+                QuarantineReason.IDENTITY_CONFLICT,
+                f"override partners of {isin} map to several securities "
+                f"{sorted(linked_by_override)}",
+            )
+        if linked_by_override and known and known != linked_by_override:
+            return (
+                QuarantineReason.IDENTITY_CONFLICT,
+                f"override links {isin} to {sorted(linked_by_override)} but the master already "
+                f"assigns it to {sorted(known)}; the security master must be rebuilt",
+            )
         if known:
             decision = _Decision(obs, next(iter(known)), Evidence.OBSERVED)
-        elif isin in overrides.link_isin:
-            target = overrides.link_isin[isin]
-            targets = self.by_isin(target)
-            if len(targets) != 1:
-                return (
-                    QuarantineReason.UNRESOLVED_IDENTITY,
-                    f"override links {isin} to {target}, which is not (uniquely) known yet",
-                )
+        elif linked_by_override:
+            target = next(iter(linked_by_override))
             decision = _Decision(
-                obs, next(iter(targets)), Evidence.OVERRIDE, link_note=f"OVERRIDE {isin}→{target}"
+                obs,
+                target,
+                Evidence.OVERRIDE,
+                link_note=f"OVERRIDE {isin}↔{','.join(sorted(partners))}",
             )
         elif config.link_same_issuer_isin and isin not in overrides.distinct_isin:
             issuer = policy.issuer_key(isin)

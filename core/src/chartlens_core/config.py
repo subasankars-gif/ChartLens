@@ -137,6 +137,9 @@ class DataQualityConfig(_Section):
     """Close-to-close move (as a fraction) that is flagged when no corporate action explains it."""
     max_missing_session_ratio: float = Field(default=0.02, ge=0, le=1)
     """Fraction of expected sessions that may be missing before status degrades to WARN."""
+    max_session_quarantine_ratio: float = Field(default=0.05, ge=0, le=1)
+    """Share of a session's in-scope rows the parser may reject before the session is
+    treated as QUARANTINED rather than ingested (the 2020-07-13 case rejected 100%)."""
 
 
 class IdentityConfig(_Section):

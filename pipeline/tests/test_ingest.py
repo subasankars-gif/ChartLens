@@ -428,3 +428,123 @@ def test_updated_securities_counts_distinct_securities(
     fake.serve(*legacy_zip(date(2024, 1, 29), bhav(date(2024, 1, 29), BASE_ROWS)))
     again = service(fake, lake).backfill(date(2024, 1, 29), date(2024, 1, 29))
     assert again.metrics.securities_updated == 2
+
+
+# ----------------------------------------------------------------------------- H1: identity inputs
+
+
+def test_changed_overrides_on_an_existing_master_are_refused(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    """H1 regression: changing reviewed overrides must not silently mix identity states."""
+    from chartlens_pipeline.identity import IdentityOverrides
+    from chartlens_pipeline.ingest import IdentityInputsChanged
+
+    serve_week(fake)
+    service(fake, lake).backfill(MON, TUE)
+    before = {k: lake.get(k) for k in lake.list("")}
+    s = ChartLensSettings.model_construct()
+    ov = IdentityOverrides(link_isin={"INE467B01029": "INE002A01018"}, fingerprint="reviewed-1")
+    changed = IngestionService(
+        s, fake_provider(fake, CAL, s), lake, overrides=ov, today=lambda: TODAY
+    )
+    with pytest.raises(IdentityInputsChanged, match="overrides: none → reviewed-1"):
+        changed.backfill(WED, THU)
+    with pytest.raises(IdentityInputsChanged):
+        changed.backfill(WED, THU, dry_run=True)
+    assert {k: lake.get(k) for k in lake.list("")} == before  # nothing written
+
+
+def test_master_without_recorded_inputs_is_refused(fake: FakeNse, lake: LocalObjectStore) -> None:
+    from chartlens_pipeline.ingest import IdentityInputsChanged
+
+    serve_week(fake)
+    service(fake, lake).backfill(MON, MON)
+    (lake.root / DataLakeLayout.identity_state_key("NSE")).unlink()
+    with pytest.raises(IdentityInputsChanged, match="no recorded identity inputs"):
+        service(fake, lake).backfill(TUE, TUE)
+
+
+def test_symbol_change_snapshot_is_pinned_until_rebuild(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    serve_week(fake)
+    fake.symbol_changes = b" Co Ltd,OLDSYM,NEWSYM,15-JAN-2024\n"
+    service(fake, lake).backfill(MON, TUE)
+    pinned = json.loads(lake.get(DataLakeLayout.identity_state_key("NSE")))["inputs"][
+        "symbol_changes"
+    ]
+
+    fake.symbol_changes = b" Co Ltd,OLDSYM,NEWSYM,15-JAN-2024\n Other,AAA,BBB,20-JAN-2024\n"
+    report = service(fake, lake).backfill(MON, WED)
+    assert report.metrics.dates_skipped == 2 and report.metrics.dates_ingested == 1  # no reprocess
+    assert any("newer symbol-change snapshot" in w for w in report.metrics.warnings)
+    state = json.loads(lake.get(DataLakeLayout.identity_state_key("NSE")))
+    assert state["inputs"]["symbol_changes"] == pinned  # still pinned
+    assert (
+        len([k for k in lake.list("raw/nse/symbolchange/") if k.endswith(".meta.json")]) == 2
+    )  # both kept
+
+
+def test_identity_inputs_ignore_non_identity_methodology(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    from chartlens_core.config import AdjustmentConfig
+
+    serve_week(fake)
+    service(fake, lake).backfill(MON, TUE)
+    s = ChartLensSettings.model_construct(adjustment=AdjustmentConfig(dividends=True))
+    svc = IngestionService(s, fake_provider(fake, CAL, s), lake, today=lambda: TODAY)
+    report = svc.backfill(MON, TUE)  # no IdentityInputsChanged, nothing reprocessed
+    assert report.metrics.dates_skipped == 2
+
+
+# ----------------------------------------------------------------------------- H2: quarantined sessions
+
+
+def test_fully_rejected_session_is_not_counted_as_ingested(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    """H2 regression (the 2020-07-13 case): every row unparseable."""
+    stamp = "22-JANUARY-2024"  # not a date format the parser accepts
+    rows = "\n".join(f"S{i},EQ,10,12,9,11,11,10,100,1000,{stamp},1,INE002A01018," for i in range(5))
+    fake.serve(*legacy_zip(MON, f"{HEADER}\n{rows}".encode()))
+    svc = service(fake, lake)
+    report = svc.backfill(MON, MON)
+    m = manifest(lake, MON)
+    assert m["status"] == DateStatus.QUARANTINED
+    assert m["dq_condition"].startswith("ABNORMAL_QUARANTINE_RATIO: 5 of 5")
+    assert report.metrics.dates_failed == 1 and report.metrics.dates_ingested == 0
+    assert report.metrics.errors and "ABNORMAL_QUARANTINE_RATIO" in report.metrics.errors[0]
+    # Retried from stored bytes on every run (no re-download) until a parser fix makes it pass.
+    assert svc.plan_date(MON, refetch=False, reprocess=False) is DateAction.PROCESS_STORED
+
+
+def test_partially_rejected_session_keeps_good_rows_but_is_flagged(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    bad = "BAD,EQ,10,5,9,11,11,10,100,1000,22-JAN-2024,1,INE144J01027,"
+    fake.serve(*legacy_zip(MON, bhav(MON, BASE_ROWS) + f"\n{bad}".encode()))
+    report = service(fake, lake).backfill(MON, MON)
+    assert manifest(lake, MON)["status"] == DateStatus.QUARANTINED  # 1 of 3 > 5%
+    assert canonical(lake, MON).num_rows == 2  # valid rows are still written
+    assert report.metrics.quarantine_by_reason == {"INVALID_OHLC": 1}
+
+
+def test_session_with_no_in_scope_rows_is_flagged(fake: FakeNse, lake: LocalObjectStore) -> None:
+    fake.serve(*legacy_zip(MON, bhav(MON, [("BOND1", "N1", "INE002A01018", "100")])))
+    service(fake, lake).backfill(MON, MON)
+    assert manifest(lake, MON)["dq_condition"].startswith("NO_IN_SCOPE_ROWS")
+
+
+def test_cli_exits_non_zero_for_a_quarantined_session(
+    fake: FakeNse, lake: LocalObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from chartlens_pipeline import cli
+
+    fake.serve(*legacy_zip(MON, bhav(MON, [("BOND1", "N1", "INE002A01018", "100")])))
+    monkeypatch.setattr(cli, "_service", lambda _s, _e: service(fake, lake))
+    result = CliRunner().invoke(cli.app, ["backfill", "--date", "2024-01-22"])
+    assert result.exit_code == 2

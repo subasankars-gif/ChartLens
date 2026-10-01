@@ -62,6 +62,7 @@ dividends = false              # charts show prices as traded
 [data_quality]
 max_unexplained_move = 0.25       # close-to-close move flagged when no corporate action explains it
 max_missing_session_ratio = 0.02  # above this, status degrades to WARN
+max_session_quarantine_ratio = 0.05  # above this share of rejected rows, a session is QUARANTINED, not ingested
 
 [identity]                      # ADR-0009 — which security a row belongs to
 link_same_issuer_isin = true    # new ISIN + same issuer + symbol evidence → same security
