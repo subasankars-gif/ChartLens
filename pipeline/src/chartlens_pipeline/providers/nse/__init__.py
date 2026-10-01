@@ -27,6 +27,7 @@ from chartlens_pipeline.providers.base import (
     RawArtifact,
 )
 from chartlens_pipeline.providers.nse.bhavcopy import PARSER_VERSION, parse_bhavcopy
+from chartlens_pipeline.providers.nse.corporate_actions import NseCorporateActions
 
 EXCHANGE: Final = "NSE"
 PROVIDER: Final = "nse"
@@ -181,6 +182,7 @@ class NseProvider:
         self._fetcher = fetcher
         self._calendar = calendar
         self.daily_bars = NseDailyBars(config, fetcher)
+        self.corporate_actions = NseCorporateActions(config, fetcher)
 
     def trading_calendar(self) -> DataCalendar:
         return self._calendar if self._calendar is not None else load_calendar()

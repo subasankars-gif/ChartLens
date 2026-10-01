@@ -39,6 +39,8 @@ min_request_interval_seconds = 0.5
 
 [providers.nse]                 # established by the NSE probe (ADR-0008)
 archive_base_url = "https://nsearchives.nseindia.com"
+api_base_url = "https://www.nseindia.com"   # corporate-actions JSON API (ADR-0011)
+corporate_actions_first_month = 2006-01-01
 udiff_first_date = 2024-01-01   # UDiFF tried first from here; legacy only before
 legacy_last_date = 2024-07-05   # last legacy bhavcopy NSE published
 

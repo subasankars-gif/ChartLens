@@ -94,6 +94,9 @@ class NseProviderConfig(_Section):
     """Where NSE publishes daily bhavcopies. Established by the NSE probe (ADR-0008)."""
 
     archive_base_url: str = "https://nsearchives.nseindia.com"
+    api_base_url: str = "https://www.nseindia.com"
+    """Host of NSE's JSON APIs (corporate actions). Answers hosted runners (ADR-0011)."""
+    corporate_actions_first_month: date = date(2006, 1, 1)
     udiff_first_date: date = date(2024, 1, 1)
     """Earliest date for which the UDiFF bhavcopy is tried first (probe: present 2024-01-19,
     absent 2020-03-02). Before this, only the legacy file is requested."""
