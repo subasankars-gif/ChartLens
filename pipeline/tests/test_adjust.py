@@ -699,3 +699,13 @@ def test_stale_isin_resolves_to_the_live_security_of_the_same_issuer() -> None:
     assert resolve_action(_record("INE235C01010", date(2020, 1, 6)), m, universe, 45, policy)[
         :2
     ] == ("OLD", Resolution.ISIN)
+
+
+def test_a_later_demerger_does_not_hide_the_face_value_but_a_capital_reduction_does() -> None:
+    h = flat_with_jump(30, 20, "200", str(D(200) * 11 / 12))
+    rights = action("Rights 1:5 @ Premium Rs 90/-", h.dates[20], fv="10")
+    later = h.dates[25]
+    (r1, _) = decide(h, rights, action("Demerger", later, fv="10"))
+    assert r1.factor == F(11, 12) and r1.applied
+    (r2, _) = decide(h, rights, action("Capital Reduction Pursuant To Nclt Order", later, fv="10"))
+    assert r2.factor is None and r2.status is EventStatus.UNQUANTIFIED

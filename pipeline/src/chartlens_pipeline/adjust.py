@@ -32,6 +32,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import statistics
 import tomllib
 from collections import Counter, defaultdict
@@ -428,6 +429,18 @@ def _component_key(c: ActionComponent) -> tuple[object, ...]:
     )
 
 
+_CAPITAL_CHANGE: Final = re.compile(r"reduc|consolidat")
+
+
+def _changes_capital(a: ResolvedAction) -> bool:
+    """An unquantified action that may change the face value itself (capital reduction,
+    consolidation). Demergers, mergers and schemes without such wording leave the
+    company's face value unchanged, so earlier face values stay reconstructible."""
+    return a.interpretation.action_class is ActionClass.UNQUANTIFIED and bool(
+        _CAPITAL_CHANGE.search(a.record.subject.lower())
+    )
+
+
 def face_value_at(
     day: date,
     current_fv: Decimal | None,
@@ -580,7 +593,7 @@ def decide_security(
         if fv is not None and (current_fv is None or ex >= current_fv[0]):
             current_fv = (ex, fv)
         fv_changes += [(ex, c) for c in a.interpretation.components if c.kind in _FV_KINDS]
-        if a.interpretation.action_class is ActionClass.UNQUANTIFIED:
+        if _changes_capital(a):
             uncertain.append(ex)
 
     decisions: list[EventDecision] = []

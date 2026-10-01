@@ -24,8 +24,10 @@ Facts that shaped the design:
 
 * **`faceVal` is the *current* face value**, not the value at the ex-date. The face
   value in force before an event is reconstructed backwards: undo every later
-  split/consolidation from today's value. If an unquantified capital change follows
-  the event, that face value is *unknown*.
+  split/consolidation from today's value. If an unquantified action follows the event
+  and its wording mentions a capital *reduction* or *consolidation*, that face value is
+  *unknown*. Demergers, mergers and schemes without such wording leave the face value
+  reconstructible. Example: RELIANCE's 2020 rights issue precedes its 2023 demerger.
 * **Bhavcopy `PREVCLOSE` is not adjusted on ex-dates.** Validation therefore compares
   the last close before the ex-date with the first open on or after it, never
   PREVCLOSE.
