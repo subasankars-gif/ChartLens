@@ -1,0 +1,71 @@
+# Connectivity check for production storage: keyless auth (Workload Identity Federation)
+# → write, read back and list one probe object through ChartLens's own GcsObjectStore.
+# Result is published to the throwaway branch probe-results/gcs.
+
+name: GCS check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["probe/gcs"]
+
+permissions:
+  contents: write   # publish the result branch
+  id-token: write   # Workload Identity Federation
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CHARTLENS_STORAGE__BACKEND: gcs
+      CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - name: Variables present
+        run: |
+          mkdir -p out
+          {
+            echo "GCS_BUCKET=${{ vars.GCS_BUCKET }}"
+            echo "GCP_WIF_PROVIDER=${{ vars.GCP_WIF_PROVIDER }}"
+            echo "GCP_PIPELINE_SA=${{ vars.GCP_PIPELINE_SA }}"
+          } | tee out/variables.txt
+      - id: auth
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Round trip through GcsObjectStore
+        continue-on-error: true
+        run: |
+          echo "auth_outcome=${{ steps.auth.outcome }}" | tee out/result.txt
+          uv run --no-sync python - <<'EOF' 2>&1 | tee -a out/result.txt
+          import os, time
+          from chartlens_core.config import get_settings
+          from chartlens_pipeline.storage import object_store_from_config
+          s = get_settings()
+          print("backend", s.storage.backend, "bucket", s.storage.gcs_bucket)
+          store = object_store_from_config(s.storage)
+          key = f"_healthcheck/{os.environ['GITHUB_RUN_ID']}.txt"
+          payload = f"chartlens gcs check {time.time()}".encode()
+          print("put_immutable", store.put_immutable(key, payload))
+          print("read back equal", store.get(key) == payload)
+          print("put_immutable again (same bytes) ->", store.put_immutable(key, payload))
+          print("listed", key in store.list("_healthcheck/"))
+          print("OK")
+          EOF
+      - name: Publish result
+        if: always()
+        run: |
+          cd out
+          git init -q -b probe-results/gcs
+          git -c user.name=gcs-check -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=gcs-check -c user.email=probe@users.noreply.github.com commit -qm "GCS check ($GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/gcs
