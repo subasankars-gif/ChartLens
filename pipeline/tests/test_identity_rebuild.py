@@ -178,3 +178,32 @@ def test_rebuild_writes_the_master_once_not_per_session(
     IdentityRebuildService(SETTINGS, provider, store, overrides=LINK, today=today).run()
     master_writes = [k for k in writes if k == DataLakeLayout.securities_key("NSE")]
     assert len(master_writes) == 1
+
+
+def test_a_rebuild_killed_mid_way_leaves_ingestion_blocked(
+    lake: tuple[LocalObjectStore, FakeNse], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression (GCS bootstrap, 2026-10-01): a rebuild that saved the master after every
+    session also cleared the rebuild_in_progress mark after the first one, so a killed
+    rebuild left a half-built master that ingestion accepted."""
+    store, fake = lake
+    provider = fake_provider(fake, calendar_for([2021]), SETTINGS)
+    calls = {"n": 0}
+    original = IngestionService.ingest_date
+
+    def dies_on_third(self: IngestionService, *args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        if self._rebuild and calls["n"] == 3:  # pyright: ignore[reportPrivateUsage]
+            raise SystemExit("runner killed")
+        return original(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(IngestionService, "ingest_date", dies_on_third)
+    with pytest.raises(SystemExit):
+        IdentityRebuildService(SETTINGS, provider, store, overrides=LINK, today=today).run()
+    state = json.loads(store.get(DataLakeLayout.identity_state_key("NSE")))
+    assert state.get("rebuild_in_progress")
+    monkeypatch.setattr(IngestionService, "ingest_date", original)
+    with pytest.raises(IdentityInputsChanged, match="did not complete"):
+        IngestionService(SETTINGS, provider, store, overrides=LINK, today=today).backfill(
+            SESSIONS[-1], SESSIONS[-1]
+        )
