@@ -140,7 +140,7 @@ class AdjustmentConfig(_Section):
     validation_window: int = Field(default=250, ge=20)
     """Trailing rows used for the robust overnight-gap sigma (point-in-time: before the event)."""
     gap_report_threshold: float = Field(default=0.25, gt=0)
-    """A 'large gap' in the market-wide discontinuity report: |open / previous close − 1| above this."""
+    """A large gap in the market-wide discontinuity report: |open / prev close - 1| above this."""
 
 
 class DataQualityConfig(_Section):

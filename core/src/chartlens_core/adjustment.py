@@ -25,14 +25,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
-from decimal import ROUND_HALF_EVEN, Context, Decimal
+from decimal import Decimal
 from fractions import Fraction
 from itertools import pairwise
 from typing import Final
 
 ADJUSTED_PRICE_SCALE: Final = 6
 ADJUSTED_VOLUME_SCALE: Final = 4
-_CTX: Final = Context(prec=60, rounding=ROUND_HALF_EVEN)
 
 
 @dataclass(frozen=True, order=True)
@@ -90,11 +89,26 @@ def cumulative_factors(
 
 
 def apply(value: Decimal, factor: Fraction, scale: int) -> Decimal:
-    """Exact ``value × factor`` rounded once, half-even, to ``scale`` decimal places."""
-    exact = _CTX.divide(
-        _CTX.multiply(value, Decimal(factor.numerator)), Decimal(factor.denominator)
-    )
-    return exact.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_EVEN, context=_CTX)
+    """Exact ``value × factor`` rounded once, half-even, to ``scale`` decimal places.
+
+    Pure integer arithmetic: the exact rational is formed and rounded a single time, so
+    there is no intermediate rounding whatever the size of the factor's denominator.
+    """
+    if not value.is_finite() or factor <= 0:
+        raise ValueError(f"cannot adjust {value} by {factor}")
+    sign, digits, exponent = value.as_tuple()
+    assert isinstance(exponent, int)
+    mantissa = int("".join(map(str, digits)) or "0")
+    num, den = mantissa * factor.numerator, factor.denominator
+    shift = exponent + scale  # value × 10^scale = mantissa × 10^shift
+    if shift >= 0:
+        num *= 10**shift
+    else:
+        den *= 10**-shift
+    q, r = divmod(num, den)
+    if 2 * r > den or (2 * r == den and q % 2 == 1):
+        q += 1
+    return Decimal((sign, tuple(map(int, str(q))), -scale))
 
 
 def adjust_price(raw: Decimal, factor: Fraction) -> Decimal:

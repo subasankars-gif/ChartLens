@@ -270,6 +270,39 @@ class DataLakeLayout:
         )
 
     @staticmethod
+    def adjusted_daily_key(exchange: str, security_id: str) -> str:
+        return validate_key(f"curated/adjusted/exchange={exchange.upper()}/{security_id}.parquet")
+
+    @staticmethod
+    def adjusted_daily_prefix(exchange: str) -> str:
+        return f"curated/adjusted/exchange={exchange.upper()}/"
+
+    @staticmethod
+    def adjusted_manifest_key(exchange: str) -> str:
+        """Written last: the adjustment version and the content hash of every current file."""
+        return validate_key(f"curated/adjusted/exchange={exchange.upper()}/_manifest.json")
+
+    @staticmethod
+    def corporate_actions_table_key(exchange: str) -> str:
+        return validate_key(f"metadata/corporate_actions/{exchange.lower()}/actions.parquet")
+
+    @staticmethod
+    def adjustment_events_key(exchange: str) -> str:
+        return validate_key(f"metadata/adjustments/{exchange.lower()}/events.parquet")
+
+    @staticmethod
+    def adjustment_report_key(exchange: str) -> str:
+        return validate_key(f"metadata/adjustments/{exchange.lower()}/report.json")
+
+    @staticmethod
+    def data_quality_findings_key(exchange: str) -> str:
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/findings.parquet")
+
+    @staticmethod
+    def data_quality_status_key(exchange: str) -> str:
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/status.parquet")
+
+    @staticmethod
     def curated_weekly_key(exchange: str, security_id: str) -> str:
         return validate_key(f"curated/weekly/{exchange.lower()}/{security_id}.parquet")
 
