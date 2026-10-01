@@ -46,9 +46,25 @@ jobs:
         id: backfill
         timeout-minutes: 320   # stop before the job limit so progress is still published
         run: |
+          mkdir -p out
+          set +e
           uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
             --report-file backfill.json > backfill.txt 2> backfill.log
+          code=$?
+          if [ "$code" = 4 ]; then
+            # Identity inputs changed since the master was built (ADR-0013): the documented
+            # procedure is a full identity rebuild from stored raw bytes, then continue.
+            grep -h "Refusing" backfill.log | tail -1 | tee out/identity-refusal.txt
+            s=$(date +%s)
+            uv run --no-sync chartlens-pipeline identity-rebuild > out/identity-rebuild.json 2> rebuild.log
+            echo "rebuild_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/progress.txt
+            uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
+              --report-file backfill.json > backfill.txt 2> backfill.log
+            code=$?
+          fi
           tail -25 backfill.txt
+          echo "backfill_exit=$code" | tee -a out/progress.txt
+          exit $code
       - name: Corporate-action feed into GCS
         if: steps.backfill.outcome == 'success'
         run: uv run --no-sync chartlens-pipeline corporate-actions fetch 2> ca.log | head -20
@@ -69,6 +85,7 @@ jobs:
                             "status_of_newest_200": status}, indent=2))
           PY
           cp backfill.txt out/ 2>/dev/null || true
+          grep -h '"severity": "ERROR"' backfill.log rebuild.log 2>/dev/null | tail -20 > out/errors.jsonl || true
           echo "backfill_outcome=${{ steps.backfill.outcome }}" >> out/progress.txt
       - name: Publish progress
         if: always()
