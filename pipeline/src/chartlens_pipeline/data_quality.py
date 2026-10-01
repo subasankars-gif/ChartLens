@@ -27,7 +27,7 @@ import hashlib
 import json
 import logging
 from collections import Counter, defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
@@ -37,13 +37,14 @@ from typing import Any, Final
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from chartlens_core.config import ChartLensSettings
+from chartlens_core.config import ChartLensSettings, config_dir
 from chartlens_core.logs import log_event
 from chartlens_core.quality import Dimension, Finding, Severity, status
 from chartlens_pipeline.adjust import EventStatus
 from chartlens_pipeline.calendar import CalendarCoverageError, CalendarEvidence, TradingCalendar
 from chartlens_pipeline.corporate_actions_model import ActionClass
 from chartlens_pipeline.daily import to_parquet_bytes
+from chartlens_pipeline.identity import IdentityOverrides
 from chartlens_pipeline.providers.base import ExchangeProvider
 from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
 
@@ -141,6 +142,7 @@ def security_findings(
     identifiers: Sequence[dict[str, Any]],
     expected: Sequence[date],
     settings: ChartLensSettings,
+    link_breaks: Mapping[str, str] | None = None,
 ) -> list[Finding]:
     cfg = settings.data_quality
     sid = s.security_id
@@ -242,6 +244,26 @@ def security_findings(
                 )
             )
 
+    for r in identifiers:  # reviewed identity links that join identity but not prices
+        reason = (link_breaks or {}).get(r["identifier_value"])
+        if r["identifier_type"] != "ISIN" or reason is None:
+            continue
+        i = bisect.bisect_left(s.dates, r["valid_from"])
+        if 0 < i < len(s.dates):
+            out.append(
+                Finding(
+                    sid,
+                    s.dates[i],
+                    s.dates[i],
+                    Dimension.IDENTITY,
+                    Severity.WARN,
+                    "REVIEWED_LINK_PRICE_BREAK",
+                    breaks_continuity=True,
+                    detail=f"ISIN {r['identifier_value']} linked by review; prices not continuous",
+                    evidence=reason,
+                )
+            )
+
     by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in identifiers:
         by_type[r["identifier_type"]].append(r)
@@ -305,8 +327,20 @@ STATUS_SCHEMA: Final = pa.schema(
 
 class DataQualityService:
     def __init__(
-        self, settings: ChartLensSettings, provider: ExchangeProvider, store: ObjectStore
+        self,
+        settings: ChartLensSettings,
+        provider: ExchangeProvider,
+        store: ObjectStore,
+        *,
+        identity_overrides: IdentityOverrides | None = None,
     ) -> None:
+        if identity_overrides is None:
+            directory = config_dir()
+            name = f"{provider.exchange_code.lower()}.toml"
+            identity_overrides = IdentityOverrides.load(
+                directory / "identity" / name if directory else None
+            )
+        self.identity_overrides = identity_overrides
         self.settings = settings
         self.provider = provider
         self.exchange = provider.exchange_code
@@ -359,6 +393,7 @@ class DataQualityService:
                         "methodology": self.settings.data_quality.model_dump(mode="json"),
                         "adjustment": adjustment_version,
                         "calendar": calendar.version,
+                        "identity_overrides": self.identity_overrides.fingerprint,
                     },
                     sort_keys=True,
                 ).encode()
@@ -418,6 +453,7 @@ class DataQualityService:
                 identifiers.get(s.security_id, []),
                 expected,
                 self.settings,
+                self.identity_overrides.link_breaks_continuity,
             )
             if s.file_hash.startswith("MISMATCH"):
                 own.append(

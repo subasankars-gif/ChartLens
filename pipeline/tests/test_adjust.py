@@ -37,6 +37,7 @@ from chartlens_pipeline.adjust import (
 )
 from chartlens_pipeline.corporate_actions import CorporateActionStore
 from chartlens_pipeline.corporate_actions_model import ActionClass, ActionComponent, ComponentKind
+from chartlens_pipeline.identity import IdentityOverrides
 from chartlens_pipeline.ingest import IngestionService
 from chartlens_pipeline.providers.base import CorporateActionRecord
 from chartlens_pipeline.providers.nse import NseProvider
@@ -541,9 +542,9 @@ def build_lake(
         )
     provider = fake_provider(fake, calendar_for([2024]), settings)
     lake = LocalObjectStore(tmp_path / "lake")
-    IngestionService(settings, provider, lake, today=lambda: date(2024, 3, 1)).backfill(
-        SESSIONS[0], SESSIONS[-1]
-    )
+    IngestionService(
+        settings, provider, lake, overrides=IdentityOverrides(), today=lambda: date(2024, 3, 1)
+    ).backfill(SESSIONS[0], SESSIONS[-1])
     feed = ca_json(
         [
             ("SPLITCO", "INE002A01018", "Face Value Split From Rs 10 To Rs 2", EX, "2"),
@@ -616,9 +617,9 @@ def test_override_for_an_unknown_isin_blocks_publication(tmp_path: Path) -> None
         fake.serve(*legacy_zip(day, bhav(day, [("PLAIN", "INE009A01021", "50")])))
     provider = fake_provider(fake, calendar_for([2024]), settings)
     lake = LocalObjectStore(tmp_path / "lake")
-    IngestionService(settings, provider, lake, today=lambda: date(2024, 3, 1)).backfill(
-        SESSIONS[0], SESSIONS[2]
-    )
+    IngestionService(
+        settings, provider, lake, overrides=IdentityOverrides(), today=lambda: date(2024, 3, 1)
+    ).backfill(SESSIONS[0], SESSIONS[2])
     o = FactorOverride("INE000X01011", SESSIONS[1], F(1, 2), "doc", "me")
     svc = AdjustmentService(
         settings,

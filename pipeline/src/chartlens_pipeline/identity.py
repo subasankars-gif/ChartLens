@@ -121,6 +121,10 @@ class IdentityOverrides:
     distinct_isin: frozenset[str] = frozenset()
     """ISINs that must never be linked to an existing security."""
     status: dict[str, StatusOverride] = field(default_factory=dict)
+    link_breaks_continuity: dict[str, str] = field(default_factory=dict)
+    """Linked ISIN (``isin`` of a ``link_isin`` entry with ``price_continuity = "break"``)
+    → reason. The link joins *identity* only: prices across it are not comparable, so
+    data quality starts ``usable_from`` at the first session under this ISIN (ADR-0013)."""
     fingerprint: str = "none"
 
     def partners(self, isin: str) -> set[str]:
@@ -138,8 +142,16 @@ class IdentityOverrides:
 
         raw = path.read_bytes()
         data = tomllib.loads(raw.decode())
+        breaks: dict[str, str] = {}
+        for e in data.get("link_isin", []):
+            continuity = e.get("price_continuity", "continuous")
+            if continuity not in ("continuous", "break"):
+                raise ValueError(f"{path}: price_continuity must be continuous|break: {e}")
+            if continuity == "break":
+                breaks[e["isin"]] = e["reason"]
         return cls(
             link_isin={e["isin"]: e["existing_isin"] for e in data.get("link_isin", [])},
+            link_breaks_continuity=breaks,
             distinct_isin=frozenset(e["isin"] for e in data.get("distinct_isin", [])),
             status={
                 e["isin"]: StatusOverride(

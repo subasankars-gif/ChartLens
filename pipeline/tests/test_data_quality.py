@@ -24,6 +24,7 @@ from chartlens_pipeline.data_quality import (
     market_findings,
     security_findings,
 )
+from chartlens_pipeline.identity import IdentityOverrides
 from chartlens_pipeline.storage import DataLakeLayout
 
 SETTINGS = ChartLensSettings.model_construct()
@@ -137,11 +138,13 @@ def test_market_findings_flag_sessions_not_ingested_and_derived_years() -> None:
 def test_service_end_to_end(tmp_path: Path) -> None:
     settings, provider, lake, today = build_lake(tmp_path)
     with pytest.raises(AdjustedDataNotPublished):
-        DataQualityService(settings, provider, lake).run()
+        DataQualityService(settings, provider, lake, identity_overrides=IdentityOverrides()).run()
     AdjustmentService(
         settings, provider, lake, overrides=CorporateActionOverrides(), today=today
     ).run()
-    result = DataQualityService(settings, provider, lake).run()
+    result = DataQualityService(
+        settings, provider, lake, identity_overrides=IdentityOverrides()
+    ).run()
     by_symbol = {s["symbol"]: s for s in result.statuses}
     assert by_symbol["SPLITCO"]["usable_from"] == SESSIONS[0]
     assert by_symbol["SPLITCO"]["status"] == Q.USABLE

@@ -1,0 +1,21 @@
+# Reviewed corporate-action decisions for NSE (ADR-0011).
+#
+# The adjustment engine never derives a factor from a price gap. A factor for an event the
+# feed does not quantify (demerger, scheme, capital reduction...) or does not contain may
+# only come from a primary document, recorded here with its evidence. The file's hash is
+# part of adjustment_version.
+#
+# [[factor]]     isin + ex_date → exact factor ("n/d") for prices before the ex-date.
+#                factor = "1/1" records a reviewed *no price effect* (e.g. the acquirer in
+#                an amalgamation), which removes the continuity break.
+#   isin = "INE..."; ex_date = 2021-10-22; factor = "1/10"
+#   evidence = "document, page"; reviewed_by = "name, date"
+#
+# [[suppress]]   record_key → reason: a feed record judged wrong (duplicate, wrong security).
+#
+# Every applied factor is still validated against prices; an override that the prices
+# contradict is rejected like any other factor.
+#
+# Deliberately no entry for 3i Infotech (2021-10-22): the identity link is approved in
+# config/identity/nse.toml, but no primary-document factor exists, so the history stays
+# discontinuous (usable_from = 2021-10-22).

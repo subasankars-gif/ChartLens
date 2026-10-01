@@ -205,8 +205,12 @@ class IngestionService:
         *,
         overrides: IdentityOverrides | None = None,
         today: Callable[[], date] = lambda: utc_now().date(),
+        rebuild: bool = False,
     ) -> None:
+        """``rebuild=True`` starts from an empty security master and ignores the pinned
+        identity state, adopting the current inputs (used only by the identity rebuild)."""
         self.settings = settings
+        self._rebuild = rebuild
         self.provider = provider
         self.exchange = provider.exchange_code
         self.store = store
@@ -215,7 +219,7 @@ class IngestionService:
         self.universe = frozenset(settings.universe.series)
         self.overrides = overrides if overrides is not None else self._load_overrides()
         self._today = today
-        self.master = self._load_master()
+        self.master = SecurityMaster(self.exchange) if rebuild else self._load_master()
         self._manifests: dict[date, dict[str, Any]] | None = None
         self._notices: list[SymbolChangeNotice] | None = None
         self._notices_source: str | None = None
@@ -250,6 +254,8 @@ class IngestionService:
         )
 
     def identity_state(self) -> dict[str, Any] | None:
+        if self._rebuild:
+            return None
         key = DataLakeLayout.identity_state_key(self.exchange)
         return json.loads(self.store.get(key)) if self.store.exists(key) else None
 
@@ -271,9 +277,14 @@ class IngestionService:
 
     def check_identity_inputs(self) -> None:
         """Refuse to continue an existing master with different identity inputs (ADR-0009)."""
-        if not self.store.exists(DataLakeLayout.securities_key(self.exchange)):
+        if self._rebuild or not self.store.exists(DataLakeLayout.securities_key(self.exchange)):
             return
         state = self.identity_state()
+        if state is not None and state.get("rebuild_in_progress"):
+            raise IdentityInputsChanged(
+                f"identity rebuild {state['rebuild_in_progress']} did not complete; canonical "
+                "rows may mix two identity states. Re-run the identity rebuild."
+            )
         if state is None:
             raise IdentityInputsChanged(
                 "the security master has no recorded identity inputs (built before they were "

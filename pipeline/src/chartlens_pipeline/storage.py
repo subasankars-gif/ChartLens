@@ -270,6 +270,17 @@ class DataLakeLayout:
         )
 
     @staticmethod
+    def security_aliases_key(exchange: str) -> str:
+        """Retired security_id → surviving security_id, accumulated over identity rebuilds."""
+        return validate_key(f"metadata/security_master/{exchange.lower()}/aliases.parquet")
+
+    @staticmethod
+    def identity_rebuild_key(exchange: str, rebuild_id: str) -> str:
+        return validate_key(
+            f"metadata/security_master/{exchange.lower()}/rebuilds/{rebuild_id}.json"
+        )
+
+    @staticmethod
     def adjusted_daily_key(exchange: str, security_id: str) -> str:
         return validate_key(f"curated/adjusted/exchange={exchange.upper()}/{security_id}.parquet")
 
