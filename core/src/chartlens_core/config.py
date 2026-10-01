@@ -145,9 +145,13 @@ class AdjustmentConfig(_Section):
 
 class DataQualityConfig(_Section):
     max_unexplained_move: float = Field(default=0.25, gt=0)
-    """Close-to-close move (as a fraction) that is flagged when no corporate action explains it."""
+    """Adjusted close-to-close move (as a fraction) flagged for review when no corporate
+    action explains it. A warning only: a large move may be real (ADR-0012)."""
     max_missing_session_ratio: float = Field(default=0.02, ge=0, le=1)
     """Fraction of expected sessions that may be missing before status degrades to WARN."""
+    max_trading_gap_sessions: int = Field(default=65, ge=1)
+    """A security absent for more than this many consecutive expected sessions (about three
+    months) has no price discovery across the gap: a continuity break (ADR-0012)."""
     max_session_quarantine_ratio: float = Field(default=0.05, ge=0, le=1)
     """Share of a session's in-scope rows the parser may reject before the session is
     treated as QUARANTINED rather than ingested (the 2020-07-13 case rejected 100%)."""

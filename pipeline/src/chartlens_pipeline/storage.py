@@ -303,6 +303,10 @@ class DataLakeLayout:
         return validate_key(f"metadata/data_quality/{exchange.lower()}/status.parquet")
 
     @staticmethod
+    def data_quality_report_key(exchange: str) -> str:
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/report.json")
+
+    @staticmethod
     def curated_weekly_key(exchange: str, security_id: str) -> str:
         return validate_key(f"curated/weekly/{exchange.lower()}/{security_id}.parquet")
 

@@ -66,8 +66,9 @@ validation_window = 250             # trailing rows for the robust overnight-gap
 gap_report_threshold = 0.25         # "large gap" for the market-wide discontinuity report
 
 [data_quality]
-max_unexplained_move = 0.25       # close-to-close move flagged when no corporate action explains it
-max_missing_session_ratio = 0.02  # above this, status degrades to WARN
+max_unexplained_move = 0.25       # adjusted close-to-close move flagged (WARN) when no corporate action explains it
+max_missing_session_ratio = 0.02  # above this share of missing sessions: a WARN finding
+max_trading_gap_sessions = 65     # absent longer than this (~3 months): continuity break, usable_from moves
 max_session_quarantine_ratio = 0.05  # above this share of rejected rows, a session is QUARANTINED, not ingested
 
 [identity]                      # ADR-0009 — which security a row belongs to

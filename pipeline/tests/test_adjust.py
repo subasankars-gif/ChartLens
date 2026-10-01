@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -39,6 +39,7 @@ from chartlens_pipeline.corporate_actions import CorporateActionStore
 from chartlens_pipeline.corporate_actions_model import ActionClass, ActionComponent, ComponentKind
 from chartlens_pipeline.ingest import IngestionService
 from chartlens_pipeline.providers.base import CorporateActionRecord
+from chartlens_pipeline.providers.nse import NseProvider
 from chartlens_pipeline.providers.nse.ca_subjects import interpret
 from chartlens_pipeline.sources import SourceRecord
 from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
@@ -511,7 +512,12 @@ def ca_json(items: list[tuple[str, str, str, date, str]]) -> bytes:
     ).encode()
 
 
-def test_service_end_to_end_is_reproducible(tmp_path: Path) -> None:
+def build_lake(
+    tmp_path: Path,
+) -> tuple[ChartLensSettings, NseProvider, LocalObjectStore, Callable[[], date]]:
+    """Three securities over ~6 weeks of 2024 plus a corporate-action feed:
+    SPLITCO 10→2 split (prices ÷5), DEMERCO demerger (−30%), PLAIN dividend only, and a
+    feed record for an ISIN the master has never seen."""
     settings = ChartLensSettings.model_construct(
         providers=ProvidersConfig(
             nse=NseProviderConfig(corporate_actions_first_month=date(2024, 1, 1))
@@ -549,12 +555,19 @@ def test_service_end_to_end_is_reproducible(tmp_path: Path) -> None:
     for window in provider.corporate_actions.windows(date(2024, 1, 1), date(2024, 2, 29)):
         body = feed if window[0].month == EX.month else b"[]"
         fake.serve(provider.corporate_actions.url(window), body)
-    today = lambda: date(2024, 2, 20)  # noqa: E731
+
+    def today() -> date:
+        return date(2024, 2, 20)
+
     fetch = CorporateActionStore("NSE", provider.corporate_actions, lake, today=today).fetch(
         date(2024, 1, 1), date(2024, 2, 29)
     )
     assert fetch.failed == [] and fetch.downloaded == 2
+    return settings, provider, lake, today
 
+
+def test_service_end_to_end_is_reproducible(tmp_path: Path) -> None:
+    settings, provider, lake, today = build_lake(tmp_path)
     svc = AdjustmentService(
         settings, provider, lake, overrides=CorporateActionOverrides(), today=today
     )
