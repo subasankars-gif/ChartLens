@@ -43,15 +43,47 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_PIPELINE_SA }}
       - name: Backfill into GCS (resumable)
+        id: backfill
+        timeout-minutes: 320   # stop before the job limit so progress is still published
         run: |
           uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
-            --report-file backfill.json > backfill.txt 2> backfill.log || echo "backfill exit $?"
+            --report-file backfill.json > backfill.txt 2> backfill.log
           tail -25 backfill.txt
       - name: Corporate-action feed into GCS
+        if: steps.backfill.outcome == 'success'
         run: uv run --no-sync chartlens-pipeline corporate-actions fetch 2> ca.log | head -20
+      - name: Progress in the bucket
+        if: always()
+        run: |
+          mkdir -p out
+          uv run --no-sync python - <<'PY' | tee out/progress.json
+          import json
+          from collections import Counter
+          from chartlens_core.config import get_settings
+          from chartlens_pipeline.storage import DataLakeLayout, object_store_from_config
+          store = object_store_from_config(get_settings().storage)
+          keys = store.list(DataLakeLayout.ingestion_manifest_prefix("NSE"))
+          dates = sorted(k.rsplit("/", 1)[-1].removesuffix(".json") for k in keys)
+          status = Counter(json.loads(store.get(k))["status"] for k in keys[-200:])
+          print(json.dumps({"manifests": len(dates), "oldest": dates[:1], "newest": dates[-1:],
+                            "status_of_newest_200": status}, indent=2))
+          PY
+          cp backfill.txt out/ 2>/dev/null || true
+          echo "backfill_outcome=${{ steps.backfill.outcome }}" >> out/progress.txt
+      - name: Publish progress
+        if: always()
+        run: |
+          cd out
+          git init -q -b probe-results/gcs-bootstrap
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com commit -qm "GCS bootstrap ingest ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/gcs-bootstrap
+    outputs:
+      complete: ${{ steps.backfill.outcome == 'success' }}
 
   analyse:
     needs: ingest
+    if: needs.ingest.outputs.complete == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
