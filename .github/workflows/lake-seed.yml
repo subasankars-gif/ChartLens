@@ -1,0 +1,82 @@
+# One-off bootstrap of the production lake: copy the lake built by an M3-verify ingest run
+# (raw NSE bytes + canonical daily + metadata, byte for byte) into the GCS bucket, then
+# run adjust and data-quality against GCS to prove the GCS path at full scale.
+#
+# Avoids repeating the 3-hour NSE download. Raw objects are content-addressed and
+# immutable, so copying identical bytes is exactly what a backfill would have written.
+# The run id comes from .github/m3-lake-run.txt. Results → branch probe-results/lake-seed.
+
+name: Lake seed
+
+on:
+  push:
+    branches: ["probe/lake-seed"]
+
+concurrency:
+  group: pipeline-writes   # never alongside a pipeline job writing the lake
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      CHARTLENS_RUNTIME__LOG_JSON: "true"
+      CHARTLENS_STORAGE__BACKEND: gcs
+      CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - id: src
+        run: echo "run_id=$(tr -d '[:space:]' < .github/m3-lake-run.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: lake
+          path: lake
+          run-id: ${{ steps.src.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Copy the lake into the bucket (no deletes)
+        run: |
+          mkdir -p out
+          find lake -type f | wc -l | sed 's/^/local_files=/' | tee out/seed.txt
+          du -sh lake | tee -a out/seed.txt
+          start=$(date +%s)
+          gcloud storage rsync --recursive lake "gs://${CHARTLENS_STORAGE__GCS_BUCKET}" 2> rsync.log
+          echo "rsync_seconds=$(( $(date +%s) - start ))" | tee -a out/seed.txt
+          gcloud storage ls --recursive "gs://${CHARTLENS_STORAGE__GCS_BUCKET}/**" | wc -l | sed 's/^/bucket_objects=/' | tee -a out/seed.txt
+      - name: Adjust and data quality against GCS
+        run: |
+          set +e
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline adjust --report-file out/adjust-gcs.json > /dev/null 2> adjust.log
+          echo "adjust_exit=$? adjust_seconds=$(( $(date +%s) - s ))" | tee -a out/seed.txt
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline data-quality --report-file out/dq-gcs.json > /dev/null 2> dq.log
+          echo "dq_exit=$? dq_seconds=$(( $(date +%s) - s ))" | tee -a out/seed.txt
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline backfill --date "$(date -u +%F)" --dry-run > out/dry-run.txt 2>&1
+          echo "dry_run_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/seed.txt
+          grep -E '"severity": "(WARNING|ERROR)"' adjust.log dq.log | head -50 > out/warnings.jsonl || true
+      - name: Publish result
+        if: always()
+        run: |
+          cd out
+          git init -q -b probe-results/lake-seed
+          git -c user.name=lake-seed -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=lake-seed -c user.email=probe@users.noreply.github.com commit -qm "Lake seed ($GITHUB_RUN_ID)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/lake-seed
