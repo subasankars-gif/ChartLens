@@ -50,7 +50,8 @@ from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
 
 log = logging.getLogger("chartlens.pipeline.data_quality")
 
-DQ_ENGINE_VERSION: Final = "dq_v1"
+DQ_ENGINE_VERSION: Final = "dq_v2"
+"""Bump on any change to findings or status rules (part of dq_version)."""
 
 _EVENT_FINDINGS: Final[dict[str, tuple[Severity, str]]] = {
     EventStatus.VERIFIED: (Severity.INFO, "FACTOR_APPLIED"),

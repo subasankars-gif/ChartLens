@@ -82,7 +82,10 @@ from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
 
 log = logging.getLogger("chartlens.pipeline.adjust")
 
-ADJUSTMENT_ENGINE_VERSION: Final = "adjust_v1"
+ADJUSTMENT_ENGINE_VERSION: Final = "adjust_v2"
+"""Bump on any change to decisions or outputs: it is part of adjustment_version, so a
+behaviour change can never reuse a version label (v2: CONSISTENT, STALE_ISIN, identity
+breaks, narrowed face-value uncertainty)."""
 ADJUSTED_SCHEMA_VERSION: Final = 1
 ADJ_PRICE_TYPE: Final = pa.decimal128(24, 6)
 ADJ_VOLUME_TYPE: Final = pa.decimal128(28, 4)
