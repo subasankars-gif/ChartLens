@@ -160,3 +160,21 @@ def test_rebuild_with_unchanged_inputs_is_a_no_op_on_identity(
         SETTINGS, provider, store, overrides=IdentityOverrides(), today=today
     ).run()
     assert report.aliases == [] and sids_by_symbol(store) == before
+
+
+def test_rebuild_writes_the_master_once_not_per_session(
+    lake: tuple[LocalObjectStore, FakeNse],
+) -> None:
+    store, fake = lake
+    provider = fake_provider(fake, calendar_for([2021]), SETTINGS)
+    writes: list[str] = []
+    original = store.put
+
+    def counting_put(key: str, data: bytes) -> None:
+        writes.append(key)
+        original(key, data)
+
+    store.put = counting_put  # type: ignore[method-assign]
+    IdentityRebuildService(SETTINGS, provider, store, overrides=LINK, today=today).run()
+    master_writes = [k for k in writes if k == DataLakeLayout.securities_key("NSE")]
+    assert len(master_writes) == 1

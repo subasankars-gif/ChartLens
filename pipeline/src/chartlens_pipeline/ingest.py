@@ -569,7 +569,12 @@ class IngestionService:
         )
 
         # Commit order: master → canonical → quarantine → manifest (commit marker).
-        self.save_master()
+        # A rebuild saves the master once at the end instead: the identity state is marked
+        # rebuild_in_progress, so nothing may read a half-built master, and an interrupted
+        # rebuild starts again from scratch (ADR-0013). Writing the whole master after
+        # every session made a 20-year rebuild on GCS take more than 5 hours.
+        if not self._rebuild:
+            self.save_master()
         self.store.put(
             DataLakeLayout.curated_daily_key(self.exchange, day), to_parquet_bytes(canonical)
         )
