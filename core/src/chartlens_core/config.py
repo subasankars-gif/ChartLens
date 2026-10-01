@@ -133,6 +133,14 @@ class AdjustmentConfig(_Section):
     """Rights issues adjusted with the theoretical ex-rights price (TERP) factor."""
     dividends: bool = False
     """Charts show prices as traded; dividends are not adjusted by default. See ADR-0005."""
+    validation_min_tolerance: float = Field(default=0.15, gt=0)
+    """An applied factor is VERIFIED when |ln(ex-date gap / factor)| is within
+    max(this, sigma_multiplier × the stock's robust overnight-gap sigma). ADR-0011."""
+    validation_sigma_multiplier: float = Field(default=5.0, gt=0)
+    validation_window: int = Field(default=250, ge=20)
+    """Trailing rows used for the robust overnight-gap sigma (point-in-time: before the event)."""
+    gap_report_threshold: float = Field(default=0.25, gt=0)
+    """A 'large gap' in the market-wide discontinuity report: |open / previous close − 1| above this."""
 
 
 class DataQualityConfig(_Section):

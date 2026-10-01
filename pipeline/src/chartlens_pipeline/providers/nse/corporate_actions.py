@@ -23,6 +23,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Final
 
 from chartlens_core.config import NseProviderConfig
+from chartlens_pipeline.corporate_actions_model import SubjectInterpretation
 from chartlens_pipeline.http import FetchOutcome, HttpFetcher
 from chartlens_pipeline.providers.base import (
     CorporateActionRecord,
@@ -32,6 +33,7 @@ from chartlens_pipeline.providers.base import (
     ParsedActions,
     RawArtifact,
 )
+from chartlens_pipeline.providers.nse.ca_subjects import SUBJECT_GRAMMAR_VERSION, interpret
 
 FEED_PARSER_VERSION: Final = "nse_ca_feed_v1"
 _BLANK = {"", "-", "null", "None"}
@@ -134,6 +136,7 @@ class NseCorporateActions:
         self._fetcher = fetcher
         self.source_dataset = "corporate_actions"
         self.parser_version = FEED_PARSER_VERSION
+        self.grammar_version = SUBJECT_GRAMMAR_VERSION
 
     def windows(self, start: date, end: date) -> list[tuple[date, date]]:
         return month_windows(start, end)
@@ -173,3 +176,6 @@ class NseCorporateActions:
 
     def parse(self, content: bytes) -> ParsedActions:
         return parse_feed(content)
+
+    def interpret(self, subject: str) -> SubjectInterpretation:
+        return interpret(subject)

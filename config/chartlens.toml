@@ -60,6 +60,10 @@ splits = true
 bonus = true
 rights = true                  # theoretical ex-rights price factor
 dividends = false              # charts show prices as traded
+validation_min_tolerance = 0.15     # factor VERIFIED if |ln(ex-date gap / factor)| <= max(this, k·sigma)
+validation_sigma_multiplier = 5.0   # k
+validation_window = 250             # trailing rows for the robust overnight-gap sigma
+gap_report_threshold = 0.25         # "large gap" for the market-wide discontinuity report
 
 [data_quality]
 max_unexplained_move = 0.25       # close-to-close move flagged when no corporate action explains it

@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from chartlens_core.domain import utc_now
 from chartlens_pipeline.calendar import TradingCalendar
+from chartlens_pipeline.corporate_actions_model import SubjectInterpretation
 from chartlens_pipeline.daily import ParsedDaily
 from chartlens_pipeline.identity import IdentityPolicy, SymbolChangeNotice
 
@@ -163,3 +164,10 @@ class CorporateActionSource(Protocol):
     def download(self, window: tuple[date, date]) -> DownloadResult: ...
 
     def parse(self, content: bytes) -> ParsedActions: ...
+
+    @property
+    def grammar_version(self) -> str: ...
+
+    def interpret(self, subject: str) -> SubjectInterpretation:
+        """Exchange-specific reading of the free-text subject into neutral components."""
+        ...
