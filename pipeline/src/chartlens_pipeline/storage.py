@@ -302,6 +302,10 @@ class DataLakeLayout:
         return validate_key(f"metadata/adjustments/{exchange.lower()}/events.parquet")
 
     @staticmethod
+    def unexplained_gaps_key(exchange: str) -> str:
+        return validate_key(f"metadata/adjustments/{exchange.lower()}/unexplained_gaps.parquet")
+
+    @staticmethod
     def adjustment_report_key(exchange: str) -> str:
         return validate_key(f"metadata/adjustments/{exchange.lower()}/report.json")
 

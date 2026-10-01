@@ -133,7 +133,14 @@ def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
         "violations": [
             f"{e['security_id']}@{e['ex_date']}"
             for e in applied
-            if e["residual_log"] is None or abs(e["residual_log"]) >= abs(e["raw_gap_log"])
+            if e["residual_log"] is None
+            or (
+                abs(e["residual_log"]) >= abs(e["raw_gap_log"])
+                and not (
+                    e["status"] == "CONSISTENT"
+                    and abs(e["residual_log"]) <= min(e["tolerance_log"], 0.2231435513142097)
+                )
+            )
         ]
     }
     # 4: reproducible — recompute a sample of adjusted rows exactly from raw × factor.
@@ -197,6 +204,7 @@ def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
         "remaining_at_unquantified_events (hard discontinuities)": d["at_unquantified_events"],
         "remaining_at_rejected_or_suspect_events": d["at_rejected_or_suspect_events"],
         "remaining_at_cash_distribution_ex_dates": d["at_cash_distributions"],
+        "remaining_at_reviewed_identity_breaks": d.get("at_reviewed_identity_breaks"),
         "remaining_unexplained_Z": d["unexplained"],
     }
 
@@ -319,6 +327,112 @@ def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
         "dq_findings_by_code": dq_report["findings_by_code"],
         "active_usable_from_year_histogram": dict(sorted(usable_years.items())),
     }
+    # ------------------------------------------------------------ investigations
+    first_dates = {sid: s["first_date"] for sid, s in statuses.items()}
+    moved = [s for s in active if s["usable_from"] and s["usable_from"] > s["first_date"]]
+    break_codes: dict[str, list[tuple[date, str]]] = {}
+    for f in findings:
+        if f["breaks_continuity"] and f["security_id"]:
+            break_codes.setdefault(f["security_id"], []).append((f["start_date"], f["code"]))
+    latest_break = Counter(
+        (s["usable_from"].year, max(break_codes.get(s["security_id"], [(date.min, "?")]))[1])
+        for s in moved
+    )
+    gaps_key = DataLakeLayout.unexplained_gaps_key(EX)
+    z: dict[str, Any] = {}
+    if store.exists(gaps_key):
+        gaps = table(store, gaps_key)
+        cats: Counter[str] = Counter()
+        for g in gaps:
+            if g["prev_close"] < 2:
+                cats["price below Rs 2 (tick-size moves)"] += 1
+            elif g["session_index"] < 5:
+                cats["first 5 sessions after listing / series entry"] += 1
+            elif g["days_since_previous_session"] > 14:
+                cats["after > 14 days without a trade"] += 1
+            elif abs(g["gap"]) > 0.6:
+                cats["other, |gap| > 60%"] += 1
+            else:
+                cats["other, 25-60%"] += 1
+        big_other = sorted(
+            (
+                g
+                for g in gaps
+                if g["prev_close"] >= 2
+                and g["session_index"] >= 5
+                and g["days_since_previous_session"] <= 14
+                and abs(g["gap"]) > 0.6
+            ),
+            key=lambda g: -abs(g["gap"]),
+        )
+        z = {
+            "total": len(gaps),
+            "by_category": dict(cats.most_common()),
+            "by_year": dict(sorted(Counter(g["trading_date"].year for g in gaps).items())),
+            "largest_other": [
+                f"{symbol_of.get(g['security_id'], '?')} {g['trading_date']} {g['gap']:+.1%} "
+                f"prev close {g['prev_close']}"
+                for g in big_other[:60]
+            ],
+        }
+    re_like = sorted(
+        {
+            (h["identifier_value"], h["security_id"])
+            for h in history
+            if h["identifier_type"] == "SYMBOL" and h["identifier_value"].endswith("-RE")
+        }
+    )
+    series_of: dict[str, set[str]] = {}
+    for h in history:
+        if h["identifier_type"] == "SERIES":
+            series_of.setdefault(h["security_id"], set()).add(h["identifier_value"])
+    three_i = [
+        {
+            k: a[k]
+            for k in (
+                "ex_date",
+                "symbol",
+                "series",
+                "isin",
+                "subject",
+                "action_class",
+                "security_id",
+                "resolution",
+                "resolution_detail",
+            )
+        }
+        for a in actions
+        if (a["isin"] or "").startswith("INE748C") or a["symbol"] in ("3IINFOTECH", "3IINFOLTD")
+    ]
+    dvr = {
+        sid: [
+            f"{h['identifier_type']} {h['identifier_value']} {h['valid_from']}→{h['valid_to']}"
+            for h in history
+            if h["security_id"] == sid
+        ]
+        for sid in {
+            h["security_id"]
+            for h in history
+            if h["identifier_value"] in ("TATAMTRDVR", "IN9155A01012", "SUMEETINDS", "INE235C01010")
+        }
+    }
+    investigations = {
+        "active_moved_usable_from_by_year_and_latest_break": {
+            f"{y} {c}": n for (y, c), n in sorted(latest_break.items())
+        },
+        "active_new_listings_by_first_year": dict(
+            sorted(Counter(first_dates[s["security_id"]].year for s in active).items())
+        ),
+        "unexplained_gaps_Z": z,
+        "re_symbols": [
+            f"{sym} {sid} series={sorted(series_of.get(sid, set()))}" for sym, sid in re_like
+        ][:40],
+        "re_symbol_count": len(re_like),
+        "three_i_feed_records": three_i,
+        "identity_conflict_cases": dvr,
+    }
+    (out / "m3-investigations.json").write_text(json.dumps(investigations, indent=2, default=str))
+
     summary = {
         "adjustment_version": adj_report["adjustment_version"],
         "identity_version": adj_report["identity_version"],

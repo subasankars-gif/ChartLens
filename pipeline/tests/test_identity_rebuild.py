@@ -107,14 +107,28 @@ def test_new_identity_inputs_take_effect_only_through_a_rebuild(
         ).backfill(SESSIONS[-1], SESSIONS[-1])
 
     # The reviewed link joins identity, not prices: usable_from = first session of the new ISIN.
-    AdjustmentService(
-        SETTINGS, provider, store, overrides=CorporateActionOverrides(), today=today
+    adjusted = AdjustmentService(
+        SETTINGS,
+        provider,
+        store,
+        overrides=CorporateActionOverrides(),
+        identity_overrides=LINK,
+        today=today,
     ).run()
+    # The +650% gap at the link is classified, not "unexplained", and never adjusted.
+    assert adjusted.report.at_reviewed_identity_breaks == 1 and adjusted.report.unexplained == 0
     dq = DataQualityService(SETTINGS, provider, store, identity_overrides=LINK).run()
     status = next(s for s in dq.statuses if s["security_id"] == survivor)
     assert status["first_date"] == BEFORE[0] and status["usable_from"] == AFTER[0]
     assert status["status"] in (Q.USABLE, Q.USABLE_WITH_WARNINGS)
-    assert any(f.code == "REVIEWED_LINK_PRICE_BREAK" for f in dq.findings)
+    codes = [f.code for f in dq.findings if f.security_id == survivor]
+    assert "REVIEWED_LINK_PRICE_BREAK" in codes and "UNEXPLAINED_MOVE" not in codes
+    assert "ISIN_CHANGE" in codes and "SYMBOL_CHANGE" in codes
+    assert not any(
+        f.detail.split(" → ")[0] == f.detail.split(" → ")[-1]
+        for f in dq.findings
+        if f.code in ("ISIN_CHANGE", "SYMBOL_CHANGE")
+    )
 
 
 def test_an_interrupted_rebuild_blocks_ingestion(lake: tuple[LocalObjectStore, FakeNse]) -> None:

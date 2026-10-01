@@ -69,7 +69,7 @@ from chartlens_pipeline.corporate_actions_model import (
     SubjectInterpretation,
 )
 from chartlens_pipeline.daily import PRICE_TYPE, to_parquet_bytes
-from chartlens_pipeline.identity import SecurityMaster
+from chartlens_pipeline.identity import IdentifierType, IdentityOverrides, SecurityMaster
 from chartlens_pipeline.providers.base import CorporateActionRecord, ExchangeProvider
 from chartlens_pipeline.sources import SourceRecord
 from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
@@ -97,6 +97,9 @@ class Resolution(StrEnum):
 class EventStatus(StrEnum):
     VERIFIED = "VERIFIED"
     """Applied; the ex-date gap is consistent with the factor."""
+    CONSISTENT = "CONSISTENT"
+    """Applied; the factor is smaller than the stock's normal overnight noise, so prices
+    cannot confirm it, and the ex-date gap after applying it stays within that noise."""
     SUSPECT = "SUSPECT"
     """Applied (it reduces the ex-date discontinuity) but the residual gap is abnormal."""
     NO_ADJUSTMENT = "NO_ADJUSTMENT"
@@ -114,7 +117,7 @@ class EventStatus(StrEnum):
     """The feed disagrees with itself for this security and ex-date; treated as unquantified."""
 
 
-APPLIED: Final = frozenset({EventStatus.VERIFIED, EventStatus.SUSPECT})
+APPLIED: Final = frozenset({EventStatus.VERIFIED, EventStatus.CONSISTENT, EventStatus.SUSPECT})
 
 
 # ----------------------------------------------------------------------------- overrides
@@ -490,6 +493,21 @@ def validate(
     residual = raw - log_f
     sigma = robust_sigma(h, first - 1, cfg.validation_window, event_rows)
     tol = max(cfg.validation_min_tolerance, cfg.validation_sigma_multiplier * (sigma or 0.0))
+    if abs(log_f) <= tol:
+        # The factor is smaller than this stock's normal overnight noise, so the price can
+        # neither confirm nor contradict it. Apply it only if the ex-date gap afterwards
+        # stays within noise (and below a large gap) or shrinks.
+        if abs(residual) <= min(tol, math.log1p(cfg.gap_report_threshold)):
+            return Validation(EventStatus.CONSISTENT, raw, residual, tol)
+        if abs(residual) < abs(raw):
+            return Validation(EventStatus.SUSPECT, raw, residual, tol)
+        return Validation(
+            EventStatus.REJECTED_BY_PRICE,
+            raw,
+            residual,
+            tol,
+            ("factor within normal noise, but the gap after applying it would not be",),
+        )
     if abs(residual) < abs(raw):
         status = EventStatus.VERIFIED if abs(residual) <= tol else EventStatus.SUSPECT
         return Validation(status, raw, residual, tol)
@@ -781,6 +799,7 @@ class DiscontinuityReport:
     at_unquantified_events: int = 0
     at_rejected_or_suspect_events: int = 0
     at_cash_distributions: int = 0
+    at_reviewed_identity_breaks: int = 0
     unexplained: int = 0
     new_gap_examples: list[str] = field(default_factory=list)
 
@@ -789,13 +808,27 @@ class DiscontinuityReport:
         return self.new_gaps_introduced == 0 and self.gaps_worsened == 0
 
 
+@dataclass(frozen=True)
+class UnexplainedGap:
+    security_id: str
+    trading_date: date
+    gap: float
+    """Adjusted open / previous adjusted close − 1."""
+    prev_close: Decimal
+    """Raw previous close (price level, e.g. tick-size effects below ₹1)."""
+    days_since_previous_session: int
+    session_index: int
+    """0-based position in the security's history (small = just listed)."""
+
+
 def tally_gaps(
     report: DiscontinuityReport,
     h: SecurityHistory,
     series: AdjustedSeries,
     decisions: Sequence[EventDecision],
     cash_dates: Iterable[date],
-) -> list[tuple[date, float]]:
+    identity_breaks: Iterable[date] = (),
+) -> list[UnexplainedGap]:
     """Add one security to the report; returns its remaining unexplained large gaps."""
     t = report.threshold
     applied_at = {d.boundary_date for d in decisions if d.applied}
@@ -810,7 +843,8 @@ def tally_gaps(
         if d.status in (EventStatus.REJECTED_BY_PRICE, EventStatus.SUSPECT)
     }
     cash_at = {h.dates[i] for cd in cash_dates if (i := h.boundary(cd)) is not None}
-    unexplained: list[tuple[date, float]] = []
+    identity_at = {h.dates[i] for d in identity_breaks if (i := h.boundary(d)) is not None}
+    unexplained: list[UnexplainedGap] = []
     for i in range(1, len(h.dates)):
         if series.adj_open[i] <= 0 or series.adj_close[i - 1] <= 0:
             report.new_gaps_introduced += 1  # an adjusted price that rounds to zero
@@ -846,9 +880,20 @@ def tally_gaps(
             report.at_rejected_or_suspect_events += 1
         elif day in cash_at:
             report.at_cash_distributions += 1
+        elif day in identity_at:
+            report.at_reviewed_identity_breaks += 1
         else:
             report.unexplained += 1
-            unexplained.append((day, adj_ratio - 1))
+            unexplained.append(
+                UnexplainedGap(
+                    h.security_id,
+                    day,
+                    adj_ratio - 1,
+                    h.close[i - 1],
+                    (day - h.dates[i - 1]).days,
+                    i,
+                )
+            )
     return unexplained
 
 
@@ -864,7 +909,7 @@ class AdjustmentResult:
     decisions: list[EventDecision]
     report: DiscontinuityReport
     counts: dict[str, Any]
-    unexplained_gaps: dict[str, list[tuple[date, float]]]
+    unexplained_gaps: dict[str, list[UnexplainedGap]]
     unresolved_overrides: list[str]
     published: bool
 
@@ -881,6 +926,7 @@ class AdjustmentService:
         store: ObjectStore,
         *,
         overrides: CorporateActionOverrides | None = None,
+        identity_overrides: IdentityOverrides | None = None,
         today: Callable[[], date] = lambda: utc_now().date(),
     ) -> None:
         self.settings = settings
@@ -900,6 +946,13 @@ class AdjustmentService:
             )
             overrides = CorporateActionOverrides.load(path)
         self.overrides = overrides
+        if identity_overrides is None:
+            directory = config_dir()
+            name = f"{self.exchange.lower()}.toml"
+            identity_overrides = IdentityOverrides.load(
+                directory / "identity" / name if directory else None
+            )
+        self.identity_overrides = identity_overrides
 
     @property
     def first_month(self) -> date:
@@ -1001,11 +1054,20 @@ class AdjustmentService:
         for (sid, ex), o in override_events.items():
             overrides_by_sec[sid][ex] = o
 
+        # Reviewed identity links that join identity but not prices (ADR-0013): only used to
+        # classify the gap at the link in the report; data quality makes it a break.
+        identity_breaks: dict[str, set[date]] = defaultdict(set)
+        for isin in self.identity_overrides.link_breaks_continuity:
+            for sid in master.by_isin(isin):
+                for span in master.spans_for(sid, IdentifierType.ISIN):
+                    if span.value == isin:
+                        identity_breaks[sid].add(span.valid_from)
+
         previous = self._previous_manifest().get("files", {})
         files: dict[str, str] = {}
         decisions: list[EventDecision] = []
         report = DiscontinuityReport(threshold=self.settings.adjustment.gap_report_threshold)
-        unexplained: dict[str, list[tuple[date, float]]] = {}
+        unexplained: dict[str, list[UnexplainedGap]] = {}
         factor_rows = written = 0
         sids = sorted(set(daily.spans) | set(acts_by_sec) | set(overrides_by_sec))
         for n, sid in enumerate(sids, 1):
@@ -1030,7 +1092,14 @@ class AdjustmentService:
                 written += 1
             files[sid] = digest
             factor_rows += series.factor_rows
-            gaps = tally_gaps(report, h, series, sec_decisions, cash_dates.get(sid, ()))
+            gaps = tally_gaps(
+                report,
+                h,
+                series,
+                sec_decisions,
+                cash_dates.get(sid, ()),
+                identity_breaks.get(sid, ()),
+            )
             if gaps:
                 unexplained[sid] = gaps
             if n % 500 == 0:
@@ -1058,6 +1127,15 @@ class AdjustmentService:
             "files_written": written,
         }
         self._write_tables(actions, decisions, version)
+        self.store.put(
+            DataLakeLayout.unexplained_gaps_key(self.exchange),
+            to_parquet_bytes(
+                pa.Table.from_pylist(
+                    [asdict(g) for gaps in unexplained.values() for g in gaps],
+                    schema=UNEXPLAINED_GAPS_SCHEMA,
+                )
+            ),
+        )
         published = report.hard_requirements_met and not unresolved_overrides
         report_payload = {
             "exchange": self.exchange,
@@ -1196,6 +1274,18 @@ def events_table(decisions: Sequence[EventDecision], version: str) -> pa.Table:
         schema=EVENTS_SCHEMA,
     )
 
+
+UNEXPLAINED_GAPS_SCHEMA: Final = pa.schema(
+    [
+        pa.field("security_id", pa.string(), nullable=False),
+        pa.field("trading_date", pa.date32(), nullable=False),
+        pa.field("gap", pa.float64(), nullable=False),
+        pa.field("prev_close", PRICE_TYPE, nullable=False),
+        pa.field("days_since_previous_session", pa.int64(), nullable=False),
+        pa.field("session_index", pa.int64(), nullable=False),
+    ],
+    metadata={b"chartlens.dataset": b"unexplained_gaps", b"chartlens.schema_version": b"1"},
+)
 
 ACTIONS_SCHEMA: Final = pa.schema(
     [

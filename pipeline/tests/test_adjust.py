@@ -296,7 +296,21 @@ def test_rights_use_the_reconstructed_face_value_and_cum_close() -> None:
     decisions = decide(h, *acts, end=h.dates[25] + timedelta(days=500))
     rights = next(d for d in decisions if d.ex_date == h.dates[20])
     assert rights.factor == F(11, 12) and rights.inputs["face_value"] == "10"
-    assert rights.status is EventStatus.VERIFIED
+    # ln(11/12) = -0.087 is inside the 0.15 noise floor: applied, but not "verified".
+    assert rights.status is EventStatus.CONSISTENT and rights.applied
+
+
+def test_factor_smaller_than_noise_is_applied_when_the_gap_stays_within_noise() -> None:
+    h = flat_with_jump(30, 20, "100", "101")  # gap +1%; a 1:10 bonus is ln(10/11) = -0.095
+    (d,) = decide(h, action("Bonus 1:10", h.dates[20]))
+    assert d.status is EventStatus.CONSISTENT and d.applied
+    assert d.notes == []  # no ex-date speculation when prices cannot discriminate
+
+
+def test_factor_smaller_than_noise_never_creates_a_large_gap() -> None:
+    h = flat_with_jump(30, 20, "100", "114")  # +13% gap; 1:10 bonus would leave ~+23.6%
+    (d,) = decide(h, action("Bonus 1:10", h.dates[20]))
+    assert d.status is EventStatus.REJECTED_BY_PRICE and not d.applied
 
 
 def test_event_after_the_data_end_is_pending() -> None:
@@ -405,20 +419,23 @@ def test_report_classifies_remaining_gaps() -> None:
     )
     assert report.raw_large_gaps == 3 and report.adjusted_large_gaps == 3
     assert report.at_unquantified_events == 1 and report.at_cash_distributions == 1
-    assert report.unexplained == 1 and unexplained == [(h.dates[6], pytest.approx(2.0))]
+    (gap,) = unexplained
+    assert report.unexplained == 1 and (gap.trading_date, gap.session_index) == (h.dates[6], 6)
+    assert gap.gap == pytest.approx(2.0) and gap.prev_close == D(20)
     assert report.hard_requirements_met
 
 
 # ----------------------------------------------------------------------------- the guarantee
 
 
-_TRUE_FACTORS = [F(1, 2), F(1, 5), F(2, 3), F(1, 10), F(10)]
+_TRUE_FACTORS = [F(1, 2), F(1, 5), F(2, 3), F(1, 10), F(10), F(10, 11)]
 _SUBJECTS = {
     F(1, 2): "Bonus 1:1",
     F(1, 5): "Face Value Split From Rs 10 To Rs 2",
     F(2, 3): "Bonus 1:2",
     F(1, 10): "Face Value Split From Rs 10 To Re 1",
     F(10): "Consolidation From Rs 1 To Rs 10",
+    F(10, 11): "Bonus 1:10",  # smaller than the noise floor
 }
 
 
@@ -467,10 +484,13 @@ def test_no_adjustment_ever_creates_or_worsens_a_large_gap(
     tally_gaps(report, h, series, decisions, [])
     assert report.new_gaps_introduced == 0, report.new_gap_examples
     assert report.gaps_worsened == 0, report.new_gap_examples
-    for d in decisions:  # applied ⇒ the ex-date gap shrank (requirement 5/6)
+    for d in decisions:  # applied ⇒ the ex-date gap shrank, or stayed within noise (req. 5/6)
         if d.applied:
-            assert d.residual is not None and d.raw_gap is not None
-            assert abs(d.residual) < abs(d.raw_gap)
+            assert d.residual is not None and d.raw_gap is not None and d.tolerance is not None
+            if d.status is EventStatus.CONSISTENT:
+                assert abs(d.residual) <= min(d.tolerance, math.log1p(0.25))
+            else:
+                assert abs(d.residual) < abs(d.raw_gap)
     # Adjusted = raw × exact cumulative factor, rounded once (requirement 4).
     for row in series.table.to_pylist():
         num, den = map(int, row["price_factor"].split("/"))

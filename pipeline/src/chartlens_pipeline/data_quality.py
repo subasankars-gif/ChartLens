@@ -54,6 +54,7 @@ DQ_ENGINE_VERSION: Final = "dq_v1"
 
 _EVENT_FINDINGS: Final[dict[str, tuple[Severity, str]]] = {
     EventStatus.VERIFIED: (Severity.INFO, "FACTOR_APPLIED"),
+    EventStatus.CONSISTENT: (Severity.INFO, "FACTOR_APPLIED_WITHIN_NOISE"),
     EventStatus.SUSPECT: (Severity.WARN, "FACTOR_SUSPECT"),
     EventStatus.NO_ADJUSTMENT: (Severity.INFO, "NO_ADJUSTMENT_NEEDED"),
     EventStatus.PENDING: (Severity.INFO, "ACTION_PENDING"),
@@ -229,6 +230,27 @@ def security_findings(
                 )
                 boundaries.add(cur)
 
+    for r in identifiers:  # reviewed identity links that join identity but not prices
+        reason = (link_breaks or {}).get(r["identifier_value"])
+        if r["identifier_type"] != "ISIN" or reason is None:
+            continue
+        i = bisect.bisect_left(s.dates, r["valid_from"])
+        if 0 < i < len(s.dates):
+            boundaries.add(s.dates[i])
+            out.append(
+                Finding(
+                    sid,
+                    s.dates[i],
+                    s.dates[i],
+                    Dimension.IDENTITY,
+                    Severity.WARN,
+                    "REVIEWED_LINK_PRICE_BREAK",
+                    breaks_continuity=True,
+                    detail=f"ISIN {r['identifier_value']} linked by review; prices not continuous",
+                    evidence=reason,
+                )
+            )
+
     for i in range(1, len(s.dates)):
         move = s.adj_close[i] / s.adj_close[i - 1] - 1
         if abs(move) > cfg.max_unexplained_move and s.dates[i] not in boundaries:
@@ -244,26 +266,6 @@ def security_findings(
                 )
             )
 
-    for r in identifiers:  # reviewed identity links that join identity but not prices
-        reason = (link_breaks or {}).get(r["identifier_value"])
-        if r["identifier_type"] != "ISIN" or reason is None:
-            continue
-        i = bisect.bisect_left(s.dates, r["valid_from"])
-        if 0 < i < len(s.dates):
-            out.append(
-                Finding(
-                    sid,
-                    s.dates[i],
-                    s.dates[i],
-                    Dimension.IDENTITY,
-                    Severity.WARN,
-                    "REVIEWED_LINK_PRICE_BREAK",
-                    breaks_continuity=True,
-                    detail=f"ISIN {r['identifier_value']} linked by review; prices not continuous",
-                    evidence=reason,
-                )
-            )
-
     by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for r in identifiers:
         by_type[r["identifier_type"]].append(r)
@@ -272,6 +274,8 @@ def security_findings(
             by_type.get(kind, []), key=lambda r: (r["valid_from"], r["identifier_value"])
         )
         for before, after in pairwise(spans):
+            if before["identifier_value"] == after["identifier_value"]:
+                continue  # same value, new evidence (e.g. ISIN first published): no change
             out.append(
                 Finding(
                     sid,
