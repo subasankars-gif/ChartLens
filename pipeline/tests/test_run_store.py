@@ -28,6 +28,7 @@ from chartlens_pipeline.runs import (
     FirestoreRunStore,
     MemoryRunStore,
     RunNotClaimable,
+    RunNotFound,
     RunStore,
 )
 
@@ -211,3 +212,51 @@ def test_snapshot_history_is_staged_then_published_and_never_rewritten(store: Ru
     )
     assert published.versions == snap.versions and published.data_as_of == snap.data_as_of
     assert [s.snapshot_id for s in store.list_snapshots(5)] == [snap.snapshot_id]
+
+
+def test_only_the_owning_workflow_records_progress(store: RunStore) -> None:
+    store.create(api_run("run-a"), at(0))
+    run = store.claim("run-a", at(1), github_run_id="100", github_run_attempt=1)
+    store.save(start_stage(run, Stage.INGEST, at(2)))
+    impostor = run.model_copy(update={"github_run_id": "999"})
+    with pytest.raises(RunNotClaimable):
+        store.save(impostor)
+    store.end_active("run-a", at(3), RunStatus.CANCELLED, "cancelled", github_run_id="100")
+    with pytest.raises(RunNotClaimable):  # a late write never revives a closed run
+        store.save(start_stage(run, Stage.INGEST, at(4)))
+    with pytest.raises(RunNotClaimable):
+        store.close(fail_stage(start_stage(run, Stage.INGEST, at(4)), Stage.INGEST, at(5), "x"))
+    closed = store.get("run-a")
+    assert closed is not None and closed.status == RunStatus.CANCELLED
+
+
+def test_an_admin_can_cancel_only_a_queued_run(store: RunStore) -> None:
+    store.create(api_run("run-a"), at(0))
+    cancelled = store.cancel_queued("run-a", at(1), "cancelled by boss before it started")
+    assert cancelled.status == RunStatus.CANCELLED and store.active() is None
+    with pytest.raises(RunNotClaimable):
+        store.claim("run-a", at(2), github_run_id="1", github_run_attempt=1)
+    store.create(api_run("run-b", 3), at(3))
+    store.claim("run-b", at(4), github_run_id="2", github_run_attempt=1)
+    with pytest.raises(RunNotClaimable, match="only a queued run"):
+        store.cancel_queued("run-b", at(5), "x")
+    with pytest.raises(RunNotFound):
+        store.cancel_queued("run-zz", at(5), "x")
+
+
+def test_concurrent_refresh_requests_admit_exactly_one(store: RunStore) -> None:
+    """Eight simultaneous requests (eight API instances, say): the transaction lets one in."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def attempt(i: int) -> str:
+        try:
+            store.create(api_run(f"run-{i}", 0), at(0))
+            return "created"
+        except ActiveRunExists:
+            return "refused"
+
+    with ThreadPoolExecutor(8) as pool:
+        outcomes = list(pool.map(attempt, range(8)))
+    assert outcomes.count("created") == 1 and outcomes.count("refused") == 7
+    active = store.active()
+    assert active is not None and store.get(active.run_id) is not None

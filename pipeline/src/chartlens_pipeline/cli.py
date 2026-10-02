@@ -699,7 +699,7 @@ def weekly_bars(
 
 _EXIT_REASONS: dict[str, dict[int, str]] = {
     "INGEST": {
-        2: "some sessions could not be ingested",
+        2: "ingestion did not complete: a session failed, or the lake needs a backfill",
         4: "identity inputs changed; run identity-rebuild first",
     },
     "CORPORATE_ACTIONS": {2: "some corporate-action feed windows could not be downloaded"},

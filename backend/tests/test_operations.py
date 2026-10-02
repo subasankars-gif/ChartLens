@@ -103,6 +103,7 @@ ROUTES = [
     ("POST", "/api/v1/refresh/daily"),
     ("GET", "/api/v1/jobs"),
     ("GET", "/api/v1/jobs/run-x"),
+    ("POST", "/api/v1/jobs/run-x/cancel"),
     ("GET", "/api/v1/system/operations"),
     ("GET", "/api/v1/system/snapshots"),
 ]
@@ -300,3 +301,57 @@ def test_no_secret_reaches_a_response(env: dict[str, Any]) -> None:
         r = client.get(path, headers=ADMIN)
         assert r.status_code == 200 and "TOPSECRET" not in r.text
     assert client.get("/api/v1/system/operations", headers=ADMIN).json()["refresh_configured"]
+
+
+# ----------------------------------------------------------------------------- review fixes
+
+
+def test_any_dispatch_error_fails_the_run_and_frees_the_lock(env: dict[str, Any]) -> None:
+    class Broken:
+        def dispatch(self, run_id: str) -> None:
+            raise ValueError("No key could be detected.")  # e.g. a malformed PEM
+
+    client = make_client(env["store"], env["runs"], Broken())  # type: ignore[arg-type]
+    r = client.post("/api/v1/refresh/daily", headers=ADMIN)
+    assert r.status_code == 502
+    run = env["runs"].get(r.json()["run_id"])
+    assert run is not None and run.status == RunStatus.FAILED
+    assert run.error_summary == "the workflow could not be started: unexpected error (ValueError)"
+    assert env["runs"].active() is None
+
+
+def test_an_admin_cancels_a_queued_run_nobody_started(env: dict[str, Any]) -> None:
+    client: TestClient = env["client"]
+    run_id = client.post("/api/v1/refresh/daily", headers=ADMIN).json()["run_id"]
+    assert client.post(f"/api/v1/jobs/{run_id}/cancel", headers=USER).status_code == 403
+    assert client.post(f"/api/v1/jobs/{run_id}/cancel").status_code == 401
+    r = client.post(f"/api/v1/jobs/{run_id}/cancel", headers=ADMIN)
+    assert r.status_code == 200 and r.json()["status"] == "CANCELLED"
+    assert r.json()["error_summary"] == "cancelled by boss@example.com before it started"
+    assert client.post(f"/api/v1/jobs/{run_id}/cancel", headers=ADMIN).status_code == 409
+    assert client.post("/api/v1/jobs/run-nope/cancel", headers=ADMIN).status_code == 404
+    second = client.post("/api/v1/refresh/daily", headers=ADMIN).json()["run_id"]
+    env["runs"].claim(second, datetime.now(UTC), github_run_id="8", github_run_attempt=1)
+    assert client.post(f"/api/v1/jobs/{second}/cancel", headers=ADMIN).status_code == 409
+
+
+def test_a_lost_run_no_longer_counts_as_active(env: dict[str, Any]) -> None:
+    client: TestClient = env["client"]
+    old = datetime.now(UTC) - timedelta(hours=7)
+    env["runs"].create(
+        RunRecord(run_id="run-old", trigger="api", requested_by="b@x.com", requested_at=old), old
+    )
+    ops = client.get("/api/v1/system/operations", headers=ADMIN).json()
+    assert ops["active_run"] is None
+    assert (ops["last_run"]["run_id"], ops["last_run"]["status"]) == ("run-old", "FAILED")
+
+
+def test_github_usernames_are_for_admins_only(env: dict[str, Any]) -> None:
+    client: TestClient = env["client"]
+    t = datetime.now(UTC)
+    env["runs"].create(
+        RunRecord(run_id="gh-5-1", trigger="manual", requested_by="github:octo", requested_at=t), t
+    )
+    assert client.get("/api/v1/jobs/gh-5-1", headers=ADMIN).json()["requested_by"] == "github:octo"
+    shown = client.get("/api/v1/jobs/gh-5-1", headers=USER).json()["requested_by"]
+    assert shown == "github:a maintainer"

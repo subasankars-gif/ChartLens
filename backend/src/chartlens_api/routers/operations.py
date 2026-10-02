@@ -11,6 +11,7 @@ The API initiates and reports; GitHub Actions runs the pipeline.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Annotated, Any
 
@@ -35,9 +36,10 @@ from chartlens_core.runs import (
     end_run,
     new_run_id,
 )
-from chartlens_pipeline.runs import ActiveRunExists, RunStore
+from chartlens_pipeline.runs import ActiveRunExists, RunNotClaimable, RunNotFound, RunStore
 
 router = APIRouter(tags=["operations"])
+log = logging.getLogger("chartlens.api.operations")
 
 RunIdPath = Annotated[str, Path(pattern=RUN_ID_PATTERN.pattern, max_length=80)]
 
@@ -120,6 +122,8 @@ def _view(run: RunRecord, viewer: User, repository: str | None) -> RunView:
     who = run.requested_by
     if not admin and run.trigger == "api":
         who = "an administrator"
+    elif not admin and who.startswith("github:"):
+        who = "github:a maintainer"
     url = (
         f"https://github.com/{repository}/actions/runs/{run.github_run_id}"
         if admin and repository and run.github_run_id
@@ -154,7 +158,7 @@ def _view(run: RunRecord, viewer: User, repository: str | None) -> RunView:
 def _store_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
     try:
         return fn(*args, **kwargs)
-    except (ActiveRunExists, HTTPException):
+    except (ActiveRunExists, RunNotFound, RunNotClaimable, HTTPException):
         raise
     except Exception:
         raise HTTPException(
@@ -197,13 +201,20 @@ def refresh_daily(
         )
     try:
         dispatcher.dispatch(run.run_id)
-    except DispatchFailed as exc:
+    except Exception as exc:  # whatever went wrong, the lock must not stay held
+        reason = (
+            str(exc)
+            if isinstance(exc, DispatchFailed)
+            else f"unexpected error ({type(exc).__name__})"
+        )
+        if not isinstance(exc, DispatchFailed):
+            log.exception("dispatching %s failed", run.run_id)
         _store_call(
             runs.end_active,
             run.run_id,
             utc_now(),
             RunStatus.FAILED,
-            f"the workflow could not be started: {exc}",
+            f"the workflow could not be started: {reason}",
         )
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -234,6 +245,28 @@ def get_job(user: CurrentUser, runs: Runs, settings: Settings, run_id: RunIdPath
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such run")
     return _view(run, user, settings.api.github_repository)
+
+
+@router.post("/jobs/{run_id}/cancel", response_model=RunView)
+def cancel_job(admin: AdminUser, runs: Runs, settings: Settings, run_id: RunIdPath) -> RunView:
+    """Cancel a refresh that no workflow has started (admins only). It frees the lock if
+    GitHub dropped the workflow before it ran. A running refresh is cancelled in GitHub
+    Actions, where the workflow records it."""
+    try:
+        run: RunRecord = _store_call(
+            runs.cancel_queued,
+            run_id,
+            utc_now(),
+            f"cancelled by {admin.email or admin.uid} before it started",
+        )
+    except RunNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such run") from None
+    except RunNotClaimable:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "only a queued run can be cancelled here; cancel a running one in GitHub Actions",
+        ) from None
+    return _view(run, admin, settings.api.github_repository)
 
 
 def _live_version(snapshots: Any) -> str | None:
@@ -283,6 +316,8 @@ def operations_status(
     store: RunStore = runs
     recent: list[RunRecord] = _store_call(store.list, 1)
     active: RunRecord | None = _store_call(store.active)
+    if active is not None and active.is_lost(utc_now(), LOST_AFTER):
+        active = None  # shown FAILED in the history; it no longer blocks a refresh
     success: RunRecord | None = _store_call(store.last_successful)
 
     def view(r: RunRecord | None) -> RunView | None:

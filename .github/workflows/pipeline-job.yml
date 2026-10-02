@@ -56,7 +56,7 @@ jobs:
       CHARTLENS_STORAGE__BACKEND: ${{ vars.GCS_BUCKET && 'gcs' || 'local' }}
       CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       # A manual publish-serving is recorded in the snapshot history too (ADR-0018).
-      CHARTLENS_FIRESTORE__PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      CHARTLENS_FIRESTORE__PROJECT_ID: ${{ vars.GCS_BUCKET && vars.GCP_PROJECT_ID || '' }}
       # Inputs are passed through env, never interpolated into the script, so a
       # crafted input value cannot inject shell commands.
       JOB: ${{ inputs.job }}

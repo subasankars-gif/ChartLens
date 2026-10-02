@@ -103,7 +103,12 @@ class SnapshotProvider:
             try:
                 bars = snap.weekly_bars(self.store, security_id)
             except (StorageError, SnapshotUnavailable):
-                raise LakeUnavailable("a weekly file is missing from the lake") from None
+                # A copy removed after a newer publication: this process may still hold
+                # an older snapshot. Reload the pointer once before giving up.
+                if attempt == 2:
+                    raise LakeUnavailable("a weekly file is missing from the lake") from None
+                self.refresh(force=True)
+                continue
             except StaleSnapshot:
                 if attempt == 2:
                     raise LakeUnavailable("the lake is being republished; retry shortly") from None

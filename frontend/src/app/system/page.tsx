@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RunStages } from "@/components/RunStages";
 import { ApiError, api, type OperationsStatus, type RunView, type SnapshotView } from "@/lib/api";
+import { useAccess } from "@/lib/access";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import {
@@ -29,6 +30,8 @@ type Notice = { tone: "ok" | "error"; text: string };
 
 export default function SystemPage() {
   const { token } = useAuth();
+  const access = useAccess();
+  const isAdmin = access.status === "ready" && access.user.role === "admin";
   const [ops, setOps] = useState<OperationsStatus | null>(null);
   const [runs, setRuns] = useState<RunView[] | null>(null);
   const [snapshots, setSnapshots] = useState<SnapshotView[] | null>(null);
@@ -73,6 +76,19 @@ export default function SystemPage() {
     }, POLL_MS);
     return () => window.clearInterval(id);
   }, [polling, load, loadDetail]);
+
+  async function cancel(runId: string) {
+    setNotice(null);
+    try {
+      await api.cancelJob(token, runId);
+      setNotice({ tone: "ok", text: "Queued refresh cancelled. A new one can start now." });
+    } catch (err) {
+      setNotice({ tone: "error", text: err instanceof Error ? err.message : String(err) });
+    } finally {
+      load();
+      loadDetail();
+    }
+  }
 
   async function refresh() {
     setBusy(true);
@@ -233,6 +249,14 @@ export default function SystemPage() {
               </>
             )}
           </p>
+          {isAdmin && shown.status === "QUEUED" && (
+            <p className="mt-2 text-sm text-muted">
+              Waiting for GitHub Actions to start it.{" "}
+              <button type="button" onClick={() => void cancel(shown.run_id)} className="text-accent underline">
+                Cancel this queued refresh
+              </button>
+            </p>
+          )}
           {shown.error_summary && (
             <p className="mt-2 text-sm text-down" data-testid="run-error">
               {shown.error_summary}

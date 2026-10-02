@@ -138,4 +138,6 @@ export const api = {
   snapshots: (t: TokenSource, limit = 10) =>
     apiRequest<SnapshotView[]>("/system/snapshots", t, { query: { limit: String(limit) } }),
   refresh: (t: TokenSource) => apiRequest<RefreshAccepted>("/refresh/daily", t, { method: "POST" }),
+  cancelJob: (t: TokenSource, runId: string) =>
+    apiRequest<RunView>(`/jobs/${encodeURIComponent(runId)}/cancel`, t, { method: "POST" }),
 };

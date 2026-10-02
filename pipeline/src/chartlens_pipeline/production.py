@@ -29,7 +29,7 @@ from chartlens_core.runs import (
     start_stage,
     succeed_run,
 )
-from chartlens_pipeline.runs import RunStore
+from chartlens_pipeline.runs import RunNotClaimable, RunStore
 
 log = logging.getLogger("chartlens.pipeline.production")
 
@@ -123,6 +123,8 @@ class ProductionRunner:
                     records_processed=record.records_processed,
                     version=record.version,
                 )
+        except RunNotClaimable:
+            raise  # closed elsewhere (lost, cancelled): never overwrite that record
         except BaseException:
             # Interrupted (cancelled workflow, Ctrl-C): record it, then let it propagate.
             if self.run.active:

@@ -19,7 +19,7 @@ from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverride
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
 from chartlens_pipeline.production import ProductionRunner, StageFailed, StageResult
-from chartlens_pipeline.runs import MemoryRunStore
+from chartlens_pipeline.runs import MemoryRunStore, RunNotClaimable
 from chartlens_pipeline.serving import ServingPublisher, ServingSnapshot
 from chartlens_pipeline.storage import DataLakeLayout
 from chartlens_pipeline.weekly import WeeklyService
@@ -340,3 +340,21 @@ def test_run_finalize_closes_only_its_own_run(cli_env: MemoryRunStore) -> None:
     run = cli_env.get("run-a")
     assert run is not None and run.status == RunStatus.CANCELLED
     assert run.error_summary == "the workflow was cancelled"
+
+
+def test_a_run_closed_elsewhere_is_never_overwritten() -> None:
+    store = MemoryRunStore()
+    run = running_run(store)
+
+    def cancelled_meanwhile() -> StageResult:
+        store.end_active("run-a", T0, RunStatus.CANCELLED, "cancelled", github_run_id="77")
+        return StageResult()
+
+    runner = ProductionRunner(
+        store, run, fake_stages(ADJUSTMENT=cancelled_meanwhile), clock=Clock()
+    )
+    with pytest.raises(RunNotClaimable):
+        runner.execute()
+    closed = store.get("run-a")
+    assert closed is not None and closed.status == RunStatus.CANCELLED
+    assert closed.error_summary == "ADJUSTMENT: cancelled"

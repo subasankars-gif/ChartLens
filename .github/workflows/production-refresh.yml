@@ -49,7 +49,7 @@ jobs:
       # Inputs reach the script through env, never interpolated into it.
       INPUT_RUN_ID: ${{ inputs.run_id }}
       EVENT: ${{ github.event_name }}
-      ACTOR: ${{ github.actor }}
+      ACTOR: ${{ github.triggering_actor }}   # on a re-run: whoever re-ran it
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
@@ -77,9 +77,12 @@ jobs:
       - name: Refresh (tracked run)
         run: |
           set -euo pipefail
+          # An API run is started once; re-running its workflow does not reopen it.
+          # Re-running a scheduled or manual workflow records a new run (gh-<id>-<attempt>),
+          # requested by whoever re-ran it.
           if [ -n "$INPUT_RUN_ID" ]; then
             uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID"
-          elif [ "$EVENT" = "schedule" ]; then
+          elif [ "$EVENT" = "schedule" ] && [ "$GITHUB_RUN_ATTEMPT" = "1" ]; then
             uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID" --create \
               --trigger schedule --requested-by schedule
           else

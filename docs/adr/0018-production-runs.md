@@ -83,8 +83,18 @@ write per update. Subcollections would add reads and give nothing in return.
   - After 6 hours either becomes FAILED ("lost") and releases the lock.
   - Both the API, before taking the lock and when reading runs, and the pipeline, before
     starting, apply this rule.
-- Re-running a finished workflow in GitHub does not reopen its run. The run is closed,
-  so the new attempt refuses to start; start a new refresh instead.
+- Re-running a workflow in GitHub never reopens a finished run.
+  - For an API run, the new attempt finds its run closed and refuses to start; start a
+    new refresh instead.
+  - For a scheduled or manual run, the new attempt records a new run,
+    `gh-<id>-<attempt>`, requested by whoever re-ran it.
+- An admin can cancel a QUEUED run that no workflow has started
+  (`POST /api/v1/jobs/{run_id}/cancel`). This frees the lock when GitHub dropped the
+  workflow before it ran: a pending run replaced in the concurrency group, a job skipped,
+  or a setup step that failed before the finalizer could run. A RUNNING run is cancelled
+  in GitHub Actions instead, and its final step records it.
+- Only the process that owns a RUNNING run (same GitHub run) may record its progress or
+  close it. A run already closed elsewhere is never brought back.
 
 **Failure is visible where it happened.**
 
@@ -126,6 +136,8 @@ hash on read.
   run records `snapshot_outcome = UNCHANGED`, a successful run with no new snapshot.
 - If publication fails at any step before the pointer moves, the run is FAILED at
   PUBLISH_SERVING, `serving_version` stays empty, and the previous snapshot stays live.
+- After the pointer moves, nothing can fail the publication. Marking the record
+  PUBLISHED and cleaning up are best effort; the next publication finishes either.
 
 Whether a snapshot is live is never stored: it is read from the pointer. If a snapshot
 record says STAGED but is the pointer's version, it is live. This happens only if the
@@ -147,7 +159,8 @@ snapshots/{meta_version}
   - `503` if refresh is not configured;
   - `502` if GitHub refused the dispatch.
 - `GET /api/v1/jobs?limit=&before=` and `GET /api/v1/jobs/{run_id}`, any approved user.
-  Requester email and GitHub run details are shown to admins only.
+  Requester email, GitHub username and GitHub run link are shown to admins only.
+- `POST /api/v1/jobs/{run_id}/cancel`, admins only, for a QUEUED run: `409` otherwise.
 - `GET /api/v1/system/snapshots?limit=` returns snapshot history.
 - `GET /api/v1/system/operations`, any approved user, returns:
   - the API status and the live snapshot (null before the first snapshot);

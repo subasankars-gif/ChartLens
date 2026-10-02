@@ -123,8 +123,10 @@ def decide_claim(
     return Decision(runs=[started], lock=run.run_id)
 
 
-def decide_close(run: RunRecord, holder_id: str | None) -> Decision:
-    """Persist a finished run and release the lock if it still holds it."""
+def decide_close(stored: RunRecord | None, run: RunRecord, holder_id: str | None) -> Decision:
+    """Persist a finished run and release the lock if it still holds it. Only the
+    process that owns the running run may close it (see :func:`decide_save`)."""
+    decide_save(stored, run)
     return Decision(
         runs=[run],
         release=holder_id == run.run_id,
@@ -149,6 +151,32 @@ def decide_end(
     if github_run_id is not None and run.github_run_id not in (None, github_run_id):
         return Decision()
     ended = end_run(run, now, status, reason)
+    return Decision(runs=[ended], release=holder_id == run.run_id)
+
+
+def decide_save(stored: RunRecord | None, run: RunRecord) -> Decision:
+    """Progress is recorded only by the process that owns the run: it must still be
+    RUNNING under the same GitHub run. A run closed elsewhere (lost, cancelled) is never
+    brought back to life by a late write."""
+    if stored is None or stored.status != RunStatus.RUNNING:
+        raise RunNotClaimable(f"run {run.run_id} is no longer running here")
+    if stored.github_run_id != run.github_run_id:
+        raise RunNotClaimable(f"run {run.run_id} belongs to another workflow run")
+    return Decision(runs=[run])
+
+
+def decide_cancel_queued(
+    run: RunRecord | None, holder_id: str | None, now: datetime, reason: str
+) -> Decision:
+    """An admin cancels a run that no workflow has started (ADR-0018). A running run is
+    cancelled in GitHub Actions instead, where its finalizer records it."""
+    if run is None:
+        raise RunNotFound("no such run")
+    if run.status != RunStatus.QUEUED:
+        raise RunNotClaimable(
+            f"run {run.run_id} is {run.status}; only a queued run can be cancelled here"
+        )
+    ended = end_run(run, now, RunStatus.CANCELLED, reason)
     return Decision(runs=[ended], release=holder_id == run.run_id)
 
 
@@ -180,7 +208,12 @@ class RunStore(Protocol):
         ...
 
     def save(self, run: RunRecord) -> None:
-        """Record progress of a running run (stages, heartbeat)."""
+        """Record progress of a running run (stages, heartbeat); raise
+        :class:`RunNotClaimable` if it is no longer this process's run."""
+        ...
+
+    def cancel_queued(self, run_id: str, now: datetime, reason: str) -> RunRecord:
+        """Cancel a run no workflow has started, and release the lock."""
         ...
 
     def close(self, run: RunRecord) -> None:
@@ -292,11 +325,17 @@ class MemoryRunStore:
 
     def save(self, run: RunRecord) -> None:
         with self._mutex:
-            self.runs[run.run_id] = run
+            self._apply(decide_save(self.runs.get(run.run_id), run))
+
+    def cancel_queued(self, run_id: str, now: datetime, reason: str) -> RunRecord:
+        with self._mutex:
+            d = decide_cancel_queued(self.runs.get(run_id), self.lock_holder, now, reason)
+            self._apply(d)
+            return d.runs[0]
 
     def close(self, run: RunRecord) -> None:
         with self._mutex:
-            self._apply(decide_close(run, self.lock_holder))
+            self._apply(decide_close(self.runs.get(run.run_id), run, self.lock_holder))
 
     def end_active(
         self,
@@ -486,12 +525,29 @@ class FirestoreRunStore:
         return claimed
 
     def save(self, run: RunRecord) -> None:
-        self._run_ref(run.run_id).set(_to_doc(run))
+        def body(tx: Any) -> None:
+            stored = _run(self._run_ref(run.run_id).get(transaction=tx).to_dict())
+            self._write(tx, decide_save(stored, run), run.requested_at)
+
+        self._transact(body)
+
+    def cancel_queued(self, run_id: str, now: datetime, reason: str) -> RunRecord:
+        def body(tx: Any) -> RunRecord:
+            holder_id, _ = self._read_lock(tx)
+            run = _run(self._run_ref(run_id).get(transaction=tx).to_dict())
+            d = decide_cancel_queued(run, holder_id, now, reason)
+            self._write(tx, d, now)
+            return d.runs[0]
+
+        cancelled: RunRecord = self._transact(body)
+        return cancelled
 
     def close(self, run: RunRecord) -> None:
         def body(tx: Any) -> None:
             holder_id, _ = self._read_lock(tx)
-            self._write(tx, decide_close(run, holder_id), run.completed_at or run.requested_at)
+            stored = _run(self._run_ref(run.run_id).get(transaction=tx).to_dict())
+            d = decide_close(stored, run, holder_id)
+            self._write(tx, d, run.completed_at or run.requested_at)
 
         self._transact(body)
 

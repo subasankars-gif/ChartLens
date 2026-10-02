@@ -111,6 +111,8 @@ class SnapshotHistory(Protocol):
 
     def publish_snapshot(self, snapshot_id: str, now: datetime) -> None: ...
 
+    def get_snapshot(self, snapshot_id: str) -> SnapshotRecord | None: ...
+
 
 class SnapshotUnavailable(RuntimeError):
     """No serving snapshot, or one whose files do not match its manifest."""
@@ -251,6 +253,10 @@ class ServingPublisher:
         )
         if previous is not None and previous.get("meta_version") == meta_version:
             log_event(log, "serving.unchanged", meta_version=meta_version)
+            if self.history is not None:  # a process that died between pointer and record
+                record = self.history.get_snapshot(meta_version)
+                if record is not None and record.status == "STAGED":
+                    self.history.publish_snapshot(meta_version, self.clock())
             return {
                 "outcome": SnapshotOutcome.UNCHANGED,
                 "meta_version": meta_version,
@@ -302,9 +308,12 @@ class ServingPublisher:
         if self.history is not None:
             try:
                 self.history.publish_snapshot(meta_version, self.clock())
-            except Exception:  # live already; the record says STAGED until next time
+            except Exception:  # live already; the next publication corrects the record
                 log.exception("snapshot %s is live but could not be marked PUBLISHED", meta_version)
-        self._remove_unreferenced(manifest, previous)
+        try:  # live already: a failed clean-up must not turn a publication into a failure
+            self._remove_unreferenced(manifest, previous)
+        except Exception:
+            log.exception("clean-up after publishing %s failed; the next run retries", meta_version)
         log_event(log, "serving.published", meta_version=meta_version, securities=len(rows))
         return {
             "outcome": SnapshotOutcome.PUBLISHED,

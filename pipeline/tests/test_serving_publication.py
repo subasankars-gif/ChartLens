@@ -167,3 +167,49 @@ def test_a_corrupt_weekly_copy_is_refused(lake: Any) -> None:
     store.put(key, store.get(key) + b"x")
     with pytest.raises(SnapshotUnavailable, match="corrupt"):
         snap.weekly_bars(store, sid)
+
+
+def test_after_the_pointer_moves_nothing_fails_the_publication(lake: Any) -> None:
+    _, _, store = lake
+    history = MemoryRunStore()
+    publisher(lake, history).run()
+    sid = next(iter(ServingSnapshot.load(store, "NSE").securities))
+    reissue_weekly(store, sid)
+
+    class BrokenDeletes:  # clean-up fails (a GCS 503 on one of many deletes)
+        def __init__(self, inner: LocalObjectStore) -> None:
+            self.inner = inner
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self.inner, name)
+
+        def delete(self, key: str) -> None:
+            raise RuntimeError("503 from storage")
+
+    settings, provider, _ = lake
+    second = ServingPublisher(
+        settings,
+        provider,
+        BrokenDeletes(store),
+        history=history,
+        clock=lambda: T0,  # type: ignore[arg-type]
+    ).run()
+    assert second["outcome"] == SnapshotOutcome.PUBLISHED
+    assert json.loads(pointer(store))["meta_version"] == second["meta_version"]
+
+
+def test_an_unchanged_run_completes_a_record_left_staged(lake: Any) -> None:
+    history = MemoryRunStore()
+
+    class DiesBeforeMarking(MemoryRunStore):
+        def publish_snapshot(self, snapshot_id: str, now: datetime) -> None:
+            history.snapshots.update(self.snapshots)
+            raise RuntimeError("process killed")
+
+    first = publisher(lake, DiesBeforeMarking()).run()
+    record = history.get_snapshot(first["meta_version"])
+    assert record is not None and record.status == "STAGED"
+    again = publisher(lake, history).run()
+    assert again["outcome"] == SnapshotOutcome.UNCHANGED
+    record = history.get_snapshot(first["meta_version"])
+    assert record is not None and record.status == "PUBLISHED"
