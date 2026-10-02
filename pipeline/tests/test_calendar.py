@@ -155,3 +155,52 @@ def test_shipped_nse_calendar_covers_2006_to_2026_with_evidence() -> None:
     for special in (SAT_SESSION_2024, date(2025, 2, 1), date(2026, 2, 1), date(2020, 2, 1)):
         assert nse.is_trading_day(special), special  # Budget days and DR sessions
     assert nse.note(date(2026, 2, 1)) == "Union Budget (Sunday session)"
+
+
+# ----------------------------------------------------------------------------- session types
+
+
+def test_session_types_are_validated() -> None:
+    with pytest.raises(ValueError, match="unknown session type"):
+        CalendarYear(
+            2024,
+            CalendarEvidence.OFFICIAL,
+            special_sessions=frozenset({SAT_SESSION_2024}),
+            special_types={SAT_SESSION_2024: "PICNIC"},
+        )
+    with pytest.raises(ValueError, match="not a session"):
+        CalendarYear(
+            2024,
+            CalendarEvidence.OFFICIAL,
+            holidays=frozenset({REPUBLIC_DAY_2024}),
+            special_types={REPUBLIC_DAY_2024: "MUHURAT"},
+        )
+    with pytest.raises(ValueError, match="not a session"):  # a weekend day that did not trade
+        CalendarYear(2024, CalendarEvidence.OFFICIAL, special_types={date(2024, 1, 21): "OTHER"})
+
+
+def test_shipped_nse_calendar_types_every_non_regular_session() -> None:
+    import tomllib
+    from importlib import resources
+
+    from chartlens_pipeline.calendar import SESSION_TYPES
+
+    nse = load_calendar()
+    text = (
+        resources.files("chartlens_pipeline.providers.nse") / "data" / "calendar.toml"
+    ).read_text()
+    data = tomllib.loads(text)
+    for y in data["years"]:
+        specials = {str(d) for d in y.get("special_sessions", [])}
+        typed = {str(d) for d in y.get("special_types", {})}
+        assert specials <= typed, f"{y['year']}: untyped weekend sessions {specials - typed}"
+    assert nse.session_type(date(2024, 11, 1)) == "MUHURAT"  # a Friday Muhurat close
+    assert nse.session_type(date(2024, 3, 2)) == "DR_DRILL"
+    assert nse.session_type(date(2025, 2, 1)) == "BUDGET"
+    assert nse.session_type(date(2024, 1, 20)) == "OTHER"  # held as a full session
+    assert nse.session_type(date(2024, 11, 4)) is None  # a regular Monday
+    assert {
+        nse.session_type(d)
+        for y in range(2006, 2027)
+        for d in nse.expected_sessions(date(y, 1, 1), date(y, 12, 31))
+    } <= SESSION_TYPES | {None}

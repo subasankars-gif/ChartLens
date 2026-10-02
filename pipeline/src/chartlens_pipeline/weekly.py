@@ -64,7 +64,8 @@ from chartlens_pipeline.storage import DataLakeLayout, ObjectStore, StorageError
 
 log = logging.getLogger("chartlens.pipeline.weekly")
 
-WEEKLY_SCHEMA_VERSION: Final = 1
+WEEKLY_SCHEMA_VERSION: Final = 2
+"""v2: closing_session_type (ADR-0015)."""
 SCAN_ROWS_PER_PART: Final = 2_000_000
 """Rows per scan part. The scan dataset is a *logical* dataset of one or more parts; a
 reader goes through its manifest and never assumes a single file."""
@@ -109,6 +110,7 @@ def weekly_schema() -> pa.Schema:
             pa.field("partial_reason", pa.string()),
             pa.field("special_sessions", pa.int32(), nullable=False),
             pa.field("closes_on_special_session", pa.bool_(), nullable=False),
+            pa.field("closing_session_type", pa.string()),
             pa.field("as_of", pa.date32(), nullable=False),
             pa.field("adjustment_version", pa.string(), nullable=False),
             pa.field("identity_version", pa.string(), nullable=False),
@@ -193,11 +195,14 @@ def _segments_by_security(table: pa.Table) -> dict[str, list[ContinuitySegment]]
     return dict(out)
 
 
-def _calendar_weeks(calendar: TradingCalendar, first: date, last: date) -> dict[date, date]:
-    """Each ISO week's last scheduled session, over the weeks spanning ``first``–``last``."""
-    return week_last_sessions(
-        calendar.expected_sessions(monday(first), monday(last) + timedelta(6))
-    )
+def _calendar_weeks(
+    calendar: TradingCalendar, first: date, last: date
+) -> tuple[dict[date, date], dict[date, str]]:
+    """Over the weeks spanning ``first``–``last``: each ISO week's last scheduled session,
+    and the type of every non-regular session (ADR-0015)."""
+    sessions = calendar.expected_sessions(monday(first), monday(last) + timedelta(6))
+    types = {d: t for d in sessions if (t := calendar.session_type(d)) is not None}
+    return week_last_sessions(sessions), types
 
 
 class _Inputs:
@@ -315,12 +320,16 @@ class WeeklyService:
         if missing:
             raise WeeklyInputsNotReady(f"{len(missing)} securities have no continuity segments")
         first = min(seg[0].start for seg in inputs.segments.values())
-        weeks = _calendar_weeks(inputs.calendar, first, as_of)
+        weeks, session_types = _calendar_weeks(inputs.calendar, first, as_of)
         previous = self._previous_files()
 
         def build(sid: str) -> tuple[str, pa.Table, list[WeeklyBar]]:
             bars = build_weekly(
-                _stored_daily(inputs.adjusted_rows(sid)), inputs.segments[sid], weeks, as_of
+                _stored_daily(inputs.adjusted_rows(sid)),
+                inputs.segments[sid],
+                weeks,
+                as_of,
+                session_types,
             )
             return sid, weekly_table(self.exchange, sid, bars, provenance), bars
 
@@ -458,7 +467,7 @@ class WeeklySeries:
 
     def frame(self) -> pd.DataFrame:
         """The engine bar frame of these bars (one continuity segment, by the contract)."""
-        return to_bar_frame(self.bars)
+        return to_bar_frame(self.bars, self.security_id)
 
 
 class WeeklyReader:
@@ -534,8 +543,10 @@ class WeeklyReader:
             rows = inputs.adjusted_rows(security_id)
             segments = [s for s in inputs.segments[security_id] if s.start <= effective]
             days = point_in_time_daily(rows, self.events(security_id), effective)
-            weeks = _calendar_weeks(inputs.calendar, days[0].day, effective) if days else {}
-            bars = build_weekly(days, segments, weeks, effective)
+            weeks, types = (
+                _calendar_weeks(inputs.calendar, days[0].day, effective) if days else ({}, {})
+            )
+            bars = build_weekly(days, segments, weeks, effective, types)
             segment_ids = [s.id for s in segments]
             versions = {
                 "data_version": inputs.data_version,

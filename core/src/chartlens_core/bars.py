@@ -19,6 +19,10 @@ Optional columns
 ``continuity_segment_id``  str. The continuity segment every bar belongs to (ADR-0014).
                  When present it must be one value for the whole frame: no technical
                  structure may span a continuity break, so a frame never does either.
+``security_id``  str. When present, one value for the whole frame (ADR-0015).
+``closes_on_special_session``  bool. The bar's close comes from a non-regular session
+                 (Muhurat, Budget day, DR drill...); a confirmation decided on it is
+                 provisional until the next regular week (ADR-0015).
 
 This module checks *shape*, not *quality*. OHLC consistency, gaps and suspicious
 moves are the data-quality engine's job (Milestone 3).
@@ -36,6 +40,8 @@ PRICE_COLUMNS: Final = ("open", "high", "low", "close")
 VOLUME: Final = "volume"
 IS_COMPLETE: Final = "is_complete"
 SEGMENT: Final = "continuity_segment_id"
+SECURITY: Final = "security_id"
+CLOSES_ON_SPECIAL_SESSION: Final = "closes_on_special_session"
 REQUIRED_COLUMNS: Final = (BAR_DATE, *PRICE_COLUMNS, VOLUME)
 
 
@@ -71,6 +77,14 @@ def validate_bar_frame(bars: pd.DataFrame) -> None:
 
     if IS_COMPLETE in bars.columns and not ptypes.is_bool_dtype(column(bars, IS_COMPLETE)):
         raise BarFrameError(f"{IS_COMPLETE} must be bool, got {column(bars, IS_COMPLETE).dtype}")
+
+    if SECURITY in bars.columns and len(set(column(bars, SECURITY))) > 1:
+        raise BarFrameError("bars of more than one security in one frame")
+
+    if CLOSES_ON_SPECIAL_SESSION in bars.columns and not ptypes.is_bool_dtype(
+        column(bars, CLOSES_ON_SPECIAL_SESSION)
+    ):
+        raise BarFrameError(f"{CLOSES_ON_SPECIAL_SESSION} must be bool")
 
     if SEGMENT in bars.columns:
         segments = column(bars, SEGMENT)

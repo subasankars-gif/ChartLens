@@ -21,3 +21,4 @@ an ADR before the code changes (spec §57 rule 13).
 | [0012](0012-data-quality-and-usable-from.md) | Data quality findings, status and `usable_from` | Accepted | M3 |
 | [0013](0013-identity-rebuild-and-aliases.md) | Identity rebuild, aliases, reviewed identity links | Accepted | M3 |
 | [0014](0014-weekly-data-product.md) | Weekly data product, continuity segments, point-in-time weekly bars | Accepted | M4 |
+| [0015](0015-non-regular-sessions-and-comparability-guard.md) | Non-regular sessions (kept as traded, flagged, provisional confirmations) and the engine comparability guard | Accepted | M4 follow-up |

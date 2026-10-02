@@ -35,6 +35,10 @@ class CalendarEvidence(StrEnum):
     """Inferred from which daily files the exchange actually published (see ADR-0008)."""
 
 
+SESSION_TYPES: frozenset[str] = frozenset({"MUHURAT", "BUDGET", "DR_DRILL", "OTHER"})
+"""Types of non-regular sessions (ADR-0015). Generic: an exchange maps its events onto them."""
+
+
 class TradingCalendar(Protocol):
     @property
     def exchange(self) -> str: ...
@@ -50,6 +54,11 @@ class TradingCalendar(Protocol):
 
     def evidence(self, year: int) -> CalendarEvidence: ...
 
+    def session_type(self, day: date) -> str | None:
+        """None for a regular session; otherwise the type of a non-regular one: every weekend
+        session, and weekday sessions the data marks (e.g. a weekday Muhurat session)."""
+        ...
+
 
 @dataclass(frozen=True)
 class CalendarYear:
@@ -60,6 +69,9 @@ class CalendarYear:
     special_sessions: frozenset[date] = frozenset()
     """Weekend dates on which the exchange did trade (Budget days, Muhurat, drills)."""
     notes: Mapping[date, str] = field(default_factory=dict)
+    special_types: Mapping[date, str] = field(default_factory=dict)
+    """Non-regular sessions → type (SESSION_TYPES): every weekend session, plus weekday
+    sessions that were not regular trading (a weekday Muhurat session)."""
 
     def __post_init__(self) -> None:
         for day in (*self.holidays, *self.special_sessions):
@@ -73,6 +85,14 @@ class CalendarYear:
         weekday_specials = sorted(d for d in self.special_sessions if d.weekday() < 5)
         if weekday_specials:
             raise ValueError(f"special sessions must be weekend dates: {weekday_specials}")
+        for day, kind in self.special_types.items():
+            if kind not in SESSION_TYPES:
+                raise ValueError(f"{day}: unknown session type {kind!r} ({sorted(SESSION_TYPES)})")
+            traded = day in self.special_sessions or (
+                day.weekday() < 5 and day not in self.holidays
+            )
+            if day.year != self.year or not traded:
+                raise ValueError(f"{day} has a session type but is not a session of {self.year}")
 
 
 class DataCalendar:
@@ -114,6 +134,12 @@ class DataCalendar:
     def evidence(self, year: int) -> CalendarEvidence:
         return self._year(year).evidence
 
+    def session_type(self, day: date) -> str | None:
+        y = self._year(day.year)
+        if day in y.special_types:
+            return y.special_types[day]
+        return "OTHER" if day in y.special_sessions else None
+
     def note(self, day: date) -> str | None:
         return self._year(day.year).notes.get(day)
 
@@ -128,6 +154,7 @@ class DataCalendar:
         years: list[CalendarYear] = []
         for entry in data.get("years", []):
             notes = {date.fromisoformat(k): v for k, v in entry.get("notes", {}).items()}
+            types = {date.fromisoformat(k): v for k, v in entry.get("special_types", {}).items()}
             years.append(
                 CalendarYear(
                     year=int(entry["year"]),
@@ -135,6 +162,7 @@ class DataCalendar:
                     holidays=frozenset(_dates(entry.get("holidays", []))),
                     special_sessions=frozenset(_dates(entry.get("special_sessions", []))),
                     notes=notes,
+                    special_types=types,
                 )
             )
         digest = hashlib.sha256(raw).hexdigest()[:8]

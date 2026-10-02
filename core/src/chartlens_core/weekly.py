@@ -13,8 +13,10 @@ Rules
 * ``is_complete`` is decided from the trading calendar: a week is complete once its last
   *scheduled* session is on or before ``as_of``. The pre-break part of a split week is
   complete (the break closed it). Incomplete bars must never confirm anything.
-* Weekend sessions (Budget days, Muhurat) are counted in ``special_sessions``, and a
-  bar whose close comes from one says so in ``closes_on_special_session``.
+* Non-regular sessions — every weekend session and weekday sessions the calendar marks
+  (a weekday Muhurat session) — are counted in ``special_sessions``. A bar whose close
+  comes from one says so in ``closes_on_special_session`` and ``closing_session_type``
+  (MUHURAT, BUDGET, DR_DRILL, OTHER). Prices stay exactly as traded (ADR-0015).
 
 The builder sees only what it is given and refuses data dated after ``as_of``: cutting
 history and choosing the point-in-time adjustment is the caller's job (ADR-0006).
@@ -33,11 +35,18 @@ from typing import Final
 import pandas as pd
 
 from chartlens_core.asof import AsOfViolation
-from chartlens_core.bars import BAR_DATE, IS_COMPLETE, SEGMENT
+from chartlens_core.bars import (
+    BAR_DATE,
+    CLOSES_ON_SPECIAL_SESSION,
+    IS_COMPLETE,
+    SECURITY,
+    SEGMENT,
+)
 from chartlens_core.quality import ContinuitySegment
 
-WEEKLY_BUILDER_VERSION: Final = "weekly_v1"
-"""Bump on any change to how weekly bars are formed (part of the weekly version)."""
+WEEKLY_BUILDER_VERSION: Final = "weekly_v2"
+"""Bump on any change to how weekly bars are formed (part of the weekly version).
+v2: weekday non-regular sessions and the closing session's type (ADR-0015)."""
 
 
 class PartialReason(StrEnum):
@@ -82,6 +91,8 @@ class WeeklyBar:
     partial_reason: str | None
     special_sessions: int
     closes_on_special_session: bool
+    closing_session_type: str | None
+    """Type of the closing session when it is non-regular; None for a regular close."""
 
 
 def monday(day: date) -> date:
@@ -103,13 +114,21 @@ def build_weekly(
     segments: Sequence[ContinuitySegment],
     last_scheduled: Mapping[date, date],
     as_of: date,
+    session_types: Mapping[date, str] | None = None,
 ) -> list[WeeklyBar]:
     """Weekly bars for one security, oldest first.
 
     ``days`` ascending, all on or before ``as_of``; ``segments`` the security's continuity
     segments known as of ``as_of`` (oldest first, the first starting on or before the first
-    day); ``last_scheduled`` maps each ISO week's Monday to its last scheduled session.
+    day); ``last_scheduled`` maps each ISO week's Monday to its last scheduled session;
+    ``session_types`` maps non-regular sessions to their type (a weekend session missing
+    from it is still non-regular, typed OTHER).
     """
+    types = session_types or {}
+
+    def kind(day: date) -> str | None:
+        return types.get(day, "OTHER" if day.weekday() >= 5 else None)
+
     if not days:
         return []
     if any(b.day <= a.day for a, b in pairwise(days)):
@@ -167,8 +186,9 @@ def build_weekly(
                 trading_days=len(bars),
                 is_complete=closed_by_break or scheduled <= as_of,
                 partial_reason=str(PartialReason.CONTINUITY_BREAK) if week in weeks_split else None,
-                special_sessions=sum(1 for b in bars if b.day.weekday() >= 5),
-                closes_on_special_session=bars[-1].day.weekday() >= 5,
+                special_sessions=sum(1 for b in bars if kind(b.day) is not None),
+                closes_on_special_session=kind(bars[-1].day) is not None,
+                closing_session_type=kind(bars[-1].day),
             )
         )
     return out
@@ -182,12 +202,14 @@ def current_segment(bars: Sequence[WeeklyBar]) -> list[WeeklyBar]:
     return [b for b in bars if b.continuity_segment_id == last]
 
 
-def to_bar_frame(bars: Sequence[WeeklyBar]) -> pd.DataFrame:
+def to_bar_frame(bars: Sequence[WeeklyBar], security_id: str) -> pd.DataFrame:
     """Weekly bars as an engine bar frame (``chartlens_core.bars``): floats for computation,
-    one row per bar labelled by its last session, with the segment and completeness."""
+    one row per bar labelled by its last session, with the security, segment, completeness
+    and closing-session flags the engine's comparability guard needs."""
     frame = pd.DataFrame(
         {
             BAR_DATE: pd.to_datetime([b.last_session_date for b in bars]),
+            SECURITY: [security_id] * len(bars),
             "open": [float(b.open) for b in bars],
             "high": [float(b.high) for b in bars],
             "low": [float(b.low) for b in bars],
@@ -198,6 +220,10 @@ def to_bar_frame(bars: Sequence[WeeklyBar]) -> pd.DataFrame:
             "first_session_date": pd.to_datetime([b.first_session_date for b in bars]),
             "trading_days": [b.trading_days for b in bars],
             "partial_reason": [b.partial_reason for b in bars],
+            CLOSES_ON_SPECIAL_SESSION: pd.Series(
+                [b.closes_on_special_session for b in bars], dtype=bool
+            ),
+            "closing_session_type": [b.closing_session_type for b in bars],
             "raw_close": [float(b.raw_close) for b in bars],
         }
     )

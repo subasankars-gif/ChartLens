@@ -1,8 +1,12 @@
 # NSE capital-market trading calendar (ADR-0008).
 #
 # Per year: `holidays` are WEEKDAYS the market was closed; `special_sessions` are
-# WEEKEND dates it traded. Every other weekday is a session; every other weekend
-# day is not. A year missing from this file is NOT assumed to be Mon–Fri — the
+# WEEKEND dates it traded, and `special_types` gives each one a type: MUHURAT, BUDGET,
+# DR_DRILL (short live sessions with a switch-over to the disaster-recovery site) or
+# OTHER (a full session, or an event not identified). Weekday sessions that were not
+# regular trading are typed too (weekday Muhurat sessions; a halted or shortened day),
+# found from the data: market turnover far below the local median (ADR-0015). Every
+# other weekday is a session; every other weekend day is not. A year missing from this file is NOT assumed to be Mon–Fri — the
 # calendar raises instead.
 #
 # evidence = "official": NSE's published holiday list (holiday-master API).
@@ -12,7 +16,7 @@
 #                        cannot detect.
 
 exchange = "NSE"
-version = "2026.09.30-2"
+version = "2026.10.02-1"
 
 
 [[years]]
@@ -30,6 +34,11 @@ special_sessions = [
 "2006-04-29" = "Weekend file published in NSE archive; event not identified"
 "2006-06-25" = "Weekend file published in NSE archive; event not identified"
 "2006-10-21" = "Diwali Muhurat trading"
+[years.special_types]
+"2006-04-29" = "OTHER"
+"2006-06-25" = "OTHER"
+"2006-10-21" = "MUHURAT"
+
 
 [[years]]
 year = 2007
@@ -39,6 +48,11 @@ holidays = [
   "2007-05-01", "2007-05-02", "2007-08-15", "2007-10-02", "2007-12-21", "2007-12-25",
 ]
 special_sessions = []
+[years.notes]
+"2007-11-09" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 16% of the local median"
+[years.special_types]
+"2007-11-09" = "MUHURAT"
+
 
 [[years]]
 year = 2008
@@ -49,6 +63,11 @@ holidays = [
   "2008-11-13", "2008-11-27", "2008-12-09", "2008-12-25",
 ]
 special_sessions = []
+[years.notes]
+"2008-10-28" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 15% of the local median"
+[years.special_types]
+"2008-10-28" = "MUHURAT"
+
 
 [[years]]
 year = 2009
@@ -64,6 +83,11 @@ special_sessions = [
 ]
 [years.notes]
 "2009-10-17" = "Diwali Muhurat trading"
+"2009-05-18" = "Market-wide circuit breaker: trading halted for the day within minutes of the open; market turnover 1% of the local median"
+[years.special_types]
+"2009-10-17" = "MUHURAT"
+"2009-05-18" = "OTHER"
+
 
 [[years]]
 year = 2010
@@ -78,6 +102,12 @@ special_sessions = [
 [years.notes]
 "2010-02-06" = "Weekend file published in NSE archive; event not identified"
 "2010-05-16" = "Weekend file published in NSE archive; event not identified"
+"2010-11-05" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 26% of the local median"
+[years.special_types]
+"2010-02-06" = "OTHER"
+"2010-05-16" = "OTHER"
+"2010-11-05" = "MUHURAT"
+
 
 [[years]]
 year = 2011
@@ -88,6 +118,11 @@ holidays = [
   "2011-12-06",
 ]
 special_sessions = []
+[years.notes]
+"2011-10-26" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 22% of the local median"
+[years.special_types]
+"2011-10-26" = "MUHURAT"
+
 
 [[years]]
 year = 2012
@@ -106,6 +141,15 @@ special_sessions = [
 "2012-04-28" = "Weekend file published in NSE archive; event not identified"
 "2012-09-08" = "Weekend file published in NSE archive; event not identified"
 "2012-11-11" = "Weekend file published in NSE archive; event not identified"
+"2012-11-13" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 27% of the local median"
+[years.special_types]
+"2012-01-07" = "OTHER"
+"2012-03-03" = "OTHER"
+"2012-04-28" = "OTHER"
+"2012-09-08" = "OTHER"
+"2012-11-11" = "OTHER"
+"2012-11-13" = "MUHURAT"
+
 
 [[years]]
 year = 2013
@@ -121,6 +165,10 @@ special_sessions = [
 [years.notes]
 "2013-05-11" = "Weekend file published in NSE archive; event not identified"
 "2013-11-03" = "Diwali Muhurat trading"
+[years.special_types]
+"2013-05-11" = "OTHER"
+"2013-11-03" = "MUHURAT"
+
 
 [[years]]
 year = 2014
@@ -135,6 +183,11 @@ special_sessions = [
 ]
 [years.notes]
 "2014-03-22" = "Weekend file published in NSE archive; event not identified"
+"2014-10-23" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 15% of the local median"
+[years.special_types]
+"2014-03-22" = "OTHER"
+"2014-10-23" = "MUHURAT"
+
 
 [[years]]
 year = 2015
@@ -149,6 +202,11 @@ special_sessions = [
 ]
 [years.notes]
 "2015-02-28" = "Union Budget (Saturday session)"
+"2015-11-11" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 18% of the local median"
+[years.special_types]
+"2015-02-28" = "BUDGET"
+"2015-11-11" = "MUHURAT"
+
 
 [[years]]
 year = 2016
@@ -163,6 +221,9 @@ special_sessions = [
 ]
 [years.notes]
 "2016-10-30" = "Diwali Muhurat trading"
+[years.special_types]
+"2016-10-30" = "MUHURAT"
+
 
 [[years]]
 year = 2017
@@ -172,6 +233,13 @@ holidays = [
   "2017-06-26", "2017-08-15", "2017-08-25", "2017-10-02", "2017-10-20", "2017-12-25",
 ]
 special_sessions = []
+[years.notes]
+"2017-07-10" = "NSE technical outage: trading started late (shortened session); market turnover 25% of the local median"
+"2017-10-19" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 19% of the local median"
+[years.special_types]
+"2017-07-10" = "OTHER"
+"2017-10-19" = "MUHURAT"
+
 
 [[years]]
 year = 2018
@@ -182,6 +250,11 @@ holidays = [
   "2018-11-08", "2018-11-23", "2018-12-25",
 ]
 special_sessions = []
+[years.notes]
+"2018-11-07" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 12% of the local median"
+[years.special_types]
+"2018-11-07" = "MUHURAT"
+
 
 [[years]]
 year = 2019
@@ -196,6 +269,9 @@ special_sessions = [
 ]
 [years.notes]
 "2019-10-27" = "Diwali Muhurat trading"
+[years.special_types]
+"2019-10-27" = "MUHURAT"
+
 
 [[years]]
 year = 2020
@@ -210,6 +286,10 @@ special_sessions = [
 [years.notes]
 "2020-02-01" = "Union Budget (Saturday session)"
 "2020-11-14" = "Diwali Muhurat trading"
+[years.special_types]
+"2020-02-01" = "BUDGET"
+"2020-11-14" = "MUHURAT"
+
 
 [[years]]
 year = 2021
@@ -220,6 +300,11 @@ holidays = [
   "2021-11-19",
 ]
 special_sessions = []
+[years.notes]
+"2021-11-04" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 16% of the local median"
+[years.special_types]
+"2021-11-04" = "MUHURAT"
+
 
 [[years]]
 year = 2022
@@ -229,6 +314,11 @@ holidays = [
   "2022-08-09", "2022-08-15", "2022-08-31", "2022-10-05", "2022-10-26", "2022-11-08",
 ]
 special_sessions = []
+[years.notes]
+"2022-10-24" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 21% of the local median"
+[years.special_types]
+"2022-10-24" = "MUHURAT"
+
 
 [[years]]
 year = 2023
@@ -243,6 +333,9 @@ special_sessions = [
 ]
 [years.notes]
 "2023-11-12" = "Diwali Muhurat trading"
+[years.special_types]
+"2023-11-12" = "MUHURAT"
+
 
 [[years]]
 year = 2024
@@ -256,9 +349,16 @@ special_sessions = [
   "2024-01-20", "2024-03-02", "2024-05-18",
 ]
 [years.notes]
-"2024-01-20" = "Special live trading session (DR site switch-over)"
+"2024-01-20" = "Full-day Saturday session (09:00-15:30). Announced as a DR switch-over drill, then held as a normal session after 22 Jan was declared a holiday"
 "2024-03-02" = "Special live trading session (DR site switch-over)"
 "2024-05-18" = "Special live trading session (DR site switch-over)"
+"2024-11-01" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 18% of the local median"
+[years.special_types]
+"2024-01-20" = "OTHER"
+"2024-03-02" = "DR_DRILL"
+"2024-05-18" = "DR_DRILL"
+"2024-11-01" = "MUHURAT"
+
 
 [[years]]
 year = 2025
@@ -273,6 +373,11 @@ special_sessions = [
 ]
 [years.notes]
 "2025-02-01" = "Union Budget (Saturday session)"
+"2025-10-21" = "Diwali Muhurat trading (weekday session, about an hour); market turnover 19% of the local median"
+[years.special_types]
+"2025-02-01" = "BUDGET"
+"2025-10-21" = "MUHURAT"
+
 
 [[years]]
 year = 2026
@@ -286,3 +391,6 @@ special_sessions = ["2026-02-01", "2026-11-08"]
 [years.notes]
 "2026-02-01" = "Union Budget (Sunday session)"
 "2026-11-08" = "Diwali Muhurat trading (NSE holiday list footnote; timing notified later)"
+[years.special_types]
+"2026-02-01" = "BUDGET"
+"2026-11-08" = "MUHURAT"
