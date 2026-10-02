@@ -240,7 +240,8 @@ impossible. Changing one means writing an ADR and recalculating.
 | 4 | Weekly builder + property tests | ✅ |
 | 5 | API: securities, weekly bars, data quality; Firestore; auth | ✅ |
 | 6 | Frontend: search, weekly chart, last update, data-quality badge | ✅ |
-| 7 | Production operations: tracked refresh, run history, snapshot history, System page | In review |
+| 7 | Production operations: tracked refresh, run history, snapshot history, System page | ✅ |
+| 8 | Weekly technical analysis & pattern engine (ADR-0019–0023) | In progress: indicators, swings, structure |
 
 ## Key decisions
 

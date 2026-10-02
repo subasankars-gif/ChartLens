@@ -83,3 +83,120 @@ link_same_issuer_isin = true    # new ISIN + same issuer + symbol evidence → s
 resolve_without_isin = true     # pre-2011 NSE rows carry no ISIN: resolve by symbol continuity
 max_symbol_gap_days = 45        # longest gap across which a symbol counts as continuous
 active_within_sessions = 20     # traded within this many sessions of the latest session → ACTIVE
+
+# ----------------------------------------------------------------- ANALYSIS METHODOLOGY
+# Hashed separately (analysis_methodology_hash, ADR-0019): changing these never changes
+# weekly data. Definitions: ADR-0020.
+
+[analysis.indicators]
+sma_periods = [10, 20, 40, 50, 100, 200]   # 10W, 20W, 40W, 50W, 100W, 200W are aliases
+ema_periods = [10, 20, 50, 100, 200]
+rsi_period = 14                 # Wilder
+macd_fast = 12
+macd_slow = 26
+macd_signal = 9
+stochastic_k = 14               # slow stochastic 14/3/3
+stochastic_k_smoothing = 3
+stochastic_d = 3
+roc_period = 12
+atr_period = 14                 # Wilder
+bollinger_period = 20
+bollinger_k = 2.0               # population standard deviations
+volume_sma_period = 20
+rvol_baseline = 20              # RVOL[t] = v[t] / mean(v[t-20 .. t-1])
+volume_trend_short = 10
+volume_trend_long = 20
+volume_trend_band = 0.10
+rvol_expansion = 1.5
+rvol_contraction = 0.67
+
+[analysis.swings]               # ADR-0020 §B
+primary_method = "ATR"          # FRACTAL | ATR | PERCENT | ZIGZAG — read by every later layer
+primary_sensitivity = "INTERMEDIATE"
+
+[analysis.swings.fractal_window]   # bars each side the pivot must dominate
+MICRO = 1
+MINOR = 2
+INTERMEDIATE = 3
+MAJOR = 5
+
+[analysis.swings.atr_multiple]     # reversal in ATR(14) at the pivot bar
+MICRO = 1.0
+MINOR = 2.0
+INTERMEDIATE = 3.0
+MAJOR = 5.0
+
+[analysis.swings.percent]          # reversal in % of the pivot's high/low
+MICRO = 5
+MINOR = 10
+INTERMEDIATE = 15
+MAJOR = 25
+
+[analysis.swings.zigzag_percent]   # classic ZigZag on closes, reversal in %
+MICRO = 5
+MINOR = 10
+INTERMEDIATE = 15
+MAJOR = 25
+
+[analysis.structure]            # ADR-0020 §C — from the primary confirmed swings only
+equal_tolerance_atr = 0.25      # highs (lows) within this many ATR are EQUAL
+break_atr = 0.10                # a break: complete close beyond the level by this many ATR
+range_swings = 4                # RANGE when the last 4 confirmed swings ...
+range_width_atr = 3.0           # ... span at most 3 ATR
+
+[analysis.fibonacci]            # ADR-0021 §E — confirmed swing legs only
+extra_sensitivities = ["MAJOR"] # besides the primary sensitivity (primary method)
+min_leg_atr = 2.0               # a meaningful leg spans >= 2 ATR at its end swing
+retracements = [0.236, 0.382, 0.5, 0.618, 0.786]
+extensions = [1.272, 1.618, 2.618]
+
+[analysis.levels]               # ADR-0021 §D — zones and trendlines
+zone_tolerance_atr = 0.5        # a source joins a zone within 0.5 ATR of its mean
+zone_min_width_atr = 0.25
+max_zones_per_side = 4
+dynamic_sources = ["sma_50", "sma_200"]
+fibonacci_ratios = [0.382, 0.5, 0.618]
+w_touch = 1.0                   # strength = Σ weight × component, reported with components
+w_sources = 1.0
+w_volume = 0.5
+w_recency = 2.0
+recency_halflife_weeks = 26.0
+level_break_atr = 0.10          # a level flips role on a close beyond it by 0.10 ATR
+trendline_min_bars = 4          # bars between the two anchor swings
+trendline_max_bars = 104        # validated by a third touch within this many bars
+trendline_touch_atr = 0.5
+trendline_break_atr = 0.10
+max_trendlines_per_side = 2
+
+[analysis.divergence]           # ADR-0021 §F — price swings from structure labels
+indicators = ["rsi", "macd", "obv"]
+min_bars = 4
+max_bars = 52
+rsi_min_delta = 2.0             # RSI points
+macd_min_delta_atr = 0.05       # x ATR at the second swing
+obv_min_delta_volume = 0.05     # x volume SMA at the second swing
+expiry_weeks = 26               # FORMING -> EXPIRED (aged out, not proven wrong)
+
+[analysis.volume]               # ADR-0021 §F
+breakout_rvol_confirm = 1.5
+breakout_rvol_contradict = 0.8
+climax_rvol = 2.5
+climax_range_atr = 2.0          # true range vs ATR of the bar before
+divergence_min = 0.10
+obv_trend_bars = 10
+obv_trend_band = 0.10
+
+[analysis.volatility]           # ADR-0021 §F — percentiles over previous bars only
+lookback = 52
+compression_percentile = 20.0
+nr_window = 7
+expansion_range_atr = 1.5       # true range vs ATR of the bar before
+expansion_window = 4
+
+[analysis.candles]              # ADR-0021 §F — K5 subset, complete bars only
+context_bars = 5
+doji_body = 0.1
+shadow_body = 2.0
+opposite_shadow = 0.25
+star_first_body = 0.6
+star_middle_body = 0.3

@@ -22,6 +22,11 @@ an ADR before the code changes (spec §57 rule 13).
 | [0013](0013-identity-rebuild-and-aliases.md) | Identity rebuild, aliases, reviewed identity links | Accepted | M3 |
 | [0014](0014-weekly-data-product.md) | Weekly data product, continuity segments, point-in-time weekly bars | Accepted | M4 |
 | [0015](0015-non-regular-sessions-and-comparability-guard.md) | Non-regular sessions (kept as traded, flagged, provisional confirmations) and the engine comparability guard | Accepted | M4 follow-up |
-| [0016](0016-api-auth-and-serving.md) | API as a read-only presentation layer; private access (Firebase Auth + Firestore allowlist); version-bound serving snapshot; us-central1 | Accepted (weekly serving path corrected by 0018) | M5 |
-| [0017](0017-frontend.md) | Frontend: a faithful, untrusted visualization layer (Firebase Hosting, Google sign-in, Lightweight Charts) | Accepted | M6 |
-| [0018](0018-production-runs.md) | Production runs: tracked refresh (GitHub Actions + Firestore), one active run, immutable content-hashed serving, snapshot history | Accepted | M7 |
+| [0016](0016-api-auth-and-serving.md) | API as a read-only presentation layer; private access (Firebase Auth + Firestore allowlist); version-bound serving snapshot; us-central1 | Accepted (weekly serving path corrected by 0018; analysis serving added by 0023) | M5 |
+| [0017](0017-frontend.md) | Frontend: a faithful, untrusted visualization layer (Firebase Hosting, Google sign-in, Lightweight Charts) | Accepted (visualization rule extended to analysis by 0023) | M6 |
+| [0018](0018-production-runs.md) | Production runs: tracked refresh (GitHub Actions + Firestore), one active run, immutable content-hashed serving, snapshot history | Accepted (ANALYSIS stage added by 0019) | M7 |
+| [0019](0019-technical-engine-architecture.md) | Technical engine: layered modules, causal `known_at` event model, point-in-time rules, valid segment only, separate analysis methodology hash, precomputed in a tracked ANALYSIS stage | Accepted | M8 |
+| [0020](0020-indicators-swings-structure.md) | Indicators (causal, per-segment warm-up), swing methods and sensitivities (configurable primary), market structure and trend states | Accepted | M8 |
+| [0021](0021-levels-and-evidence.md) | Support/resistance zones and trendlines, Fibonacci, divergence, volume, volatility and candlestick evidence; causal composition (`depends_on`) | Accepted | M8 |
+| [0022](0022-patterns.md) | Classical patterns: broad candidates, fixed geometry, deterministic identity and evolution, FORMING → CONFIRMED / INVALIDATED / EXPIRED, overlap vs relevance, per-pattern parameters, confidence as definition fit | Proposed (rule table under review) | M8 |
+| [0023](0023-analysis-serving-and-visualization.md) | Serving analysis (content-addressed, schema 3), the analysis API and chart overlays drawn only from backend geometry | Accepted | M8 |
