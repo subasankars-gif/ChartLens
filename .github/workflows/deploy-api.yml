@@ -68,12 +68,22 @@ jobs:
           API_SA: ${{ vars.GCP_API_SA }}
         run: |
           set -euo pipefail
+          # Environment as a file (JSON is valid YAML): values with '@', ',' or quotes need no
+          # escaping, unlike --set-env-vars. ADMIN_EMAILS is comma-separated; the API reads
+          # a JSON list.
           admins=$(jq -cn --arg s "$ADMIN_EMAILS" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
-          # '^@^' makes '@' the separator, so JSON values with commas pass through intact.
+          jq -n --arg bucket "$BUCKET" --arg project "$PROJECT" --arg admins "$admins" '{
+            CHARTLENS_RUNTIME__ENVIRONMENT: "prod",
+            CHARTLENS_STORAGE__BACKEND: "gcs",
+            CHARTLENS_STORAGE__GCS_BUCKET: $bucket,
+            CHARTLENS_API__FIREBASE_PROJECT_ID: $project,
+            CHARTLENS_API__ADMIN_EMAILS: $admins
+          }' > env.yaml
+          jq 'del(.CHARTLENS_API__ADMIN_EMAILS)' env.yaml   # log everything but the emails
           gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --project "$PROJECT" \
             --service-account "$API_SA" --allow-unauthenticated \
             --min-instances 0 --max-instances 3 --cpu 1 --memory 1Gi --concurrency 40 \
-            --set-env-vars "^@^CHARTLENS_RUNTIME__ENVIRONMENT=prod@CHARTLENS_STORAGE__BACKEND=gcs@CHARTLENS_STORAGE__GCS_BUCKET=${BUCKET}@CHARTLENS_API__FIREBASE_PROJECT_ID=${PROJECT}@CHARTLENS_API__ADMIN_EMAILS=${admins}"
+            --env-vars-file env.yaml
       - name: Smoke test
         run: |
           set -euo pipefail
