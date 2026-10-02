@@ -102,9 +102,14 @@ export function WeeklyChart({
         last.attachPrimitive(new BreakBands(model.breaks, cssVar("--color-break", "#7d8a94"), ink));
       }
       chart.panes()[1]?.setHeight(90);
-      // Open on roughly the last three years; the full history is a scroll or zoom away.
-      const total = model.barsByTime.size;
-      if (total > 160) chart.timeScale().setVisibleLogicalRange({ from: total - 156, to: total + 4 });
+      // Open on roughly the last three years — or, when earlier segments are shown, from a
+      // year before the latest break, so the break is in view. The rest is a scroll away.
+      const times = [...model.barsByTime.keys()];
+      const total = times.length;
+      const lastBreak = model.breaks.at(-1);
+      const breakIndex = lastBreak ? times.indexOf(lastBreak.time) : -1;
+      const from = Math.max(0, Math.min(total - 156, breakIndex >= 0 ? breakIndex - 52 : total - 156));
+      if (total > 160 || from > 0) chart.timeScale().setVisibleLogicalRange({ from, to: total + 4 });
       else chart.timeScale().fitContent();
       chart.subscribeCrosshairMove((p) => setHovered(p.time ? String(p.time) : null));
       cleanup = () => chart.remove();
