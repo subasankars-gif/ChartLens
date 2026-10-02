@@ -99,3 +99,61 @@ def status(
             if concerns is None or concerns >= since:
                 return DataQualityStatus.USABLE_WITH_WARNINGS, since
     return DataQualityStatus.USABLE, since
+
+
+# ----------------------------------------------------------------------------- continuity segments
+
+FIRST_SESSION: str = "FIRST_SESSION"
+"""Cause of a security's first segment: its history starts there, no break."""
+
+
+def segment_id(security_id: str, start: date) -> str:
+    """Stable identity of a continuity segment: the security and the session it starts on.
+
+    Derived from the continuity regime itself, never from a counter, so a rebuild with the
+    same breaks gives the same ids, and a new break changes only the segment it splits."""
+    return f"{security_id}@{start.isoformat()}"
+
+
+@dataclass(frozen=True, order=True)
+class ContinuitySegment:
+    """A stretch of a security's history with no continuity break inside it (ADR-0014).
+
+    No technical structure (swing, trend, pattern, indicator window) may span two
+    segments. ``start`` is the first session of the segment; the segment runs until the
+    next segment's start (exclusive) or the end of the data."""
+
+    security_id: str
+    start: date
+    cause: str
+    """FIRST_SESSION, or the code(s) of the break(s) that start it, joined by '+'."""
+
+    @property
+    def id(self) -> str:
+        return segment_id(self.security_id, self.start)
+
+
+def continuity_segments(
+    security_id: str,
+    first_date: date | None,
+    findings: Iterable[Finding],
+    as_of: date | None = None,
+) -> list[ContinuitySegment]:
+    """The continuity segments known as of ``as_of``, oldest first.
+
+    The last one starts at :func:`usable_from` for the same inputs."""
+    if first_date is None or (as_of is not None and first_date > as_of):
+        return []
+    causes: dict[date, set[str]] = {}
+    for f in findings:
+        if (
+            f.breaks_continuity
+            and f.start is not None
+            and f.known_as_of(as_of)
+            and f.start > first_date
+        ):
+            causes.setdefault(f.start, set()).add(f.code)
+    return [ContinuitySegment(security_id, first_date, FIRST_SESSION)] + [
+        ContinuitySegment(security_id, day, "+".join(sorted(codes)))
+        for day, codes in sorted(causes.items())
+    ]

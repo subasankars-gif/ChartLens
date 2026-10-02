@@ -577,7 +577,7 @@ def ca_json(items: list[tuple[str, str, str, date, str]]) -> bytes:
 
 
 def build_lake(
-    tmp_path: Path,
+    tmp_path: Path, ex: date = EX
 ) -> tuple[ChartLensSettings, NseProvider, LocalObjectStore, Callable[[], date]]:
     """Three securities over ~6 weeks of 2024 plus a corporate-action feed:
     SPLITCO 10→2 split (prices ÷5), DEMERCO demerger (−30%), PLAIN dividend only, and a
@@ -588,8 +588,8 @@ def build_lake(
         )
     )
     fake = FakeNse()
-    for i, day in enumerate(SESSIONS):
-        split = i >= 15
+    for day in SESSIONS:
+        split = day >= ex
         fake.serve(
             *legacy_zip(
                 day,
@@ -610,14 +610,14 @@ def build_lake(
     ).backfill(SESSIONS[0], SESSIONS[-1])
     feed = ca_json(
         [
-            ("SPLITCO", "INE002A01018", "Face Value Split From Rs 10 To Rs 2", EX, "2"),
-            ("DEMERCO", "INE467B01029", "Demerger", EX, "1"),
-            ("PLAIN", "INE009A01021", "Dividend - Rs 2 Per Share", EX, "10"),
-            ("GHOST", "INE999A01011", "Bonus 1:1", EX, "10"),
+            ("SPLITCO", "INE002A01018", "Face Value Split From Rs 10 To Rs 2", ex, "2"),
+            ("DEMERCO", "INE467B01029", "Demerger", ex, "1"),
+            ("PLAIN", "INE009A01021", "Dividend - Rs 2 Per Share", ex, "10"),
+            ("GHOST", "INE999A01011", "Bonus 1:1", ex, "10"),
         ]
     )
     for window in provider.corporate_actions.windows(date(2024, 1, 1), date(2024, 2, 29)):
-        body = feed if window[0].month == EX.month else b"[]"
+        body = feed if window[0].month == ex.month else b"[]"
         fake.serve(provider.corporate_actions.url(window), body)
 
     def today() -> date:

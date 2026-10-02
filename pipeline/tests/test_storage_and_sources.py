@@ -72,6 +72,12 @@ class FakeBlob:
     def exists(self) -> bool:
         return self.name in self.bucket.objects
 
+    def delete(self) -> None:
+        from google.api_core.exceptions import NotFound
+
+        if self.bucket.objects.pop(self.name, None) is None:
+            raise NotFound("missing")
+
 
 class FakeBucket:
     def __init__(self) -> None:
@@ -133,6 +139,17 @@ def test_list_is_sorted_and_prefix_scoped(store: ObjectStore) -> None:
 def test_invalid_keys_are_rejected(store: ObjectStore, key: str) -> None:
     with pytest.raises(StorageError):
         store.put(key, b"")
+
+
+def test_derived_objects_can_be_deleted_raw_never(store: ObjectStore) -> None:
+    store.put("curated/d.parquet", b"v1")
+    store.delete("curated/d.parquet")
+    store.delete("curated/d.parquet")  # deleting what is gone is not an error
+    assert not store.exists("curated/d.parquet")
+    store.put_immutable("raw/x/a.csv", b"abc")
+    with pytest.raises(ImmutableObjectError, match="raw source"):
+        store.delete("raw/x/a.csv")
+    assert store.get("raw/x/a.csv") == b"abc"
 
 
 def test_get_missing_object(store: ObjectStore) -> None:

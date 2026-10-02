@@ -16,6 +16,9 @@ Optional columns
 ----------------
 ``is_complete``  bool. False only for a bar still forming at build time (the
                  current week). Confirmation logic must ignore incomplete bars.
+``continuity_segment_id``  str. The continuity segment every bar belongs to (ADR-0014).
+                 When present it must be one value for the whole frame: no technical
+                 structure may span a continuity break, so a frame never does either.
 
 This module checks *shape*, not *quality*. OHLC consistency, gaps and suspicious
 moves are the data-quality engine's job (Milestone 3).
@@ -32,6 +35,7 @@ BAR_DATE: Final = "bar_date"
 PRICE_COLUMNS: Final = ("open", "high", "low", "close")
 VOLUME: Final = "volume"
 IS_COMPLETE: Final = "is_complete"
+SEGMENT: Final = "continuity_segment_id"
 REQUIRED_COLUMNS: Final = (BAR_DATE, *PRICE_COLUMNS, VOLUME)
 
 
@@ -67,3 +71,14 @@ def validate_bar_frame(bars: pd.DataFrame) -> None:
 
     if IS_COMPLETE in bars.columns and not ptypes.is_bool_dtype(column(bars, IS_COMPLETE)):
         raise BarFrameError(f"{IS_COMPLETE} must be bool, got {column(bars, IS_COMPLETE).dtype}")
+
+    if SEGMENT in bars.columns:
+        segments = column(bars, SEGMENT)
+        if bool(segments.isna().any()):
+            raise BarFrameError(f"{SEGMENT} contains nulls")
+        distinct = len(set(segments))
+        if distinct > 1:
+            raise BarFrameError(
+                f"bars span {distinct} continuity segments; technical structure "
+                "must never cross a continuity break (ADR-0014)"
+            )

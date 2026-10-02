@@ -67,3 +67,47 @@ def test_usable_from_is_monotonic_in_as_of(breaks: list[int], t1: int, t2: int) 
     a, b = sorted((FIRST + timedelta(days=t1), FIRST + timedelta(days=t2)))
     ua, ub = usable_from(FIRST, f, a), usable_from(FIRST, f, b)
     assert ua is not None and ub is not None and ua <= ub <= b
+
+
+# ----------------------------------------------------------------------------- segments
+
+
+def test_segments_start_at_first_session_and_at_each_break() -> None:
+    from chartlens_core.quality import FIRST_SESSION, continuity_segments, segment_id
+
+    f = [brk(date(2015, 3, 2)), brk(date(2021, 10, 22)), warn(date(2018, 1, 1))]
+    segs = continuity_segments("S", FIRST, f)
+    assert [(s.start, s.cause) for s in segs] == [
+        (FIRST, FIRST_SESSION),
+        (date(2015, 3, 2), "UNQ"),
+        (date(2021, 10, 22), "UNQ"),
+    ]
+    assert segs[-1].start == usable_from(FIRST, f)
+    assert segs[1].id == segment_id("S", date(2015, 3, 2)) == "S@2015-03-02"
+    # point in time: a break not yet known does not split history
+    assert [s.start for s in continuity_segments("S", FIRST, f, as_of=date(2020, 1, 1))] == [
+        FIRST,
+        date(2015, 3, 2),
+    ]
+    assert continuity_segments("S", FIRST, f, as_of=date(2009, 1, 1)) == []
+
+
+def test_breaks_on_one_day_are_one_segment_and_a_break_at_listing_is_not_a_split() -> None:
+    from chartlens_core.quality import continuity_segments
+
+    other = Finding("S", date(2015, 3, 2), None, Dimension.CALENDAR, Severity.WARN, "GAP", True)
+    segs = continuity_segments("S", FIRST, [brk(date(2015, 3, 2)), other, brk(FIRST)])
+    assert [(s.start, s.cause) for s in segs] == [
+        (FIRST, "FIRST_SESSION"),
+        (date(2015, 3, 2), "GAP+UNQ"),
+    ]
+
+
+@given(st.lists(st.dates(date(2010, 1, 5), date(2024, 12, 31)), max_size=8), st.dates())
+def test_last_segment_always_starts_at_usable_from(breaks: list[date], as_of: date) -> None:
+    from chartlens_core.quality import continuity_segments
+
+    f = [brk(d) for d in breaks]
+    segs = continuity_segments("S", FIRST, f, as_of)
+    assert (segs[-1].start if segs else None) == usable_from(FIRST, f, as_of)
+    assert [s.start for s in segs] == sorted({s.start for s in segs})

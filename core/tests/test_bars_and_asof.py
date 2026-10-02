@@ -27,6 +27,11 @@ def test_synthetic_bars_satisfy_contract() -> None:
         (lambda df: df.assign(close=df["close"].astype("int64")), "close must be float64"),
         (lambda df: df.assign(**{BAR_DATE: df[BAR_DATE].dt.date}), "datetime64"),
         (lambda df: df.assign(is_complete=1), "is_complete must be bool"),
+        (
+            lambda df: df.assign(continuity_segment_id=["S@a"] * 10 + ["S@b"] * 10),
+            "continuity segments",
+        ),
+        (lambda df: df.assign(continuity_segment_id=None), "contains nulls"),
     ],
 )
 def test_contract_violations_are_reported(mutate, message: str) -> None:  # type: ignore[no-untyped-def]

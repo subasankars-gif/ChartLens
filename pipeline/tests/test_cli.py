@@ -124,3 +124,9 @@ def test_adjust_and_data_quality_commands_run_on_stored_data(tmp_path: Path) -> 
 def test_data_quality_without_a_published_dataset_exits_5() -> None:
     result = runner.invoke(app, ["data-quality"])
     assert result.exit_code == 5
+
+
+def test_weekly_refuses_without_a_published_adjusted_dataset() -> None:
+    result = runner.invoke(app, ["weekly"])
+    assert result.exit_code == 5
+    assert "run `adjust`" in result.output
