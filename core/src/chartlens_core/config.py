@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -80,6 +80,15 @@ class ApiConfig(_Section):
     snapshot_refresh_seconds: float = Field(default=60.0, ge=0)
     """How often the API checks for a newer serving snapshot."""
     weekly_cache_size: int = Field(default=512, ge=0)
+    # Production refresh (ADR-0018): the API starts the GitHub workflow as a GitHub App.
+    github_repository: str | None = None
+    """``owner/repo`` whose workflow runs the refresh."""
+    github_workflow: str = "production-refresh.yml"
+    github_ref: str = "main"
+    github_app_id: str | None = None
+    github_app_private_key: SecretStr | None = None
+    """PEM, from Secret Manager. Never logged, never returned, never sent to a browser.
+    Without it (or the app id or repository), refresh answers 503."""
 
 
 class HttpConfig(_Section):

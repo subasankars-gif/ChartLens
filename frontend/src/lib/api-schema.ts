@@ -59,6 +59,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Jobs */
+        get: operations["list_jobs_api_v1_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_api_v1_jobs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -109,6 +143,27 @@ export interface paths {
         post?: never;
         /** Delete Watchlist */
         delete: operations["delete_watchlist_api_v1_me_watchlists__watchlist_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/refresh/daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Daily
+         * @description Start the production refresh. Admins only. Returns at once with the run id: the
+         *     refresh runs in GitHub Actions, and ``GET /jobs/{run_id}`` follows it.
+         */
+        post: operations["refresh_daily_api_v1_refresh_daily_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -181,6 +236,44 @@ export interface paths {
          *     only the continuity segment analysis may use; ``all`` returns every segment (charts).
          */
         get: operations["weekly_api_v1_securities__security_id__weekly_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Operations Status */
+        get: operations["operations_status_api_v1_system_operations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/system/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Snapshots
+         * @description Published snapshot history, newest first. The API still serves only what the
+         *     pointer names; this is a record of publications, never a way to choose one.
+         */
+        get: operations["list_snapshots_api_v1_system_snapshots_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -312,6 +405,78 @@ export interface components {
              * Format: date
              */
             valid_to: string;
+        };
+        /** OperationsStatus */
+        OperationsStatus: {
+            active_run: components["schemas"]["RunView"] | null;
+            /** Api Status */
+            api_status: string;
+            /** Api Version */
+            api_version: string;
+            /** Can Refresh */
+            can_refresh: boolean;
+            last_run: components["schemas"]["RunView"] | null;
+            last_successful_run: components["schemas"]["RunView"] | null;
+            /** Refresh Configured */
+            refresh_configured: boolean;
+            serving: components["schemas"]["ServingView"] | null;
+        };
+        /** RefreshAccepted */
+        RefreshAccepted: {
+            /** Run Id */
+            run_id: string;
+            status: components["schemas"]["RunStatus"];
+        };
+        /**
+         * RunStatus
+         * @enum {string}
+         */
+        RunStatus: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+        /** RunView */
+        RunView: {
+            /** Completed At */
+            completed_at: string | null;
+            current_stage: components["schemas"]["Stage"] | null;
+            /** Data As Of */
+            data_as_of: string | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+            /** Error Summary */
+            error_summary: string | null;
+            /** Github Run Id */
+            github_run_id: string | null;
+            /** Github Run Url */
+            github_run_url: string | null;
+            /** Job Type */
+            job_type: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Requested By */
+            requested_by: string;
+            /** Run Id */
+            run_id: string;
+            /** Serving Version */
+            serving_version: string | null;
+            snapshot_outcome: components["schemas"]["SnapshotOutcome"] | null;
+            /** Stages */
+            stages: components["schemas"]["StageRecord"][];
+            /** Started At */
+            started_at: string | null;
+            status: components["schemas"]["RunStatus"];
+            /** Trigger */
+            trigger: string;
+            /** Weekly Version */
+            weekly_version: string | null;
+        };
+        /** RunsPage */
+        RunsPage: {
+            /** Next Before */
+            next_before: string | null;
+            /** Runs */
+            runs: components["schemas"]["RunView"][];
         };
         /** SearchResponse */
         SearchResponse: {
@@ -471,6 +636,94 @@ export interface components {
             versions: {
                 [key: string]: string;
             };
+        };
+        /** ServingView */
+        ServingView: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Meta Version */
+            meta_version: string;
+            /**
+             * Snapshot Generated At
+             * Format: date-time
+             */
+            snapshot_generated_at: string;
+            /** Versions */
+            versions: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * SnapshotOutcome
+         * @enum {string}
+         */
+        SnapshotOutcome: "PUBLISHED" | "UNCHANGED" | "NOT_PUBLISHED";
+        /** SnapshotView */
+        SnapshotView: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Live */
+            live: boolean;
+            /** Published At */
+            published_at: string | null;
+            /** Run Id */
+            run_id: string | null;
+            /** Schema Version */
+            schema_version: number;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Staged At
+             * Format: date-time
+             */
+            staged_at: string;
+            /** Status */
+            status: string;
+            /** Versions */
+            versions: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * Stage
+         * @enum {string}
+         */
+        Stage: "INGEST" | "CORPORATE_ACTIONS" | "ADJUSTMENT" | "DATA_QUALITY" | "WEEKLY" | "PUBLISH_SERVING";
+        /** StageRecord */
+        StageRecord: {
+            /** Completed At */
+            completed_at?: string | null;
+            /** Details */
+            details?: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** Duration Seconds */
+            duration_seconds?: number | null;
+            /** Error Summary */
+            error_summary?: string | null;
+            /** Records Processed */
+            records_processed?: number | null;
+            stage: components["schemas"]["Stage"];
+            /** Started At */
+            started_at?: string | null;
+            /** @default QUEUED */
+            status: components["schemas"]["RunStatus"];
+            /** Version */
+            version?: string | null;
         };
         /** User */
         User: {
@@ -718,6 +971,74 @@ export interface operations {
             };
         };
     };
+    list_jobs_api_v1_jobs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description requested_at cursor */
+                before?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunsPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_api_v1_jobs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_v1_me_get: {
         parameters: {
             query?: never;
@@ -832,6 +1153,44 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_daily_api_v1_refresh_daily_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefreshAccepted"];
+                };
+            };
+            /** @description A refresh is already active */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -972,6 +1331,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeeklyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    operations_status_api_v1_system_operations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperationsStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_snapshots_api_v1_system_snapshots_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotView"][];
                 };
             };
             /** @description Validation Error */

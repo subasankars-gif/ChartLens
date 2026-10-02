@@ -20,8 +20,21 @@ export type WeeklyBar = Schemas["WeeklyBarOut"];
 export type DataQuality = Schemas["DataQualityResponse"];
 export type ServingStatus = Schemas["ServingStatus"];
 export type User = Schemas["User"];
+export type OperationsStatus = Schemas["OperationsStatus"];
+export type RunView = Schemas["RunView"];
+export type RunsPage = Schemas["RunsPage"];
+export type StageRecord = Schemas["StageRecord"];
+export type SnapshotView = Schemas["SnapshotView"];
+export type RefreshAccepted = Schemas["RefreshAccepted"];
 
-export type ApiErrorKind = "signed_out" | "pending" | "forbidden" | "not_found" | "unavailable" | "other";
+export type ApiErrorKind =
+  | "signed_out"
+  | "pending"
+  | "forbidden"
+  | "not_found"
+  | "conflict"
+  | "unavailable"
+  | "other";
 
 export class ApiError extends Error {
   constructor(
@@ -29,6 +42,8 @@ export class ApiError extends Error {
     readonly kind: ApiErrorKind,
     readonly status?: number,
     options?: ErrorOptions,
+    /** The error body, e.g. the active run's id on a 409. */
+    readonly body?: Record<string, unknown>,
   ) {
     super(message, options);
     this.name = "ApiError";
@@ -44,6 +59,7 @@ function kindOf(status: number, detail: string): ApiErrorKind {
   if (status === 403 && detail === "access pending approval") return "pending";
   if (status === 403) return "forbidden";
   if (status === 404) return "not_found";
+  if (status === 409) return "conflict";
   if (status === 503) return "unavailable";
   return "other";
 }
@@ -78,13 +94,23 @@ export async function apiRequest<T>(
   }
   if (!response.ok) {
     let detail = "";
+    let errorBody: Record<string, unknown> | undefined;
     try {
       const body: unknown = await response.json();
-      if (body && typeof body === "object" && "detail" in body) detail = String((body as { detail: unknown }).detail);
+      if (body && typeof body === "object") {
+        errorBody = body as Record<string, unknown>;
+        if ("detail" in errorBody) detail = String(errorBody.detail);
+      }
     } catch {
       /* no JSON body */
     }
-    throw new ApiError(detail || `The API answered ${response.status}.`, kindOf(response.status, detail), response.status);
+    throw new ApiError(
+      detail || `The API answered ${response.status}.`,
+      kindOf(response.status, detail),
+      response.status,
+      undefined,
+      errorBody,
+    );
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -104,4 +130,12 @@ export const api = {
   users: (t: TokenSource) => apiRequest<User[]>("/admin/users", t),
   updateUser: (t: TokenSource, uid: string, change: { enabled?: boolean; role?: "admin" | "user" }) =>
     apiRequest<User>(`/admin/users/${encodeURIComponent(uid)}`, t, { method: "PATCH", body: change }),
+  // Operations (ADR-0018). Refresh is authorized by the API: admins only.
+  operations: (t: TokenSource) => apiRequest<OperationsStatus>("/system/operations", t),
+  jobs: (t: TokenSource, limit = 20, before?: string) =>
+    apiRequest<RunsPage>("/jobs", t, { query: { limit: String(limit), ...(before ? { before } : {}) } }),
+  job: (t: TokenSource, runId: string) => apiRequest<RunView>(`/jobs/${encodeURIComponent(runId)}`, t),
+  snapshots: (t: TokenSource, limit = 10) =>
+    apiRequest<SnapshotView[]>("/system/snapshots", t, { query: { limit: String(limit) } }),
+  refresh: (t: TokenSource) => apiRequest<RefreshAccepted>("/refresh/daily", t, { method: "POST" }),
 };

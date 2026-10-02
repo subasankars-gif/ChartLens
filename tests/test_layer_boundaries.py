@@ -75,7 +75,11 @@ def test_engine_never_reads_the_clock() -> None:
 # ----------------------------------------------------------------------------- ADR-0016
 
 API_DIR = "backend/src/chartlens_api"
-API_ALLOWED_PIPELINE = {"chartlens_pipeline.serving", "chartlens_pipeline.storage"}
+API_ALLOWED_PIPELINE = {
+    "chartlens_pipeline.serving",
+    "chartlens_pipeline.storage",
+    "chartlens_pipeline.runs",  # operational run state and snapshot history (ADR-0018)
+}
 API_FORBIDDEN_CORE = {"chartlens_core.adjustment", "chartlens_core.quality"}
 API_ALLOWED_FROM_CORE_WEEKLY = {"WeeklyBar"}
 
@@ -106,3 +110,11 @@ def test_api_is_a_read_only_presentation_layer() -> None:
             if module == "chartlens_core.weekly" and set(names) - API_ALLOWED_FROM_CORE_WEEKLY:
                 violations.append(f"{rel}: from {module} import {names}")
     assert not violations, violations
+
+
+def test_run_state_is_operational_metadata_only() -> None:
+    """The API may write run state (ADR-0018), but that module touches no market data:
+    it imports nothing from ChartLens but the run model."""
+    runs = ROOT / "pipeline/src/chartlens_pipeline/runs.py"
+    chartlens = {m for m, _ in _from_imports(runs) if m.startswith("chartlens")}
+    assert chartlens == {"chartlens_core.runs"}, chartlens

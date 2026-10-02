@@ -22,5 +22,6 @@ an ADR before the code changes (spec §57 rule 13).
 | [0013](0013-identity-rebuild-and-aliases.md) | Identity rebuild, aliases, reviewed identity links | Accepted | M3 |
 | [0014](0014-weekly-data-product.md) | Weekly data product, continuity segments, point-in-time weekly bars | Accepted | M4 |
 | [0015](0015-non-regular-sessions-and-comparability-guard.md) | Non-regular sessions (kept as traded, flagged, provisional confirmations) and the engine comparability guard | Accepted | M4 follow-up |
-| [0016](0016-api-auth-and-serving.md) | API as a read-only presentation layer; private access (Firebase Auth + Firestore allowlist); version-bound serving snapshot; us-central1 | Accepted | M5 |
+| [0016](0016-api-auth-and-serving.md) | API as a read-only presentation layer; private access (Firebase Auth + Firestore allowlist); version-bound serving snapshot; us-central1 | Accepted (weekly serving path corrected by 0018) | M5 |
 | [0017](0017-frontend.md) | Frontend: a faithful, untrusted visualization layer (Firebase Hosting, Google sign-in, Lightweight Charts) | Accepted | M6 |
+| [0018](0018-production-runs.md) | Production runs: tracked refresh (GitHub Actions + Firestore), one active run, immutable content-hashed serving, snapshot history | Accepted | M7 |

@@ -1,0 +1,93 @@
+# The production refresh (ADR-0018): the daily chain as one tracked run.
+#
+#   ingest → corporate actions → adjust → data quality → weekly → publish serving
+#
+# Started three ways, all recorded in Firestore (runs/{run_id}):
+#   * the ChartLens API (admin "Refresh data"): dispatches with the run_id it created;
+#   * the weekday schedule, 20:15 IST: records itself, requested_by = "schedule";
+#   * "Run workflow" here: records itself, requested_by = "github:<actor>".
+#
+# GitHub Actions runs the pipeline; Cloud Run never does. Keyless: GitHub's OIDC token →
+# chartlens-pipeline (bucket objectUser, Firestore datastore.user). The serving pointer
+# moves only in the last stage, after every other stage succeeded.
+
+name: Production refresh
+run-name: Production refresh ${{ inputs.run_id || github.event_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ChartLens run id (set by the API). Leave blank to record a new run."
+        required: false
+  # Weekdays at 14:45 UTC = 20:15 IST, after NSE publishes the day's bhavcopy. The chain
+  # catches up every session since the last ingested one, so a missed run is filled by
+  # the next.
+  schedule:
+    - cron: "45 14 * * 1-5"
+
+# Shared with the one-off pipeline jobs: nothing else writes to the lake meanwhile.
+concurrency:
+  group: pipeline-writes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write   # GCP Workload Identity Federation (keyless)
+
+jobs:
+  refresh:
+    if: vars.GCS_BUCKET != '' && vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # the run store treats 6 h without progress as lost
+    env:
+      CHARTLENS_RUNTIME__ENVIRONMENT: prod
+      CHARTLENS_RUNTIME__LOG_JSON: "true"
+      CHARTLENS_STORAGE__BACKEND: gcs
+      CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      CHARTLENS_FIRESTORE__PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      # Inputs reach the script through env, never interpolated into it.
+      INPUT_RUN_ID: ${{ inputs.run_id }}
+      EVENT: ${{ github.event_name }}
+      ACTOR: ${{ github.actor }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - name: Run id
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_RUN_ID" ]; then
+            case "$INPUT_RUN_ID" in
+              *[!A-Za-z0-9_.-]*) echo "::error::invalid run_id"; exit 1 ;;
+            esac
+            echo "RUN_ID=$INPUT_RUN_ID" >> "$GITHUB_ENV"
+          else
+            echo "RUN_ID=gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          fi
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - name: Authenticate to GCP (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Refresh (tracked run)
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_RUN_ID" ]; then
+            uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID"
+          elif [ "$EVENT" = "schedule" ]; then
+            uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID" --create \
+              --trigger schedule --requested-by schedule
+          else
+            uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID" --create \
+              --trigger manual --requested-by "github:$ACTOR"
+          fi
+      - name: Record a run the workflow could not close
+        if: always() && job.status != 'success' && env.RUN_ID != ''
+        env:
+          OUTCOME: ${{ job.status }}
+        run: uv run --no-sync chartlens-pipeline run-finalize --run-id "$RUN_ID" --outcome "$OUTCOME"

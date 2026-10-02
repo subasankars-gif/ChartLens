@@ -7,7 +7,7 @@ they show — structure, trend, patterns, and the conditions that would confirm 
 invalidate each scenario. Deterministic, explainable, point-in-time correct. No
 fundamentals, no news, no buy/sell calls.
 
-> **Status: Phase 1 · Milestone 6 (frontend: sign-in, search, weekly chart).**
+> **Status: Phase 1 · Milestone 7 (production operations: tracked refresh, run history).**
 > ChartLens downloads NSE bhavcopies and the corporate-action feed and stores the original
 > bytes immutably. It resolves every row to a stable internal security and writes
 > exact-decimal canonical daily bars. From these it derives an adjusted analytical dataset:
@@ -17,7 +17,9 @@ fundamentals, no news, no buy/sell calls.
 > series, never across a continuity break, and can be read point-in-time as of any date.
 > A private, read-only API on Cloud Run serves a version-bound snapshot of all of it to
 > signed-in, allowlisted users (ADR-0016). A static site on Firebase Hosting lets them search
-> and read each security's weekly chart, data quality and provenance (ADR-0017).
+> and read each security's weekly chart, data quality and provenance (ADR-0017). Every
+> production refresh is a tracked run: its stages, failures and the snapshot it published
+> are recorded in Firestore and shown on the System page; admins can start one (ADR-0018).
 
 ## Repository layout
 
@@ -87,6 +89,9 @@ uv run chartlens-pipeline weekly-bars --symbol RELIANCE --as-of 2015-06-30 --all
 # Milestone 5: serving snapshot + API (ADR-0016)
 uv run chartlens-pipeline publish-serving                             # version-bound snapshot for the API
 uv run poe api                                                        # API on :8080 (needs Firebase config)
+
+# Milestone 7: the tracked production run (ADR-0018)
+uv run chartlens-pipeline daily --run-id local-1 --create             # all six stages, recorded
 ```
 
 Reviewed decisions live in version-controlled files:
@@ -130,12 +135,14 @@ variables → Actions → Variables):
 Authentication is keyless, through Workload Identity Federation restricted to this
 repository. The service account has `roles/storage.objectUser` on the bucket only.
 
-The lake was populated on 2026-10-01/02 (2006 → 2026-09-30, 5,145 sessions), and the
-weekday schedule (20:15 IST) runs the `daily` chain: `ingest-daily` → corporate-action
-feed → `adjust` → `data-quality` → `weekly` → `publish-serving`. Without `--trade-date`, `ingest-daily` catches up every
-expected session since the latest ingested one (and re-checks recently unpublished
-dates), so a missed or failed run leaves no hole; the next run fills it. On an empty
-lake it refuses: the first load is an explicit `backfill`.
+The lake was populated on 2026-10-01/02 (2006 → 2026-09-30, 5,145 sessions). The
+weekday schedule (20:15 IST, `.github/workflows/production-refresh.yml`) runs the daily
+chain as one tracked run: `ingest-daily` → corporate-action feed → `adjust` →
+`data-quality` → `weekly` → `publish-serving`. `ingest-daily` catches up every expected
+session since the latest ingested one (and re-checks recently unpublished dates), so a
+missed or failed run leaves no hole; the next run fills it. On an empty lake it refuses:
+the first load is an explicit `backfill`. One-off jobs (backfill, identity rebuild, a
+single stage) stay in `.github/workflows/pipeline-job.yml`.
 
 ## API deployment
 
@@ -185,6 +192,33 @@ Local development: `uv run poe api` and `cd frontend && pnpm dev`. Set
 `NEXT_PUBLIC_FIREBASE_*` in `frontend/.env.local`. The end-to-end tests run the built site
 against the real API over a test lake: `pnpm e2e:build && pnpm e2e`.
 
+## Production refresh and run history
+
+A refresh is one tracked run (ADR-0018). GitHub Actions runs the six stages, Firestore
+records each one, and the serving pointer moves only after all of them succeed, so a
+failed run never changes what is served. Runs start from the weekday schedule, from
+"Run workflow" on *Production refresh* in GitHub, or from **System → Refresh data**
+(admins only; the API starts the workflow as a GitHub App). Everyone approved can follow
+runs and snapshot history on the System page.
+
+One-time setup, **before merging M7**:
+
+1. In Cloud Shell, run `bash scripts/gcp_setup_m7.sh`. It lets the pipeline's identity
+   write run records (`roles/datastore.user`). Without it, the scheduled refresh cannot
+   start.
+2. Create the GitHub App (GitHub → Settings → Developer settings → GitHub Apps → New):
+   - Homepage URL: `https://chartlenslab.web.app`. Webhook: untick *Active*.
+   - Repository permissions: **Actions: Read and write**, nothing else.
+   - Where can it be installed: *Only on this account*.
+   - After creating it, note the **App ID**, then generate a private key (a `.pem` file).
+   - Install the App: *Only select repositories* → `ChartLens`.
+3. Upload the `.pem` to Cloud Shell and run
+   `bash scripts/gcp_setup_m7.sh ~/<file>.pem`, then delete the file. The key goes to
+   Secret Manager (`chartlens-github-app-key`), readable only by `chartlens-api`.
+4. Add the repository variable `CHARTLENS_GH_APP_ID` (the App ID).
+
+Without steps 2–4 everything else works; only the Refresh button is absent.
+
 ## Configuration
 
 `config/chartlens.toml` is the single source of truth; environment variables
@@ -205,8 +239,8 @@ impossible. Changing one means writing an ADR and recalculating.
 | 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | ✅ |
 | 4 | Weekly builder + property tests | ✅ |
 | 5 | API: securities, weekly bars, data quality; Firestore; auth | ✅ |
-| 6 | Frontend: search, weekly chart, last update, data-quality badge | In review |
-| 7 | Jobs: daily incremental, backfill, single-security refresh, job tracking | |
+| 6 | Frontend: search, weekly chart, last update, data-quality badge | ✅ |
+| 7 | Production operations: tracked refresh, run history, snapshot history, System page | In review |
 
 ## Key decisions
 
@@ -216,5 +250,6 @@ GCS as the canonical store; Firestore for application state only; GitHub-hosted
 runners behind a CLI; immutable internal security IDs resolved ISIN-first with
 evidence-only linking; exact-decimal prices; calendars as versioned data; weekly bars
 by ISO week, split at continuity breaks, point-in-time as of any date; a read-only API
-over a version-bound serving snapshot, private behind Google sign-in and an allowlist; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
+over a version-bound serving snapshot, private behind Google sign-in and an allowlist;
+tracked production runs in GitHub Actions with run and snapshot history in Firestore; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
 everywhere.

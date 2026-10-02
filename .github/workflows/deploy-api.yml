@@ -2,7 +2,11 @@
 #
 # Keyless: GitHub's OIDC token is exchanged for the chartlens-deployer service account
 # (Workload Identity Federation, this repository only). The service runs as chartlens-api,
-# which can only READ the lake and read/write Firestore app state.
+# which can only READ the lake and read/write Firestore app state and run records.
+#
+# Refresh (ADR-0018): when the variable CHARTLENS_GH_APP_ID is set, the API gets the
+# GitHub App's id and, from Secret Manager (secret chartlens-github-app-key), its private
+# key. Cloud Run injects the secret; it never passes through this workflow or its logs.
 
 name: Deploy API
 
@@ -66,6 +70,8 @@ jobs:
           BUCKET: ${{ vars.GCS_BUCKET }}
           PROJECT: ${{ vars.GCP_PROJECT_ID }}
           API_SA: ${{ vars.GCP_API_SA }}
+          GH_APP_ID: ${{ vars.CHARTLENS_GH_APP_ID }}
+          REPOSITORY: ${{ github.repository }}
           # The browser origins allowed to call the API (ADR-0017). The product URL comes first.
           # The project's default Hosting domains stay only until chartlenslab.web.app is
           # verified end to end; a follow-up change removes them. Never "*".
@@ -79,19 +85,25 @@ jobs:
           origins=$(jq -c . <<<"$CORS_ORIGINS")
           jq -e 'length > 0 and all(.[]; startswith("https://") and (contains("*") | not))' \
             <<<"$origins" > /dev/null || { echo "::error::CORS_ORIGINS must be explicit https origins"; exit 1; }
-          jq -n --arg bucket "$BUCKET" --arg project "$PROJECT" --arg admins "$admins" --arg origins "$origins" '{
+          jq -n --arg bucket "$BUCKET" --arg project "$PROJECT" --arg admins "$admins" --arg origins "$origins" \
+            --arg app "$GH_APP_ID" --arg repo "$REPOSITORY" '{
             CHARTLENS_RUNTIME__ENVIRONMENT: "prod",
             CHARTLENS_STORAGE__BACKEND: "gcs",
             CHARTLENS_STORAGE__GCS_BUCKET: $bucket,
             CHARTLENS_API__FIREBASE_PROJECT_ID: $project,
             CHARTLENS_API__ADMIN_EMAILS: $admins,
-            CHARTLENS_API__CORS_ORIGINS: $origins
-          }' > env.yaml
+            CHARTLENS_API__CORS_ORIGINS: $origins,
+            CHARTLENS_API__GITHUB_REPOSITORY: $repo
+          } + (if $app != "" then {CHARTLENS_API__GITHUB_APP_ID: $app} else {} end)' > env.yaml
           jq 'del(.CHARTLENS_API__ADMIN_EMAILS)' env.yaml   # log everything but the emails
+          secrets=()
+          if [ -n "$GH_APP_ID" ]; then
+            secrets=(--set-secrets "CHARTLENS_API__GITHUB_APP_PRIVATE_KEY=chartlens-github-app-key:latest")
+          fi
           gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --project "$PROJECT" \
             --service-account "$API_SA" --allow-unauthenticated \
             --min-instances 0 --max-instances 3 --cpu 1 --memory 1Gi --concurrency 40 \
-            --env-vars-file env.yaml
+            --env-vars-file env.yaml "${secrets[@]}"
       - name: Smoke test
         run: |
           set -euo pipefail
