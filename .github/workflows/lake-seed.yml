@@ -31,7 +31,7 @@ jobs:
       CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.8.17"
           python-version: "3.12"
