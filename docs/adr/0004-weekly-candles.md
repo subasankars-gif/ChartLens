@@ -1,6 +1,6 @@
 # ADR-0004: Weekly candle construction and week boundaries
 
-**Status:** Accepted · 2026-09-30
+**Status:** Accepted · 2026-09-30 · field names superseded by [ADR-0014](0014-weekly-data-product.md): the label is `last_session_date`; `week_start_date`/`week_end_date` are the ISO week's Monday/Sunday; bars split at continuity breaks
 
 ## Decision
 
