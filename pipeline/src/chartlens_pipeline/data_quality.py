@@ -6,6 +6,8 @@ identifier history — and writes:
 
 * ``findings.parquet`` — every finding (market-wide ones have no security);
 * ``status.parquet`` — one row per security: ``usable_from``, status and counts;
+* ``continuity_segments.parquet`` — the continuity regime: one row per segment, with a
+  stable id (``security_id@start``) that weekly bars and later engines reference (ADR-0014);
 * ``report.json`` — the market-wide summary.
 
 Continuity breaks (``usable_from`` moves after them):
@@ -39,7 +41,7 @@ import pyarrow.parquet as pq
 
 from chartlens_core.config import ChartLensSettings, config_dir
 from chartlens_core.logs import log_event
-from chartlens_core.quality import Dimension, Finding, Severity, status
+from chartlens_core.quality import Dimension, Finding, Severity, continuity_segments, status
 from chartlens_pipeline.adjust import EventStatus
 from chartlens_pipeline.calendar import CalendarCoverageError, CalendarEvidence, TradingCalendar
 from chartlens_pipeline.corporate_actions_model import ActionClass
@@ -50,9 +52,10 @@ from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
 
 log = logging.getLogger("chartlens.pipeline.data_quality")
 
-DQ_ENGINE_VERSION: Final = "dq_v3"
+DQ_ENGINE_VERSION: Final = "dq_v4"
 """Bump on any change to findings or status rules (part of dq_version). v3: analytical
-universe by instrument type; unexplained >50% gaps break continuity (2026-10-02)."""
+universe by instrument type; unexplained >50% gaps break continuity (2026-10-02).
+v4: continuity segments published (ADR-0014)."""
 
 _EVENT_FINDINGS: Final[dict[str, tuple[Severity, str]]] = {
     EventStatus.VERIFIED: (Severity.INFO, "FACTOR_APPLIED"),
@@ -91,6 +94,7 @@ class DataQualityResult:
     findings: list[Finding]
     statuses: list[dict[str, Any]]
     summary: dict[str, Any]
+    segments: list[dict[str, Any]]
 
 
 def market_findings(
@@ -366,6 +370,22 @@ STATUS_SCHEMA: Final = pa.schema(
 )
 
 
+SEGMENTS_SCHEMA: Final = pa.schema(
+    [
+        pa.field("security_id", pa.string(), nullable=False),
+        pa.field("continuity_segment_id", pa.string(), nullable=False),
+        pa.field("segment_start", pa.date32(), nullable=False),
+        pa.field("segment_end", pa.date32(), nullable=False),
+        pa.field("sessions", pa.int64(), nullable=False),
+        pa.field("cause", pa.string(), nullable=False),
+        pa.field("as_of", pa.date32()),
+        pa.field("adjustment_version", pa.string(), nullable=False),
+        pa.field("dq_version", pa.string(), nullable=False),
+    ],
+    metadata={b"chartlens.dataset": b"continuity_segments", b"chartlens.schema_version": b"1"},
+)
+
+
 class DataQualityService:
     def __init__(
         self,
@@ -489,6 +509,7 @@ class DataQualityService:
 
         findings: list[Finding] = list(market)
         statuses: list[dict[str, Any]] = []
+        segments: list[dict[str, Any]] = []
         policy = self.provider.identity_policy()
         analytical_types = set(self.settings.universe.analytical_instrument_types)
         for s in self._series(manifest["files"]):
@@ -543,6 +564,26 @@ class DataQualityService:
                 if f.start is not None and s.dates[0] <= f.start <= s.dates[-1]
             ]
             state, since = status(s.dates[0], s.dates[-1], [*own, *window], as_of)
+            segs = continuity_segments(s.security_id, s.dates[0], own, as_of)
+            if segs and segs[-1].start != since:
+                raise AssertionError(f"{s.security_id}: last segment {segs[-1]} != {since}")
+            starts = [bisect.bisect_left(s.dates, seg.start) for seg in segs]
+            for seg, lo, hi in zip(segs, starts, [*starts[1:], len(s.dates)], strict=True):
+                if hi <= lo or s.dates[lo] != seg.start:
+                    raise AssertionError(f"{seg.id}: a segment must start on a traded session")
+                segments.append(
+                    {
+                        "security_id": s.security_id,
+                        "continuity_segment_id": seg.id,
+                        "segment_start": seg.start,
+                        "segment_end": s.dates[hi - 1],
+                        "sessions": hi - lo,
+                        "cause": seg.cause,
+                        "as_of": as_of,
+                        "adjustment_version": adjustment_version,
+                        "dq_version": dq_version,
+                    }
+                )
             statuses.append(
                 {
                     "security_id": s.security_id,
@@ -569,6 +610,10 @@ class DataQualityService:
 
         summary = self._summary(findings, statuses, expected, as_of)
         self._write(findings, statuses, summary, dq_version, adjustment_version)
+        self.store.put(
+            DataLakeLayout.continuity_segments_key(self.exchange),
+            to_parquet_bytes(pa.Table.from_pylist(segments, schema=SEGMENTS_SCHEMA)),
+        )
         log_event(
             log,
             "data_quality.complete",
@@ -577,7 +622,9 @@ class DataQualityService:
             findings=len(findings),
             **{k.lower(): v for k, v in summary["status_counts"].items()},
         )
-        return DataQualityResult(dq_version, adjustment_version, as_of, findings, statuses, summary)
+        return DataQualityResult(
+            dq_version, adjustment_version, as_of, findings, statuses, summary, segments
+        )
 
     def _summary(
         self,

@@ -1,0 +1,79 @@
+# Milestone 4 verification on real data, without writing to the production lake.
+#
+# Copies the published inputs (adjusted dataset + metadata; no raw or canonical daily
+# files) from GCS to the runner's disk, then runs data-quality (for continuity segments)
+# and weekly twice on that local copy, and the M4 report. Results → probe-results/m4.
+
+name: M4 verify
+
+on:
+  push:
+    branches: ["probe/m4"]
+
+permissions:
+  contents: write   # publish the report to the throwaway results branch
+  id-token: write   # Workload Identity Federation (read the production inputs)
+
+env:
+  CHARTLENS_RUNTIME__LOG_JSON: "true"
+  CHARTLENS_STORAGE__BACKEND: local
+  CHARTLENS_STORAGE__LOCAL_ROOT: ${{ github.workspace }}/lake
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Copy published inputs from GCS (read-only)
+        env:
+          BUCKET: ${{ vars.GCS_BUCKET }}
+        run: |
+          mkdir -p out
+          s=$(date +%s)
+          uv run --no-sync python - <<'PY'
+          import os
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          from chartlens_pipeline.storage import GcsObjectStore, LocalObjectStore
+          src = GcsObjectStore(os.environ["BUCKET"])
+          dst = LocalObjectStore(Path(os.environ["CHARTLENS_STORAGE__LOCAL_ROOT"]))
+          keys = [k for p in ("curated/adjusted/", "metadata/") for k in src.list(p)]
+          with ThreadPoolExecutor(32) as pool:
+              list(pool.map(lambda k: dst.put(k, src.get(k)), keys))
+          print("copied", len(keys))
+          PY
+          echo "copy_seconds=$(( $(date +%s) - s ))" | tee -a out/timings.txt
+          du -sh lake | tee -a out/timings.txt
+      - name: Data quality, weekly (twice), report
+        run: |
+          set +e
+          t() { s=$(date +%s); "$@"; c=$?; echo "$1 $2 exit=$c seconds=$(( $(date +%s) - s ))" | tee -a out/timings.txt; }
+          t uv run --no-sync chartlens-pipeline data-quality --report-file out/dq.json > /dev/null 2> dq.log
+          t uv run --no-sync chartlens-pipeline weekly --report-file out/weekly1.json > /dev/null 2> weekly1.log
+          t uv run --no-sync chartlens-pipeline weekly --report-file out/weekly2.json > /dev/null 2> weekly2.log
+          uv run --no-sync chartlens-pipeline weekly-bars --symbol RELIANCE --last 4 > out/reliance.json 2> /dev/null
+          uv run --no-sync chartlens-pipeline weekly-bars --symbol RELIANCE --as-of 2015-06-30 --last 3 > out/reliance-2015.json 2> /dev/null
+          grep -hE '"severity": "(WARNING|ERROR)"' dq.log weekly1.log | head -50 > out/warnings.jsonl
+          set -e
+          s=$(date +%s)
+          uv run --no-sync python scripts/verify_m4.py lake out | tee out/m4-headline.json
+          echo "verify_seconds=$(( $(date +%s) - s ))" | tee -a out/timings.txt
+      - name: Publish report
+        if: always()
+        run: |
+          mkdir -p out && cd out
+          git init -q -b probe-results/m4
+          git -c user.name=m4-verify -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=m4-verify -c user.email=probe@users.noreply.github.com commit -qm "M4 verify ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/m4

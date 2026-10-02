@@ -581,5 +581,67 @@ def security_quality(
     )
 
 
+@app.command()
+def weekly(
+    exchange: Exchange = "NSE",
+    report_file: Annotated[
+        str | None, typer.Option(help="Also write the JSON summary here")
+    ] = None,
+) -> None:
+    """Build weekly bars from the published adjusted dataset (ADR-0014)."""
+    from chartlens_pipeline.weekly import WeeklyInputsNotReady, WeeklyService
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    try:
+        result = WeeklyService(settings, _provider(settings, exchange), _store(settings)).run()
+    except WeeklyInputsNotReady as err:
+        typer.echo(f"Refusing to run: {err}", err=True)
+        raise typer.Exit(code=5) from None
+    _emit(result.summary)
+    _write_report(report_file, result.summary)
+
+
+@app.command("weekly-bars")
+def weekly_bars(
+    symbol: Annotated[str | None, typer.Option(help="Current or past symbol")] = None,
+    isin: Annotated[str | None, typer.Option(help="ISIN")] = None,
+    as_of: Annotated[
+        str | None, typer.Option("--as-of", help="YYYY-MM-DD (default: the data's as_of)")
+    ] = None,
+    all_segments: Annotated[
+        bool,
+        typer.Option("--all-segments", help="Every continuity segment, not just the valid one"),
+    ] = False,
+    last: Annotated[int, typer.Option(help="Show only the last N bars (0 = all)")] = 12,
+    exchange: Exchange = "NSE",
+) -> None:
+    """A security's weekly bars as known as of a date (point-in-time when earlier)."""
+    from dataclasses import asdict
+
+    from chartlens_pipeline.weekly import WeeklyReader
+
+    settings = get_settings()
+    store = _store(settings)
+    ids = _lookup_ids(store, exchange, symbol, isin)
+    if not ids:
+        typer.echo("no matching security", err=True)
+        raise typer.Exit(code=1)
+    reader = WeeklyReader(_provider(settings, exchange), store)
+    out: dict[str, object] = {}
+    for sid in sorted(ids):
+        series = reader.load(sid, _parse_day(as_of, "--as-of"), all_segments=all_segments)
+        bars = series.bars[-last:] if last else series.bars
+        out[sid] = {
+            "as_of": series.as_of,
+            "source": series.source,
+            "segment_ids": series.segment_ids,
+            "versions": series.versions,
+            "bars_total": len(series.bars),
+            "bars": [asdict(b) for b in bars],
+        }
+    _emit(out)
+
+
 if __name__ == "__main__":  # pragma: no cover
     app()

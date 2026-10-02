@@ -163,6 +163,19 @@ def test_service_end_to_end(tmp_path: Path) -> None:
     assert report["breaks_by_code"] == {"UNQUANTIFIED_ACTION": 1}
     assert result.as_of == SESSIONS[-1] and SESSIONS[-1] - timedelta(days=60) < EX
 
+    # The continuity regime: DEMERCO splits at the demerger, the others are one segment.
+    segs = pq.read_table(
+        pa.BufferReader(lake.get(DataLakeLayout.continuity_segments_key("NSE")))
+    ).to_pylist()
+    by_sid = {s["security_id"]: s["symbol"] for s in result.statuses}
+    demer = [g for g in segs if by_sid[g["security_id"]] == "DEMERCO"]
+    assert [(g["segment_start"], g["segment_end"], g["sessions"], g["cause"]) for g in demer] == [
+        (SESSIONS[0], SESSIONS[14], 15, "FIRST_SESSION"),
+        (EX, SESSIONS[-1], len(SESSIONS) - 15, "UNQUANTIFIED_ACTION"),
+    ]
+    assert demer[1]["continuity_segment_id"] == f"{demer[1]['security_id']}@{EX.isoformat()}"
+    assert len(segs) == 4 and result.segments == segs
+
 
 # ----------------------------------------------------------------------------- decisions 2026-10-02
 

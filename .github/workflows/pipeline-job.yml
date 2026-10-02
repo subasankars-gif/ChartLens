@@ -15,7 +15,7 @@ on:
       job:
         description: Job to run
         type: choice
-        options: [info, daily, ingest-daily, backfill, reprocess-pending, corporate-actions-fetch, adjust, data-quality, identity-rebuild, refresh-security]
+        options: [info, daily, ingest-daily, backfill, reprocess-pending, corporate-actions-fetch, adjust, data-quality, weekly, identity-rebuild, refresh-security]
         default: info
       trade_date:
         description: "ingest-daily: YYYY-MM-DD (blank = latest session)"
@@ -93,13 +93,14 @@ jobs:
           run() { uv run --no-sync chartlens-pipeline "$@"; }
           if [ "$JOB" = "daily" ]; then
             # The scheduled chain: every session since the last ingested one → feed
-            # refresh → adjust → data quality.
+            # refresh → adjust → data quality → weekly.
             # adjust exits 5 (not published) if a hard requirement fails.
             if [ "$DRY_RUN" = "true" ]; then run ingest-daily --dry-run; exit 0; fi
             run ingest-daily ${TRADE_DATE:+--trade-date "$TRADE_DATE"}
             run corporate-actions fetch
             run adjust
             run data-quality
+            run weekly
             exit 0
           fi
           if [ "$JOB" = "corporate-actions-fetch" ]; then run corporate-actions fetch; exit 0; fi

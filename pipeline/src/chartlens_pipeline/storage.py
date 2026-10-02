@@ -15,6 +15,7 @@ Two write modes, on purpose:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import tempfile
 from datetime import date
@@ -49,6 +50,17 @@ class ObjectStore(Protocol):
     def list(self, prefix: str) -> list[str]:
         """Keys under ``prefix``, sorted."""
         ...
+
+    def delete(self, key: str) -> None:
+        """Remove a derived object. Raw (immutable source) objects can never be deleted."""
+        ...
+
+
+def check_deletable(key: str) -> str:
+    validate_key(key)
+    if key.startswith("raw/"):
+        raise ImmutableObjectError(f"refusing to delete raw source object {key}")
+    return key
 
 
 def validate_key(key: str) -> str:
@@ -114,6 +126,9 @@ class LocalObjectStore:
             and (key := p.relative_to(self.root).as_posix()).startswith(prefix)
         )
 
+    def delete(self, key: str) -> None:
+        self._path(check_deletable(key)).unlink(missing_ok=True)
+
 
 class GcsObjectStore:
     """Google Cloud Storage-backed store.
@@ -160,6 +175,12 @@ class GcsObjectStore:
     def list(self, prefix: str) -> list[str]:
         return sorted(b.name for b in self._client.list_blobs(self._bucket, prefix=prefix))
 
+    def delete(self, key: str) -> None:
+        from google.api_core.exceptions import NotFound
+
+        with contextlib.suppress(NotFound):
+            self._bucket.blob(check_deletable(key)).delete()
+
 
 def object_store_from_config(config: StorageConfig) -> ObjectStore:
     if config.backend == "gcs":
@@ -186,6 +207,10 @@ class DataLakeLayout:
         metadata/security_master/{ex}/identifier_history.parquet
         metadata/calendars/{ex}/calendar.parquet
         metadata/adjustments/{ex}/adjustment_factors.parquet
+        metadata/data_quality/{ex}/continuity_segments.parquet                     segments
+        curated/adjusted/exchange={EX}/{security_id}.parquet (+ _manifest.json)    adjusted daily
+        curated/weekly/exchange={EX}/{security_id}.parquet (+ _manifest.json)      weekly bars
+        curated/weekly_scan/exchange={EX}/v={version}/part-NNN.parquet (+ _manifest.json)
 
     Raw keys embed the content hash, so if an exchange re-issues a file for the same
     date, both versions are kept side by side instead of one replacing the other.
@@ -322,8 +347,39 @@ class DataLakeLayout:
         return validate_key(f"metadata/data_quality/{exchange.lower()}/report.json")
 
     @staticmethod
+    def continuity_segments_key(exchange: str) -> str:
+        """One row per continuity segment of every security (ADR-0014)."""
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/continuity_segments.parquet")
+
+    @staticmethod
     def curated_weekly_key(exchange: str, security_id: str) -> str:
-        return validate_key(f"curated/weekly/{exchange.lower()}/{security_id}.parquet")
+        return validate_key(f"curated/weekly/exchange={exchange.upper()}/{security_id}.parquet")
+
+    @staticmethod
+    def curated_weekly_prefix(exchange: str) -> str:
+        return f"curated/weekly/exchange={exchange.upper()}/"
+
+    @staticmethod
+    def weekly_manifest_key(exchange: str) -> str:
+        """Written last: the weekly version and the content hash of every per-security file."""
+        return validate_key(f"curated/weekly/exchange={exchange.upper()}/_manifest.json")
+
+    @staticmethod
+    def weekly_scan_prefix(exchange: str) -> str:
+        return f"curated/weekly_scan/exchange={exchange.upper()}/"
+
+    @staticmethod
+    def weekly_scan_part_key(exchange: str, weekly_version: str, part: int) -> str:
+        """Parts live under their version, so a new version never overwrites what a reader
+        of the previous manifest is reading."""
+        return validate_key(
+            f"curated/weekly_scan/exchange={exchange.upper()}/v={weekly_version}/"
+            f"part-{part:03d}.parquet"
+        )
+
+    @staticmethod
+    def weekly_scan_manifest_key(exchange: str) -> str:
+        return validate_key(f"curated/weekly_scan/exchange={exchange.upper()}/_manifest.json")
 
     @staticmethod
     def calendar_key(exchange: str) -> str:

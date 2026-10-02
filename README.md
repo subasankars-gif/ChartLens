@@ -7,13 +7,14 @@ they show — structure, trend, patterns, and the conditions that would confirm 
 invalidate each scenario. Deterministic, explainable, point-in-time correct. No
 fundamentals, no news, no buy/sell calls.
 
-> **Status: Phase 1 · Milestone 3 (corporate actions, adjustment, data quality).**
+> **Status: Phase 1 · Milestone 4 (weekly data product).**
 > ChartLens downloads NSE bhavcopies and the corporate-action feed and stores the original
 > bytes immutably. It resolves every row to a stable internal security and writes
 > exact-decimal canonical daily bars. From these it derives an adjusted analytical dataset:
 > exact factors, each validated against prices, published only when no adjustment
-> creates or worsens a discontinuity. Each security gets a data-quality status and a
-> `usable_from` date.
+> creates or worsens a discontinuity. Each security gets a data-quality status, a
+> `usable_from` date and its continuity segments. Weekly bars are built from the adjusted
+> series, never across a continuity break, and can be read point-in-time as of any date.
 
 ## Repository layout
 
@@ -74,6 +75,11 @@ uv run chartlens-pipeline data-quality                                # findings
 uv run chartlens-pipeline adjustment-report --symbol HDFCBANK         # every event + evidence
 uv run chartlens-pipeline security-quality --symbol TATACOMM          # status, usable_from, findings
 uv run chartlens-pipeline identity-rebuild                            # after changing config/identity/
+
+# Milestone 4: weekly bars (ADR-0014)
+uv run chartlens-pipeline weekly                                      # per-security files + scan dataset
+uv run chartlens-pipeline weekly-bars --symbol RELIANCE               # the valid segment, latest bars
+uv run chartlens-pipeline weekly-bars --symbol RELIANCE --as-of 2015-06-30 --all-segments
 ```
 
 Reviewed decisions live in version-controlled files:
@@ -104,7 +110,7 @@ docker compose run --rm pipeline info      # any pipeline command
 ## Production storage
 
 Market data belongs in GCS (ADR-0002). The flow is: NSE → runner → GCS raw (immutable)
-→ GCS curated → adjusted → (M4) weekly. `.github/workflows/pipeline-job.yml` switches to
+→ GCS curated → adjusted → weekly. `.github/workflows/pipeline-job.yml` switches to
 GCS automatically once these repository **variables** exist (Settings → Secrets and
 variables → Actions → Variables):
 
@@ -119,7 +125,7 @@ repository. The service account has `roles/storage.objectUser` on the bucket onl
 
 The lake was populated on 2026-10-01/02 (2006 → 2026-09-30, 5,145 sessions), and the
 weekday schedule (20:15 IST) runs the `daily` chain: `ingest-daily` → corporate-action
-feed → `adjust` → `data-quality`. Without `--trade-date`, `ingest-daily` catches up every
+feed → `adjust` → `data-quality` → `weekly`. Without `--trade-date`, `ingest-daily` catches up every
 expected session since the latest ingested one (and re-checks recently unpublished
 dates), so a missed or failed run leaves no hole; the next run fills it. On an empty
 lake it refuses: the first load is an explicit `backfill`.
@@ -141,8 +147,8 @@ impossible. Changing one means writing an ADR and recalculating.
 |---|---|---|
 | 1 | Skeleton: repo, config, core contracts, API health, frontend shell, Docker, CI | ✅ |
 | 2 | Security master, exchange calendar, NSE bhavcopy provider, immutable raw store, GCS, backfill | ✅ |
-| 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | In review |
-| 4 | Weekly builder + property tests | |
+| 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | ✅ |
+| 4 | Weekly builder + property tests | In review |
 | 5 | API: securities, weekly bars, data quality; Firestore; auth | |
 | 6 | Frontend: search, weekly chart, last update, data-quality badge | |
 | 7 | Jobs: daily incremental, backfill, single-security refresh, job tracking | |
@@ -154,5 +160,5 @@ corporate actions as the source; 20-year target history; EQ + BE series; Parquet
 GCS as the canonical store; Firestore for application state only; GitHub-hosted
 runners behind a CLI; immutable internal security IDs resolved ISIN-first with
 evidence-only linking; exact-decimal prices; calendars as versioned data; weekly bars
-by ISO week; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
+by ISO week, split at continuity breaks, point-in-time as of any date; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
 everywhere.

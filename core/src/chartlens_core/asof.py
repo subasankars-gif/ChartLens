@@ -13,9 +13,9 @@ cannot detect *future information baked into past bars*. Two known cases are
 handled elsewhere:
 
 * Weekly bars must be rebuilt from daily bars ``<= as_of`` for historical runs
-  (a stored weekly bar may have been completed after ``as_of``).
-* Back-adjusted prices embed later corporate actions. Ratios are unaffected, but
-  absolute-price filters must use raw prices (ADR-0005).
+  (a stored weekly bar may have been completed after ``as_of``) — ``WeeklyReader``.
+* Back-adjusted prices embed later corporate actions: historical runs adjust only by
+  actions with ex-date ``<= as_of`` (ADR-0014); absolute-price filters use raw prices.
 """
 
 from __future__ import annotations

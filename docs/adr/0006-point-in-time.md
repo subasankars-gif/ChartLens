@@ -30,7 +30,7 @@ past rows. Known cases and their handling:
 
 | Case | Handling |
 |---|---|
-| A stored weekly bar completed after `as_of` | Historical runs rebuild weekly bars from daily bars `<= as_of` |
-| Back-adjusted prices embed later corporate actions | Absolute-price filters use raw prices (ADR-0005) |
+| A stored weekly bar completed after `as_of` | Historical runs rebuild weekly bars from daily bars `<= as_of` (`WeeklyReader`, ADR-0014) |
+| Back-adjusted prices embed later corporate actions | Historical runs adjust only by actions with ex-date `<= as_of` (ADR-0014); absolute-price filters use raw prices (ADR-0005) |
 | Security master includes securities listed after `as_of` | Universe for a historical run is filtered by listing/first-session date `<= as_of` |
 | Statistics computed over periods that include the test date | Phase 6 uses walk-forward windows; defined in its own ADR |
