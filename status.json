@@ -1,0 +1,152 @@
+{
+ "runs": [
+  {
+   "run_id": "run-20261002T162514Z-6187ad",
+   "job_type": "DAILY",
+   "trigger": "api",
+   "requested_by": "subasankar.s@gmail.com",
+   "requested_by_uid": "SO6j7M4eOWSrTavZtw8L24pDUA13",
+   "requested_at": "2026-10-02T16:25:14.844772Z",
+   "started_at": "2026-10-02T16:25:31.809795Z",
+   "completed_at": "2026-10-02T17:00:52.904359Z",
+   "heartbeat_at": "2026-10-02T17:00:52.904359Z",
+   "status": "SUCCEEDED",
+   "current_stage": null,
+   "data_as_of": "2026-10-01",
+   "weekly_version": "wk-d4a98aff4aa7",
+   "serving_version": "meta-a6b5eca5fc18",
+   "snapshot_outcome": "PUBLISHED",
+   "error_summary": null,
+   "github_run_id": "37033809433",
+   "github_run_attempt": 1,
+   "stages": [
+    {
+     "stage": "INGEST",
+     "status": "SUCCEEDED",
+     "started_at": "2026-10-02T16:25:33.945071Z",
+     "completed_at": "2026-10-02T16:33:59.671592Z",
+     "duration_seconds": 505.7,
+     "records_processed": 0,
+     "version": null,
+     "error_summary": null,
+     "details": {
+      "end": "2026-10-02",
+      "sessions_ingested": 0,
+      "rows_quarantined": 0
+     }
+    },
+    {
+     "stage": "CORPORATE_ACTIONS",
+     "status": "SUCCEEDED",
+     "started_at": "2026-10-02T16:34:00.128611Z",
+     "completed_at": "2026-10-02T16:34:52.781150Z",
+     "duration_seconds": 52.7,
+     "records_processed": 0,
+     "version": null,
+     "error_summary": null,
+     "details": {
+      "windows": 252,
+      "unchanged": 7
+     }
+    },
+    {
+     "stage": "ADJUSTMENT",
+     "status": "SUCCEEDED",
+     "started_at": "2026-10-02T16:34:53.073329Z",
+     "completed_at": "2026-10-02T16:44:16.959762Z",
+     "duration_seconds": 563.9,
+     "records_processed": 8321198,
+     "version": "adj-adaf2df3c2ac",
+     "error_summary": null,
+     "details": {
+      "data_end": "2026-10-01"
+     }
+    },
+    {
+     "stage": "DATA_QUALITY",
+     "status": "SUCCEEDED",
+     "started_at": "2026-10-02T16:44:17.527871Z",
+     "completed_at": "2026-10-02T16:52:44.905705Z",
+     "duration_seconds": 507.4,
+     "records_processed": 4061,
+     "version": "dq-a7d986af190b",
+     "error_summary": null,
+     "details": {}
+    },
+    {
+     "stage": "WEEKLY",
+     "status": "SUCCEEDED",
+     "started_at": "2026-10-02T16:52:45.615488Z",
+     "completed_at": "2026-10-02T16:59:39.676629Z",
+     "duration_seconds": 414.1,
+     "records_processed": 1780720,
+     "version": "wk-d4a98aff4aa7",
+     "error_summary": null,
+     "details": {
+      "files_written": 0
+     }
+    },
+    {
+     "stage": "PUBLISH_SERVING",
+     "status": "SUCCEEDED",
+     "started_at": "2026-10-02T16:59:40.743814Z",
+     "completed_at": "2026-10-02T17:00:52.308491Z",
+     "duration_seconds": 71.6,
+     "records_processed": 4061,
+     "version": "meta-a6b5eca5fc18",
+     "error_summary": null,
+     "details": {
+      "outcome": "PUBLISHED"
+     }
+    }
+   ]
+  }
+ ],
+ "last_successful_run": "run-20261002T162514Z-6187ad",
+ "active": null,
+ "snapshots": [
+  {
+   "snapshot_id": "meta-a6b5eca5fc18",
+   "exchange": "NSE",
+   "schema_version": 2,
+   "status": "PUBLISHED",
+   "staged_at": "2026-10-02T17:00:49.173976Z",
+   "published_at": "2026-10-02T17:00:50.670370Z",
+   "run_id": "run-20261002T162514Z-6187ad",
+   "data_as_of": "2026-10-01",
+   "versions": {
+    "data_version": "data-ec41b7d7ca85",
+    "identity_version": "id-b0b09dac2000",
+    "methodology_hash": "f9e40bee87d3",
+    "weekly_version": "wk-d4a98aff4aa7",
+    "calendar_version": "2026.10.02-1+de1569c5",
+    "dq_version": "dq-a7d986af190b",
+    "adjustment_version": "adj-adaf2df3c2ac"
+   },
+   "counts": {
+    "analytical": 3187,
+    "weekly_bars": 1780720,
+    "securities": 4061
+   }
+  }
+ ],
+ "serving": {
+  "meta_version": "meta-a6b5eca5fc18",
+  "schema_version": 2,
+  "as_of": "2026-10-01",
+  "run_id": "run-20261002T162514Z-6187ad",
+  "generated_at": "2026-10-02T17:00:48.844049+00:00",
+  "counts": {
+   "analytical": 3187,
+   "securities": 4061,
+   "weekly_bars": 1780720
+  }
+ },
+ "weekly_copies": 4061,
+ "weekly_referenced": 4061,
+ "missing_copies": 0,
+ "version_dirs": [
+  "v=meta-a6b5eca5fc18",
+  "v=meta-fbc29873ac01"
+ ]
+}
