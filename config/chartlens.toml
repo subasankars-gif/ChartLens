@@ -109,3 +109,31 @@ volume_trend_long = 20
 volume_trend_band = 0.10
 rvol_expansion = 1.5
 rvol_contraction = 0.67
+
+[analysis.swings]               # ADR-0020 §B
+primary_method = "ATR"          # FRACTAL | ATR | PERCENT | ZIGZAG — read by every later layer
+primary_sensitivity = "INTERMEDIATE"
+
+[analysis.swings.fractal_window]   # bars each side the pivot must dominate
+MICRO = 1
+MINOR = 2
+INTERMEDIATE = 3
+MAJOR = 5
+
+[analysis.swings.atr_multiple]     # reversal in ATR(14) at the pivot bar
+MICRO = 1.0
+MINOR = 2.0
+INTERMEDIATE = 3.0
+MAJOR = 5.0
+
+[analysis.swings.percent]          # reversal in % of the pivot's high/low
+MICRO = 5
+MINOR = 10
+INTERMEDIATE = 15
+MAJOR = 25
+
+[analysis.swings.zigzag_percent]   # classic ZigZag on closes, reversal in %
+MICRO = 5
+MINOR = 10
+INTERMEDIATE = 15
+MAJOR = 25

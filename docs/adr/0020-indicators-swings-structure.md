@@ -86,8 +86,41 @@ It needs no code change.
   price_change / ATR[`bar_date`];
 - strength = |atr_change|, null in ATR warm-up.
 
-The leg still in progress is reported separately as a `pending_extreme` (type, bar,
-price). It is never a swing, and nothing downstream uses it.
+The leg still in progress, for each ZigZag-type method and sensitivity, is reported
+separately with `confirmed = false` and `known_at = null`. It is never a swing:
+- it is never in the swing list;
+- only a later confirming bar can produce a swing at that bar, and that swing is then
+  `known_at` that later bar, never retroactively;
+- pattern candidates may cite it as unconfirmed (ADR-0022), and nothing treats it as
+  confirmed.
+
+**Implementation rules (Phase 2):**
+
+- **Single pass.** Each method is one causal left-to-right pass over the segment's
+  complete bars. It decides everything at bar `t` from bars `0…t`. The engine contains
+  no backward shift, centred window, back-fill or reversed scan; a layer test enforces
+  this.
+- **The forming week is never scanned.** It cannot confirm, extend or create a swing,
+  so the last pending leg is taken from complete bars too.
+- **Special sessions.** A swing confirmed by a complete bar that closed on a non-regular
+  session is `provisional` (ADR-0015). Special sessions never bypass completeness.
+- **Changes are measured from the previous swing** of the same method and sensitivity,
+  in bar order (`bars_from_previous`, `price_change`, `atr_change`).
+  - ZigZag-type swings alternate HIGH and LOW, so this is the leg.
+  - FRACTAL may give two highs (or lows) in a row, and an outside bar may be both.
+  - FRACTAL sensitivities nest: every MAJOR pivot is also an INTERMEDIATE, MINOR and
+    MICRO pivot.
+- **Ties.** Equal FRACTAL highs go to the earliest bar. A ZigZag bar that would reverse
+  both tracked extremes before the first pivot confirms the earlier one (a high on a
+  tie).
+- **Causality is proved three ways by tests:**
+  - **prefix stability:** a run on the bars up to T equals the full run's swings with
+    `known_at ≤ T`, field for field;
+  - **sufficiency:** the bars up to a swing's `known_at` produce it;
+  - **future independence:** replacing every bar after a cut-off leaves every swing
+    known by the cut-off unchanged.
+
+  Every swing has `bar_date ≤ known_at`.
 
 ## C. Market structure
 

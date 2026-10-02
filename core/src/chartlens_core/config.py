@@ -29,6 +29,7 @@ import os
 from datetime import date
 from enum import StrEnum
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -259,10 +260,64 @@ class IndicatorConfig(_Section):
         return self
 
 
+SwingMethod = Literal["FRACTAL", "ATR", "PERCENT", "ZIGZAG"]
+Sensitivity = Literal["MICRO", "MINOR", "INTERMEDIATE", "MAJOR"]
+SENSITIVITIES: tuple[Sensitivity, ...] = ("MICRO", "MINOR", "INTERMEDIATE", "MAJOR")
+
+
+class SensitivityScale(_Section):
+    """One method's parameter at each sensitivity, strictly increasing MICRO → MAJOR."""
+
+    MICRO: float = Field(gt=0)
+    MINOR: float = Field(gt=0)
+    INTERMEDIATE: float = Field(gt=0)
+    MAJOR: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _increasing(self) -> SensitivityScale:
+        values = [self.MICRO, self.MINOR, self.INTERMEDIATE, self.MAJOR]
+        if any(b <= a for a, b in pairwise(values)):
+            raise ValueError("sensitivity parameters must increase from MICRO to MAJOR")
+        return self
+
+    def at(self, sensitivity: Sensitivity) -> float:
+        value: float = getattr(self, sensitivity)
+        return value
+
+
+class SwingConfig(_Section):
+    """Swing points (ADR-0020 §B). The primary method and sensitivity are configuration:
+    structure, Fibonacci, divergence and patterns read "the primary swings", never a
+    named method (K4)."""
+
+    primary_method: SwingMethod = "ATR"
+    primary_sensitivity: Sensitivity = "INTERMEDIATE"
+    fractal_window: SensitivityScale = SensitivityScale(MICRO=1, MINOR=2, INTERMEDIATE=3, MAJOR=5)
+    """FRACTAL: bars on each side a pivot must dominate (whole numbers)."""
+    atr_multiple: SensitivityScale = SensitivityScale(
+        MICRO=1.0, MINOR=2.0, INTERMEDIATE=3.0, MAJOR=5.0
+    )
+    """ATR: reversal needed to confirm a pivot, in ATR(14) at the pivot bar."""
+    percent: SensitivityScale = SensitivityScale(MICRO=5, MINOR=10, INTERMEDIATE=15, MAJOR=25)
+    """PERCENT: reversal from the pivot's high/low, in percent of the pivot price."""
+    zigzag_percent: SensitivityScale = SensitivityScale(
+        MICRO=5, MINOR=10, INTERMEDIATE=15, MAJOR=25
+    )
+    """ZIGZAG: classic ZigZag on closing prices, reversal in percent."""
+
+    @model_validator(mode="after")
+    def _whole_windows(self) -> SwingConfig:
+        for s in SENSITIVITIES:
+            if self.fractal_window.at(s) != int(self.fractal_window.at(s)):
+                raise ValueError("fractal windows must be whole numbers of bars")
+        return self
+
+
 class AnalysisConfig(_Section):
     """Everything that can change a technical-analysis result (ADR-0019)."""
 
     indicators: IndicatorConfig = IndicatorConfig()
+    swings: SwingConfig = SwingConfig()
 
 
 class ChartLensSettings(BaseSettings):

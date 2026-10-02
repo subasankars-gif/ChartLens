@@ -15,17 +15,20 @@ from datetime import date
 
 import numpy as np
 
-from chartlens_core.config import IndicatorConfig
+from chartlens_core.config import IndicatorConfig, SwingConfig
 from chartlens_core.domain import Timeframe
 from chartlens_core.testing import make_bars
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
+from chartlens_engine.swings import SwingAnalyzer
 
 securities = int(sys.argv[1]) if len(sys.argv) > 1 else 4061
 rng = np.random.default_rng(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
 lengths = np.clip(rng.exponential(440, securities).astype(int), 1, 1083)
 analyzer = IndicatorAnalyzer(IndicatorConfig())
 timings: list[float] = []
+swing_timings: list[float] = []
+swing_count = 0
 for i, n in enumerate(lengths.tolist()):
     sid = f"SEC-{i}"
     bars = make_bars(date(2006, 1, 2), n, freq="W-FRI", seed=i).assign(
@@ -39,11 +42,23 @@ for i, n in enumerate(lengths.tolist()):
         continuity_segment_id=f"{sid}@2006-01-06",
     )
     t = time.perf_counter()
-    run_analyzer(analyzer, bars, ctx)
+    indicators = run_analyzer(analyzer, bars, ctx)
     timings.append(time.perf_counter() - t)
-ms = [x * 1000 for x in timings]
+    t = time.perf_counter()
+    swings = run_analyzer(SwingAnalyzer(SwingConfig(), indicators), bars, ctx)
+    swing_timings.append(time.perf_counter() - t)
+    swing_count += len(swings.swings)
 print(f"securities={securities} bars={int(lengths.sum()):,}")
-print(
-    f"indicators: total {sum(timings):.1f} s | per security mean {statistics.mean(ms):.1f} ms, "
-    f"median {statistics.median(ms):.1f} ms, max {max(ms):.1f} ms"
-)
+
+
+def report(name: str, seconds: list[float]) -> None:
+    ms = [x * 1000 for x in seconds]
+    print(
+        f"{name}: total {sum(seconds):.1f} s | per security mean {statistics.mean(ms):.1f} ms, "
+        f"median {statistics.median(ms):.1f} ms, max {max(ms):.1f} ms"
+    )
+
+
+report("indicators", timings)
+report("swings (4 methods x 4 sensitivities)", swing_timings)
+print(f"swings found: {swing_count:,}")

@@ -118,3 +118,18 @@ def test_run_state_is_operational_metadata_only() -> None:
     runs = ROOT / "pipeline/src/chartlens_pipeline/runs.py"
     chartlens = {m for m, _ in _from_imports(runs) if m.startswith("chartlens")}
     assert chartlens == {"chartlens_core.runs"}, chartlens
+
+
+LOOK_AHEAD_IDIOMS = ("shift(-", "center=True", "bfill", "backfill", "[::-1]")
+
+
+def test_engine_has_no_look_ahead_idioms() -> None:
+    """ADR-0019/0020: no backward shift, centred window, back-fill or reversed scan in the
+    engine. Causality is proved by tests; this keeps the obvious shortcuts out of review."""
+    offenders = [
+        f"{py.relative_to(ROOT)}: {idiom}"
+        for py in (ROOT / "engine/src/chartlens_engine").rglob("*.py")
+        for idiom in LOOK_AHEAD_IDIOMS
+        if idiom in py.read_text()
+    ]
+    assert not offenders, offenders
