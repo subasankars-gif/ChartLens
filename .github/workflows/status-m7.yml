@@ -1,0 +1,42 @@
+# Throwaway, read-only: checks the first tracked production refresh (M7) in Firestore,
+# the bucket and the live API. Writes nothing. Results → probe-results/status-m7.
+name: Status M7
+on:
+  push:
+    branches: ["probe/status-m7"]
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BUCKET: ${{ vars.GCS_BUCKET }}
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Inspect (read-only)
+        run: |
+          mkdir -p out
+          uv run --no-sync python scripts/status_m7.py > out/status.json 2> out/status.log || true
+          curl -sS "https://chartlens-api-1082278531047.us-central1.run.app/api/v1/health" > out/health.json || true
+          cat out/status.json out/health.json; tail -5 out/status.log
+      - name: Publish
+        if: always()
+        run: |
+          cd out
+          git init -q -b probe-results/status-m7
+          git -c user.name=status -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=status -c user.email=probe@users.noreply.github.com commit -qm "status ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/status-m7
