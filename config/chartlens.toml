@@ -50,6 +50,7 @@ legacy_last_date = 2024-07-05   # last legacy bhavcopy NSE published
 exchange = "NSE"
 series = ["EQ", "BE"]          # a security moving between EQ and BE stays the same security
 history_target_years = 20      # target, not requirement: keep whatever history exists
+analytical_instrument_types = ["EQUITY_SHARE"]  # analysed and scanned; ETFs, rights entitlements stay in canonical data only
 
 [weekly]
 grouping = "iso_week"          # sessions bucketed Monday–Sunday (ADR-0004)
@@ -69,6 +70,8 @@ gap_report_threshold = 0.25         # "large gap" for the market-wide discontinu
 max_unexplained_move = 0.25       # adjusted close-to-close move flagged (WARN) when no corporate action explains it
 max_missing_session_ratio = 0.02  # above this share of missing sessions: a WARN finding
 max_trading_gap_sessions = 65     # absent longer than this (~3 months): continuity break, usable_from moves
+unexplained_gap_break = 0.5       # |open / prev close - 1| beyond this, unexplained: continuity break (never an adjustment)
+unexplained_gap_min_reference_price = 2.0  # ...only when the previous close is at least Rs 2
 max_session_quarantine_ratio = 0.05  # above this share of rejected rows, a session is QUARANTINED, not ingested
 
 [identity]                      # ADR-0009 — which security a row belongs to

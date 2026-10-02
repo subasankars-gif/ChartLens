@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterable
 from datetime import date, datetime
 from functools import cache
 from importlib import resources
@@ -82,6 +83,20 @@ class NseIdentityPolicy:
         if len(isin) == 12 and isin.startswith("INE"):
             return isin[:9]
         return None
+
+    def instrument_type(self, isins: Iterable[str]) -> str:
+        """From the latest ISIN: ``INF`` = mutual-fund / ETF units; otherwise the 2-digit
+        security type at positions 8-9: ``01`` equity shares (``IN9`` DVRs included),
+        ``20`` rights entitlements, anything else OTHER_<type>. No ISIN (NSE rows before
+        2011-06-22 only) = UNKNOWN."""
+        latest = [i for i in isins if len(i) == 12][-1:]
+        if not latest:
+            return "UNKNOWN"
+        isin = latest[0]
+        if isin.startswith("INF"):
+            return "FUND_UNIT"
+        kind = isin[7:9]
+        return {"01": "EQUITY_SHARE", "20": "RIGHTS_ENTITLEMENT"}.get(kind, f"OTHER_{kind}")
 
 
 class NseDailyBars:

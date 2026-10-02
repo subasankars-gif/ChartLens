@@ -82,10 +82,10 @@ from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
 
 log = logging.getLogger("chartlens.pipeline.adjust")
 
-ADJUSTMENT_ENGINE_VERSION: Final = "adjust_v2"
+ADJUSTMENT_ENGINE_VERSION: Final = "adjust_v3"
 """Bump on any change to decisions or outputs: it is part of adjustment_version, so a
 behaviour change can never reuse a version label (v2: CONSISTENT, STALE_ISIN, identity
-breaks, narrowed face-value uncertainty)."""
+breaks, narrowed face-value uncertainty; v3: override sources, NSE special pre-open)."""
 ADJUSTED_SCHEMA_VERSION: Final = 1
 ADJ_PRICE_TYPE: Final = pa.decimal128(24, 6)
 ADJ_VOLUME_TYPE: Final = pa.decimal128(28, 4)
@@ -133,23 +133,63 @@ APPLIED: Final = frozenset({EventStatus.VERIFIED, EventStatus.CONSISTENT, EventS
 # ----------------------------------------------------------------------------- overrides
 
 
+class OverrideSource(StrEnum):
+    """Evidence a reviewed override may rest on (decision 2026-10-02).
+
+    The hierarchy for an unquantified event (demerger, scheme) is: the exchange's own
+    special pre-open discovered price is PRIMARY and yields the factor. A company's
+    cost-of-acquisition apportionment is cost-basis allocation, not the market value
+    removed on the ex-date: it may be recorded as supporting evidence, never as the factor.
+    """
+
+    NSE_SPECIAL_PREOPEN = "nse_special_preopen"
+    """factor = discovered price / last close before the ex-date (exact)."""
+    NO_PRICE_EFFECT = "no_price_effect"
+    """A reviewed record that the event did not change this security's price (factor 1)."""
+
+
+_REFUSED_SOURCES: Final = {
+    "cost_apportionment": "company cost-apportionment ratios are supporting evidence only",
+}
+
+
 @dataclass(frozen=True)
 class FactorOverride:
     isin: str
     ex_date: date
-    factor: Fraction
+    source: OverrideSource
     evidence: str
+    """The primary document, e.g. the NSE circular for the special pre-open session."""
     reviewed_by: str
+    discovered_price: Decimal | None = None
+    supporting_evidence: str = ""
+    """Recorded beside the decision (e.g. a cost-apportionment ratio); never used as a factor."""
+
+    def factor_for(self, cum_close: Decimal | None) -> tuple[Fraction | None, dict[str, str]]:
+        inputs = {
+            "source": str(self.source),
+            "evidence": self.evidence,
+            "reviewed_by": self.reviewed_by,
+        }
+        if self.supporting_evidence:
+            inputs["supporting_evidence"] = self.supporting_evidence
+        if self.source is OverrideSource.NO_PRICE_EFFECT:
+            return Fraction(1), inputs
+        assert self.discovered_price is not None
+        inputs["discovered_price"] = str(self.discovered_price)
+        if cum_close is None or cum_close <= 0:
+            return None, inputs
+        inputs["cum_close"] = str(cum_close)
+        return Fraction(self.discovered_price) / Fraction(cum_close), inputs
 
 
 @dataclass(frozen=True)
 class CorporateActionOverrides:
     """Reviewed, version-controlled decisions in ``config/corporate_actions/{ex}.toml``.
 
-    ``[[factor]]`` supplies a factor from a primary document for an event the feed does not
-    quantify (or is missing); ``factor = "1/1"`` records a reviewed *no price effect*.
-    ``[[suppress]]`` removes a feed record judged wrong. Every entry carries evidence and
-    the file's hash is part of ``adjustment_version``.
+    ``[[factor]]`` resolves an event the feed does not quantify, on evidence of an allowed
+    ``source`` (:class:`OverrideSource`); ``[[suppress]]`` removes a feed record judged
+    wrong. Every entry carries evidence; the file's hash is part of ``adjustment_version``.
     """
 
     factors: dict[tuple[str, date], FactorOverride] = field(default_factory=dict)
@@ -164,19 +204,32 @@ class CorporateActionOverrides:
         data = tomllib.loads(raw.decode())
         factors: dict[tuple[str, date], FactorOverride] = {}
         for e in data.get("factor", []):
-            num, _, den = str(e["factor"]).partition("/")
-            factor = Fraction(int(num), int(den or 1))
-            if factor <= 0:
-                raise ValueError(f"{path}: factor must be positive: {e}")
+            name = str(e.get("source", ""))
+            if name in _REFUSED_SOURCES:
+                raise ValueError(f"{path}: source {name!r} refused: {_REFUSED_SOURCES[name]}")
+            try:
+                source = OverrideSource(name)
+            except ValueError:
+                allowed = ", ".join(str(x) for x in OverrideSource)
+                raise ValueError(f"{path}: source must be one of {allowed}: {e}") from None
             for key in ("evidence", "reviewed_by"):
                 if not str(e.get(key, "")).strip():
                     raise ValueError(f"{path}: factor override without {key}: {e}")
+            if "factor" in e:
+                raise ValueError(f"{path}: give the evidence, not a factor: {e}")
+            price = None
+            if source is OverrideSource.NSE_SPECIAL_PREOPEN:
+                price = Decimal(str(e.get("discovered_price", "0")))
+                if price <= 0:
+                    raise ValueError(f"{path}: nse_special_preopen needs discovered_price: {e}")
             o = FactorOverride(
                 isin=str(e["isin"]).upper(),
                 ex_date=date.fromisoformat(str(e["ex_date"])),
-                factor=factor,
+                source=source,
                 evidence=e["evidence"],
                 reviewed_by=e["reviewed_by"],
+                discovered_price=price,
+                supporting_evidence=str(e.get("supporting_evidence", "")),
             )
             factors[(o.isin, o.ex_date)] = o
         suppress: dict[str, str] = {}
@@ -628,8 +681,20 @@ def decide_security(
         )
         kinds = Counter(c.kind for c in comps.values())
         if o is not None:
-            d.method, d.factor, d.override = "OVERRIDE", o.factor, f"{o.isin}@{o.ex_date}"
-            d.inputs = {"evidence": o.evidence, "reviewed_by": o.reviewed_by}
+            prev = h.index_before(ex) if h is not None else None
+            cum_close = h.close[prev] if h is not None and prev is not None else None
+            factor, d.inputs = o.factor_for(cum_close)
+            d.method, d.override = f"OVERRIDE:{o.source}", f"{o.isin}@{o.ex_date}"
+            if factor is None:
+                d.status = EventStatus.NOT_APPLICABLE
+                d.notes.append("no close before the ex-date to divide the discovered price by")
+            else:
+                d.factor = factor
+                if o.source is OverrideSource.NSE_SPECIAL_PREOPEN:
+                    d.notes.append(
+                        "factor from the exchange-discovered price; the gap check is not "
+                        "independent of it (the discovered price usually opens the ex-date)"
+                    )
         elif unquantified:
             d.status = EventStatus.UNQUANTIFIED
         elif any(n > 1 for n in kinds.values()):

@@ -99,6 +99,11 @@ class IdentityPolicy(Protocol):
         exchange offers no such rule for this ISIN."""
         ...
 
+    def instrument_type(self, isins: Iterable[str]) -> str:
+        """What kind of instrument a security is, from its ISINs (latest last). Exchange
+        knowledge, never guessed: no ISIN means UNKNOWN."""
+        ...
+
 
 @dataclass(frozen=True)
 class SymbolChangeNotice:

@@ -324,6 +324,18 @@ def main(lake_dir: str, out_dir: str, run2: str | None = None) -> None:
         "dq_status_counts": dq_report["status_counts"],
         "dq_active_status_counts": dq_report["active_status_counts"],
         "dq_breaks_by_code": dq_report["breaks_by_code"],
+        "dq_instrument_types": dq_report.get("instrument_types"),
+        "dq_active_instrument_types": dq_report.get("active_instrument_types"),
+        "dq_analytical_active_securities": dq_report.get("analytical_active_securities"),
+        "dq_analytical_active_status_counts": dq_report.get("analytical_active_status_counts"),
+        "dq_analytical_active_with_usable_from_moved": dq_report.get(
+            "analytical_active_with_usable_from_after_first_date"
+        ),
+        "unexplained_discontinuity_breaks_sample": [
+            f"{symbol_of.get(f['security_id'], '?')} {f['start_date']} {f['detail']}"
+            for f in findings
+            if f["code"] == "UNEXPLAINED_PRICE_DISCONTINUITY"
+        ][:80],
         "dq_findings_by_code": dq_report["findings_by_code"],
         "active_usable_from_year_histogram": dict(sorted(usable_years.items())),
     }

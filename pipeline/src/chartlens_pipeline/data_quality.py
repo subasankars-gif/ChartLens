@@ -50,8 +50,9 @@ from chartlens_pipeline.storage import DataLakeLayout, ObjectStore
 
 log = logging.getLogger("chartlens.pipeline.data_quality")
 
-DQ_ENGINE_VERSION: Final = "dq_v2"
-"""Bump on any change to findings or status rules (part of dq_version)."""
+DQ_ENGINE_VERSION: Final = "dq_v3"
+"""Bump on any change to findings or status rules (part of dq_version). v3: analytical
+universe by instrument type; unexplained >50% gaps break continuity (2026-10-02)."""
 
 _EVENT_FINDINGS: Final[dict[str, tuple[Severity, str]]] = {
     EventStatus.VERIFIED: (Severity.INFO, "FACTOR_APPLIED"),
@@ -77,6 +78,9 @@ class SecuritySeries:
     symbol: str
     isin: str | None
     file_hash: str
+    adj_open: list[float] | None = None
+    close: list[float] | None = None
+    """Raw closes (the reference price for the unexplained-gap rule)."""
 
 
 @dataclass
@@ -145,6 +149,7 @@ def security_findings(
     expected: Sequence[date],
     settings: ChartLensSettings,
     link_breaks: Mapping[str, str] | None = None,
+    analytical: bool = True,
 ) -> list[Finding]:
     cfg = settings.data_quality
     sid = s.security_id
@@ -252,6 +257,35 @@ def security_findings(
                 )
             )
 
+    # Decision 2026-10-02: an unexplained overnight gap beyond +/-50% at a reference price of
+    # Rs 2 or more breaks continuity for the analytical universe. It records an
+    # observation, never an inferred adjustment factor.
+    if analytical and s.adj_open is not None and s.close is not None:
+        breaking = {f.start for f in out if f.breaks_continuity}
+        for i in range(1, len(s.dates)):
+            gap = s.adj_open[i] / s.adj_close[i - 1] - 1
+            if (
+                abs(gap) > cfg.unexplained_gap_break
+                and s.close[i - 1] >= cfg.unexplained_gap_min_reference_price
+                and s.dates[i] not in breaking
+            ):
+                out.append(
+                    Finding(
+                        sid,
+                        s.dates[i],
+                        s.dates[i],
+                        Dimension.PRICE,
+                        Severity.WARN,
+                        "UNEXPLAINED_PRICE_DISCONTINUITY",
+                        breaks_continuity=True,
+                        detail=(
+                            f"overnight gap {gap:+.1%} after close {s.close[i - 1]:g} with no "
+                            "accepted corporate-action explanation; not adjusted"
+                        ),
+                    )
+                )
+                boundaries.add(s.dates[i])
+
     for i in range(1, len(s.dates)):
         move = s.adj_close[i] / s.adj_close[i - 1] - 1
         if abs(move) > cfg.max_unexplained_move and s.dates[i] not in boundaries:
@@ -313,6 +347,8 @@ STATUS_SCHEMA: Final = pa.schema(
         pa.field("security_id", pa.string(), nullable=False),
         pa.field("symbol", pa.string(), nullable=False),
         pa.field("isin", pa.string()),
+        pa.field("instrument_type", pa.string(), nullable=False),
+        pa.field("analytical_universe", pa.bool_(), nullable=False),
         pa.field("first_date", pa.date32(), nullable=False),
         pa.field("last_date", pa.date32(), nullable=False),
         pa.field("sessions", pa.int64(), nullable=False),
@@ -367,7 +403,8 @@ class DataQualityService:
             data = self.store.get(DataLakeLayout.adjusted_daily_key(self.exchange, sid))
             actual = hashlib.sha256(data).hexdigest()
             t = pq.read_table(
-                pa.BufferReader(data), columns=["trading_date", "adj_close", "symbol", "isin"]
+                pa.BufferReader(data),
+                columns=["trading_date", "adj_open", "adj_close", "close", "symbol", "isin"],
             ).to_pydict()
             return SecuritySeries(
                 sid,
@@ -376,6 +413,8 @@ class DataQualityService:
                 t["symbol"][-1] if t["symbol"] else "",
                 t["isin"][-1] if t["isin"] else None,
                 actual if actual == digest else f"MISMATCH:{actual}",
+                [float(x) for x in t["adj_open"]],
+                [float(x) for x in t["close"]],
             )
 
         with ThreadPoolExecutor(max_workers=16) as pool:
@@ -450,7 +489,19 @@ class DataQualityService:
 
         findings: list[Finding] = list(market)
         statuses: list[dict[str, Any]] = []
+        policy = self.provider.identity_policy()
+        analytical_types = set(self.settings.universe.analytical_instrument_types)
         for s in self._series(manifest["files"]):
+            isins = [
+                r["identifier_value"]
+                for r in sorted(
+                    identifiers.get(s.security_id, []),
+                    key=lambda r: (r["valid_from"], r["valid_to"]),
+                )
+                if r["identifier_type"] == "ISIN"
+            ]
+            instrument = policy.instrument_type(isins)
+            analytical = instrument in analytical_types
             own = security_findings(
                 s,
                 events.get(s.security_id, []),
@@ -459,7 +510,20 @@ class DataQualityService:
                 expected,
                 self.settings,
                 self.identity_overrides.link_breaks_continuity,
+                analytical=analytical,
             )
+            if not analytical:
+                own.append(
+                    Finding(
+                        s.security_id,
+                        None,
+                        None,
+                        Dimension.IDENTITY,
+                        Severity.INFO,
+                        "OUTSIDE_ANALYTICAL_UNIVERSE",
+                        detail=f"instrument type {instrument}: canonical data only, not analysed",
+                    )
+                )
             if s.file_hash.startswith("MISMATCH"):
                 own.append(
                     Finding(
@@ -484,6 +548,8 @@ class DataQualityService:
                     "security_id": s.security_id,
                     "symbol": s.symbol,
                     "isin": s.isin,
+                    "instrument_type": instrument,
+                    "analytical_universe": analytical,
                     "first_date": s.dates[0],
                     "last_date": s.dates[-1],
                     "sessions": len(s.dates),
@@ -542,6 +608,15 @@ class DataQualityService:
             ),
             "breaks_by_code": dict(
                 sorted(Counter(f.code for f in findings if f.breaks_continuity).items())
+            ),
+            "instrument_types": dict(Counter(s["instrument_type"] for s in statuses)),
+            "active_instrument_types": dict(Counter(s["instrument_type"] for s in active)),
+            "analytical_active_securities": sum(1 for s in active if s["analytical_universe"]),
+            "analytical_active_status_counts": dict(
+                Counter(s["status"] for s in active if s["analytical_universe"])
+            ),
+            "analytical_active_with_usable_from_after_first_date": sum(
+                1 for s in active if s["analytical_universe"] and s["security_id"] in moved
             ),
         }
 

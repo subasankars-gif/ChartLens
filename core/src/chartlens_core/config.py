@@ -117,6 +117,10 @@ class UniverseConfig(_Section):
     series: tuple[str, ...] = ("EQ", "BE")
     history_target_years: int = Field(default=20, ge=1)
     """Target, not a requirement: every security keeps whatever history actually exists."""
+    analytical_instrument_types: tuple[str, ...] = ("EQUITY_SHARE",)
+    """Instrument types analysed and scanned (decision 2026-10-02: equity shares only).
+    Every ingested series (ETFs, rights entitlements...) stays in the canonical data; the
+    exchange's identity policy assigns the type from the ISIN. ADR-0012."""
 
 
 class WeeklyConfig(_Section):
@@ -152,6 +156,13 @@ class DataQualityConfig(_Section):
     max_trading_gap_sessions: int = Field(default=65, ge=1)
     """A security absent for more than this many consecutive expected sessions (about three
     months) has no price discovery across the gap: a continuity break (ADR-0012)."""
+    unexplained_gap_break: float = Field(default=0.5, gt=0)
+    """An analytical-universe security whose adjusted overnight gap |open / previous close
+    - 1| exceeds this, with no accepted corporate-action explanation, has a continuity break
+    (UNEXPLAINED_PRICE_DISCONTINUITY). Never an inferred adjustment. Decision 2026-10-02."""
+    unexplained_gap_min_reference_price: float = Field(default=2.0, ge=0)
+    """The break rule applies only when the previous raw close is at least this (rupees):
+    below it, tick-size moves dominate."""
     max_session_quarantine_ratio: float = Field(default=0.05, ge=0, le=1)
     """Share of a session's in-scope rows the parser may reject before the session is
     treated as QUARANTINED rather than ingested (the 2020-07-13 case rejected 100%)."""

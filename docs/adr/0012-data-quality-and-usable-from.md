@@ -32,6 +32,8 @@ Findings are stored in `metadata/data_quality/nse/findings.parquet`.
 | `FACTOR_REJECTED_BY_PRICE` | WARN | Yes, if a gap larger than tolerance remains |
 | `REVIEWED_LINK_PRICE_BREAK` (ADR-0013) | WARN | **Yes**, at the first session under the linked ISIN |
 | `TRADING_GAP`: more than `max_trading_gap_sessions` (65) expected sessions without a trade | WARN | **Yes**: there is no price discovery across the gap |
+| `UNEXPLAINED_PRICE_DISCONTINUITY`: analytical-universe security, adjusted overnight gap \|open / previous close − 1\| > `unexplained_gap_break` (50%), previous raw close ≥ `unexplained_gap_min_reference_price` (₹2), no break already explains that session | WARN | **Yes**. The price is never adjusted for it. ChartLens records "there is an unexplained break here", never "therefore the factor is 0.4" |
+| `OUTSIDE_ANALYTICAL_UNIVERSE`: the instrument type is not in `universe.analytical_instrument_types` | INFO | No; the series stays in the canonical data |
 | `FACTOR_SUSPECT`, `UNRECOGNISED_ACTION` | WARN | No |
 | `UNEXPLAINED_MOVE`: \|adjusted close-to-close\| > `max_unexplained_move` (25%) with no corporate action or cash ex-date at that session | WARN | No. A large move may be real, and it is never inferred to be an artefact |
 | `MISSING_SESSIONS`: share > `max_missing_session_ratio` | WARN | No |
@@ -39,6 +41,25 @@ Findings are stored in `metadata/data_quality/nse/findings.parquet`.
 | `ACTION_UNRESOLVED`, `ACTION_CONFLICT` (market, price-relevant records that are not attached) | WARN | No; this is a review queue |
 | `FACTOR_APPLIED`, `FACTOR_APPLIED_WITHIN_NOISE`, `NO_ADJUSTMENT_NEEDED`, `ACTION_PENDING`, `SYMBOL_CHANGE`, `ISIN_CHANGE`, `DERIVED_CALENDAR` | INFO | No |
 | `ADJUSTED_FILE_HASH_MISMATCH` | FAIL | — |
+
+## Analytical universe (decided 2026-10-02)
+
+Analysis and scanning cover **equity shares only**. The exchange's identity policy
+assigns each security an instrument type from its latest ISIN:
+
+| ISIN | Instrument type | Analysed |
+|---|---|---|
+| security type `01` (INE…, and IN9… DVRs) | `EQUITY_SHARE` | Yes |
+| prefix `INF` (ETFs, fund units) | `FUND_UNIT` | No |
+| security type `20` | `RIGHTS_ENTITLEMENT` | No |
+| any other type | `OTHER_<type>` | No |
+| no ISIN (NSE rows before 2011-06-22 only) | `UNKNOWN`: it cannot be shown to be an equity share, so it is never guessed in | No |
+
+Every ingested series stays in the canonical and adjusted data. `status.parquet`
+records `instrument_type` and `analytical_universe` for each security.
+
+Decisions confirmed on 2026-10-02: the `CONSISTENT` status for sub-noise factors
+(ADR-0011), and `max_trading_gap_sessions` = 65.
 
 ## Status (point-in-time)
 

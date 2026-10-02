@@ -26,6 +26,7 @@ from chartlens_pipeline.adjust import (
     EventDecision,
     EventStatus,
     FactorOverride,
+    OverrideSource,
     Resolution,
     ResolvedAction,
     SecurityHistory,
@@ -328,24 +329,55 @@ def test_event_without_trades_on_both_sides_is_not_applicable() -> None:
     assert d2.status is EventStatus.NOT_APPLICABLE
 
 
-def test_reviewed_override_supplies_a_factor_for_an_unquantified_event() -> None:
-    h = flat_with_jump(30, 20, "100", "25")
-    o = FactorOverride("INE000A01011", h.dates[20], F(1, 4), "scheme document p.4", "reviewer")
+def test_nse_special_preopen_price_supplies_the_demerger_factor() -> None:
+    """Decision 2026-10-02: the exchange-discovered price is the primary evidence; the
+    factor is discovered price / last close, exactly."""
+    h = flat_with_jump(30, 20, "2841.85", "2580")  # RELIANCE-like demerger
+    o = FactorOverride(
+        "INE000A01011",
+        h.dates[20],
+        OverrideSource.NSE_SPECIAL_PREOPEN,
+        "NSE circular on the special pre-open session",
+        "reviewer",
+        discovered_price=D("2580"),
+        supporting_evidence="cost apportionment 95.32% / 4.68% (not used)",
+    )
     (d,) = decide(h, action("Demerger", h.dates[20]), overrides={h.dates[20]: o})
-    assert (d.method, d.status, d.factor, d.breaks_continuity) == (
-        "OVERRIDE",
-        EventStatus.VERIFIED,
-        F(1, 4),
+    assert d.factor == F(2580) / F(D("2841.85"))
+    assert (d.method, d.applied, d.breaks_continuity) == (
+        "OVERRIDE:nse_special_preopen",
+        True,
         False,
     )
-    assert d.inputs["evidence"] == "scheme document p.4"
+    assert d.inputs["discovered_price"] == "2580" and d.inputs["cum_close"] == "2841.85"
+    assert "supporting_evidence" in d.inputs and any("not independent" in n for n in d.notes)
 
 
-def test_override_of_one_records_a_reviewed_no_effect() -> None:
+def test_override_records_a_reviewed_no_price_effect() -> None:
     h = flat_with_jump(30, 20, "100", "101")
-    o = FactorOverride("INE000A01011", h.dates[20], F(1), "acquirer in amalgamation", "reviewer")
+    o = FactorOverride(
+        "INE000A01011",
+        h.dates[20],
+        OverrideSource.NO_PRICE_EFFECT,
+        "acquirer in amalgamation",
+        "reviewer",
+    )
     (d,) = decide(h, action("Scheme Of Amalgamation", h.dates[20]), overrides={h.dates[20]: o})
     assert d.status is EventStatus.NO_ADJUSTMENT and not d.breaks_continuity
+
+
+def test_a_preopen_factor_the_prices_contradict_is_still_rejected() -> None:
+    h = flat_with_jump(30, 20, "100", "100")
+    o = FactorOverride(
+        "INE000A01011",
+        h.dates[20],
+        OverrideSource.NSE_SPECIAL_PREOPEN,
+        "circular",
+        "reviewer",
+        discovered_price=D("40"),
+    )
+    (d,) = decide(h, action("Demerger", h.dates[20]), overrides={h.dates[20]: o})
+    assert d.status is EventStatus.REJECTED_BY_PRICE and not d.applied
 
 
 def test_suppressed_records_are_ignored() -> None:
@@ -367,19 +399,29 @@ def test_cash_and_meeting_records_make_no_event() -> None:
     )
 
 
-def test_overrides_file_requires_evidence(tmp_path: Path) -> None:
+def test_overrides_file_requires_source_and_evidence(tmp_path: Path) -> None:
     p = tmp_path / "nse.toml"
+    base = '[[factor]]\nisin = "ine1"\nex_date = 2023-07-20\n'
+    cases = {
+        'source = "nse_special_preopen"\ndiscovered_price = "2580"\nreviewed_by = "x"\n': "evidence",
+        'source = "cost_apportionment"\nevidence = "x"\nreviewed_by = "x"\n': "supporting evidence only",
+        'source = "broker"\nevidence = "x"\nreviewed_by = "x"\n': "source must be one of",
+        'source = "nse_special_preopen"\nevidence = "c"\nreviewed_by = "x"\n': "discovered_price",
+        'source = "no_price_effect"\nfactor = "1/10"\nevidence = "c"\nreviewed_by = "x"\n': "not a factor",
+    }
+    for body, message in cases.items():
+        p.write_text(base + body)
+        with pytest.raises(ValueError, match=message):
+            CorporateActionOverrides.load(p)
     p.write_text(
-        '[[factor]]\nisin = "INE1"\nex_date = 2021-10-22\nfactor = "1/10"\nreviewed_by = "x"\n'
-    )
-    with pytest.raises(ValueError, match="evidence"):
-        CorporateActionOverrides.load(p)
-    p.write_text(
-        '[[factor]]\nisin = "ine1"\nex_date = 2021-10-22\nfactor = "1/10"\nevidence = "order"\n'
-        'reviewed_by = "x"\n[[suppress]]\nrecord_key = "k"\nreason = "dup"\n'
+        base + 'source = "nse_special_preopen"\ndiscovered_price = "2580"\n'
+        'evidence = "NSE circular"\nreviewed_by = "x"\n'
+        'supporting_evidence = "cost apportionment 95.32%"\n'
+        '[[suppress]]\nrecord_key = "k"\nreason = "dup"\n'
     )
     o = CorporateActionOverrides.load(p)
-    assert o.factors[("INE1", date(2021, 10, 22))].factor == F(1, 10)
+    entry = o.factors[("INE1", date(2023, 7, 20))]
+    assert entry.discovered_price == D(2580) and entry.supporting_evidence
     assert o.suppress == {"k": "dup"} and len(o.fingerprint) == 12
     assert CorporateActionOverrides.load(tmp_path / "missing.toml").fingerprint == "none"
 
@@ -641,7 +683,7 @@ def test_override_for_an_unknown_isin_blocks_publication(tmp_path: Path) -> None
     IngestionService(
         settings, provider, lake, overrides=IdentityOverrides(), today=lambda: date(2024, 3, 1)
     ).backfill(SESSIONS[0], SESSIONS[2])
-    o = FactorOverride("INE000X01011", SESSIONS[1], F(1, 2), "doc", "me")
+    o = FactorOverride("INE000X01011", SESSIONS[1], OverrideSource.NO_PRICE_EFFECT, "doc", "me")
     svc = AdjustmentService(
         settings,
         provider,

@@ -151,6 +151,8 @@ def test_service_end_to_end(tmp_path: Path) -> None:
     assert by_symbol["DEMERCO"]["usable_from"] == EX  # hard break at the demerger
     assert by_symbol["DEMERCO"]["usable_sessions"] == len(SESSIONS) - 15
     assert by_symbol["PLAIN"]["status"] == Q.USABLE
+    assert {s["instrument_type"] for s in result.statuses} == {"EQUITY_SHARE"}
+    assert all(s["analytical_universe"] for s in result.statuses)
     # the unknown-ISIN record is surfaced market-wide, never attached to a security
     ghost = [f for f in result.findings if f.code == "ACTION_UNRESOLVED"]
     assert len(ghost) == 1 and ghost[0].security_id is None
@@ -160,3 +162,54 @@ def test_service_end_to_end(tmp_path: Path) -> None:
     assert report["securities_with_usable_from_after_first_date"] == 1
     assert report["breaks_by_code"] == {"UNQUANTIFIED_ACTION": 1}
     assert result.as_of == SESSIONS[-1] and SESSIONS[-1] - timedelta(days=60) < EX
+
+
+# ----------------------------------------------------------------------------- decisions 2026-10-02
+
+
+def test_instrument_type_comes_from_the_isin() -> None:
+    from chartlens_pipeline.providers.nse import NseIdentityPolicy
+
+    p = NseIdentityPolicy()
+    assert p.instrument_type(["INE002A01018"]) == "EQUITY_SHARE"
+    assert p.instrument_type(["IN9155A01020"]) == "EQUITY_SHARE"  # DVR
+    assert p.instrument_type(["INF204KB17I5"]) == "FUND_UNIT"  # ETF
+    assert p.instrument_type(["INE002A20018"]) == "RIGHTS_ENTITLEMENT"
+    assert p.instrument_type(["INE002A01018", "INE002A02016"]) == "OTHER_02"  # latest wins
+    assert p.instrument_type([]) == "UNKNOWN"  # never guessed
+
+
+def gap_series(prices: list[tuple[float, float]]) -> SecuritySeries:
+    d = EXPECTED[: len(prices)]
+    opens = [o for o, _ in prices]
+    closes = [c for _, c in prices]
+    return SecuritySeries("S1", d, closes, "ABC", "INE002A01018", "h", opens, closes)
+
+
+def test_unexplained_gap_beyond_half_breaks_continuity_but_is_not_adjusted() -> None:
+    s = gap_series([(100, 100)] * 5 + [(45, 45)] * 5)  # -55% overnight
+    out = security_findings(s, [], [], [], EXPECTED, SETTINGS)
+    brk = [f for f in out if f.code == "UNEXPLAINED_PRICE_DISCONTINUITY"]
+    assert len(brk) == 1 and brk[0].breaks_continuity and brk[0].start == EXPECTED[5]
+    assert "not adjusted" in brk[0].detail
+
+
+def test_gap_rule_respects_threshold_reference_price_and_universe() -> None:
+    within = gap_series([(100, 100)] * 5 + [(55, 55)] * 5)  # -45%: warning only
+    assert "UNEXPLAINED_PRICE_DISCONTINUITY" not in codes(
+        security_findings(within, [], [], [], EXPECTED, SETTINGS)
+    )
+    penny = gap_series([(1.5, 1.5)] * 5 + [(0.5, 0.5)] * 5)  # below Rs 2: tick moves
+    assert "UNEXPLAINED_PRICE_DISCONTINUITY" not in codes(
+        security_findings(penny, [], [], [], EXPECTED, SETTINGS)
+    )
+    big = gap_series([(100, 100)] * 5 + [(45, 45)] * 5)
+    etf = security_findings(big, [], [], [], EXPECTED, SETTINGS, analytical=False)
+    assert "UNEXPLAINED_PRICE_DISCONTINUITY" not in codes(etf)
+
+
+def test_gap_already_explained_by_a_break_is_not_counted_twice() -> None:
+    s = gap_series([(100, 100)] * 5 + [(45, 45)] * 5)
+    unq = [event("UNQUANTIFIED", EXPECTED[5], True)]
+    out = security_findings(s, unq, [], [], EXPECTED, SETTINGS)
+    assert [f.code for f in out if f.breaks_continuity] == ["UNQUANTIFIED_ACTION"]

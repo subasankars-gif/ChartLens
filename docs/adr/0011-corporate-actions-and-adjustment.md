@@ -132,10 +132,19 @@ The agreed requirements map onto this design as follows:
 
 ## Reviewed overrides: `config/corporate_actions/nse.toml`
 
-* `[[factor]]` gives an ISIN, an ex-date, a factor and evidence, plus `reviewed_by`.
-  The factor comes **only from a primary document**. `factor = "1/1"` records a
-  reviewed *no price effect*, for example the acquirer in an amalgamation; this removes
-  the break. An overridden factor is still validated against prices.
+* `[[factor]]` resolves an event the feed does not quantify. It names an ISIN, an
+  ex-date, a `source`, the evidence and `reviewed_by`. It never states a factor directly.
+  The evidence hierarchy was decided on 2026-10-02:
+
+  | Source | Role | Factor |
+  |---|---|---|
+  | `nse_special_preopen`: the exchange-discovered price from NSE's special pre-open session (cite the circular) | **Primary** | discovered price ÷ last close before the ex-date, computed exactly |
+  | `no_price_effect`: reviewed evidence that the event left this security's price unchanged (e.g. the acquirer in an amalgamation) | Primary | 1, which removes the break |
+  | Company cost-of-acquisition apportionment | **Supporting evidence only** (`supporting_evidence`) | Never. It is cost-basis allocation, not the market value removed on the ex-date; `source = "cost_apportionment"` is refused |
+
+  An override factor is still validated against prices. For a pre-open factor that
+  check is not independent, because the discovered price usually opens the ex-date.
+  The event carries a note saying so.
 * `[[suppress]]` gives a record key and a reason, and removes a feed record judged
   wrong.
 * The file's hash is part of `adjustment_version`. An override whose ISIN does not
