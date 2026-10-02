@@ -24,7 +24,7 @@ jobs:
       CHARTLENS_RUNTIME__LOG_JSON: "true"
       CHARTLENS_HTTP__MIN_REQUEST_INTERVAL_SECONDS: "0.25"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"
