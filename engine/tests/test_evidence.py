@@ -98,7 +98,7 @@ def test_divergence_confirmation_and_invalidation(tail: list[float], status: str
 
 
 def test_divergence_expires() -> None:
-    cfg = _with(divergence=DivergenceConfig(max_wait_bars=2))
+    cfg = _with(divergence=DivergenceConfig(expiry_weeks=2))
     _, (div,) = _rsi_divergence([*BASE, 79.0, 80.0], cfg)
     assert [(e.status, e.date) for e in div.status_history] == [
         ("FORMING", week(49)),

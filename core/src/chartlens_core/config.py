@@ -360,6 +360,9 @@ class LevelsConfig(_Section):
     w_volume: float = Field(default=0.5, ge=0)
     w_recency: float = Field(default=2.0, ge=0)
     recency_halflife_weeks: float = Field(default=26.0, gt=0)
+    level_break_atr: float = Field(default=0.10, ge=0)
+    """A horizontal level changes role (support ↔ resistance) on a complete close beyond
+    it by this many ATR (at the closing bar)."""
     trendline_min_bars: int = Field(default=4, ge=1)
     """Bars between a trendline's two anchor swings, at least."""
     trendline_max_bars: int = Field(default=104, ge=2)
@@ -383,8 +386,10 @@ class DivergenceConfig(_Section):
     """MACD line, in ATR at the second swing's bar."""
     obv_min_delta_volume: float = Field(default=0.05, gt=0)
     """OBV, as a fraction of the volume SMA at the second swing's bar."""
-    max_wait_bars: int = Field(default=26, ge=1)
-    """A divergence neither confirmed nor invalidated within this many bars expires."""
+    expiry_weeks: int = Field(default=26, ge=1)
+    """A divergence neither confirmed nor invalidated within this many weekly bars of
+    ``known_at`` is EXPIRED: it aged out unresolved, which is not proof it was wrong
+    (that is INVALIDATED)."""
 
 
 class VolumeEvidenceConfig(_Section):

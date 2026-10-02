@@ -7,7 +7,7 @@ read at the two swing bars. A divergence is evidence, never a signal.
 
 ``known_at`` is the label's (the second swing's ``known_at``). Status: FORMING, then
 CONFIRMED (a complete close beyond the intervening opposite swing), INVALIDATED (a
-complete close beyond the second swing) or EXPIRED (neither within ``max_wait_bars``) —
+complete close beyond the second swing) or EXPIRED (neither within ``expiry_weeks``) —
 all terminal, the first judged on the bar that makes the divergence known.
 """
 
@@ -206,7 +206,7 @@ class DivergenceAnalyzer:
             confirm = tail > confirmation.level if bullish else tail < confirmation.level
         either = np.flatnonzero(invalid | confirm)
         first_hit = int(either[0]) if either.size else None
-        wait = self.config.max_wait_bars
+        wait = self.config.expiry_weeks
         history = [StatusEntry(status="FORMING", date=dates[k], provisional=bool(special[k]))]
         if first_hit is not None and first_hit <= wait:
             t = k + first_hit

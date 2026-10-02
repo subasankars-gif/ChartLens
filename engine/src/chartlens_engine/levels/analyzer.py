@@ -1,15 +1,23 @@
-"""Layer D: support/resistance zones and trendlines (ADR-0021 §D and its Phase 4 rules).
+"""Layer D: support/resistance levels, zones and trendlines (ADR-0021 §D, Phase 4 rules).
 
 Levels **consume** the layers before them and never redefine them: swing prices come
 from the primary confirmed swings, structural levels from structure's BOS/CHoCH events,
 Fibonacci levels from the Fibonacci layer and moving averages from the indicators. No
 pivot, label or break of structure is computed here.
 
-* **Zones** are current state, as of the last complete bar (``state_date``): sources known
-  by then are clustered greedily in price order. A zone is ``known_at`` its latest
-  source's ``known_at`` — it cannot exist, in that form, before every source does.
-  ``strength`` is a sum of measured components reported next to it; it is evidence of
-  how much the level has mattered, not a probability or a score of the security.
+Existence is kept apart from relevance (ADR-0021):
+
+* **Levels** (existence) are events: every primary swing price and every BOS/CHoCH level,
+  known from its source's ``known_at``, with an append-only **role history**. A support
+  closed below by ``level_break_atr`` × ATR becomes resistance on that bar, and the
+  reverse, so a broken level never goes on looking like an untouched one.
+* **Zones** (relevance) are current state, as of the last complete bar (``state_date``):
+  sources known by then are clustered greedily in price order, and the nearest
+  ``max_zones_per_side`` on each side are reported. Which zones are relevant is part of
+  the methodology (configured and hashed), never a serving decision. A zone is
+  ``known_at`` its latest source's ``known_at``. ``strength`` is a sum of measured
+  components reported next to it: evidence of how much the level has mattered, not a
+  probability or a score of the security.
 * **Trendlines** are events. A line through two primary swings of one type (rising for
   support, falling for resistance) is *validated* by a third touch; it is ``known_at``
   that touch's ``known_at``, and BROKEN by the first complete close beyond it.
@@ -46,6 +54,44 @@ SourceType = Literal["SWING", "STRUCTURE", "DYNAMIC", "FIBONACCI"]
 Side = Literal["SUPPORT", "RESISTANCE"]
 
 
+class RoleChange(Frozen):
+    role: Side
+    date: date
+    """The complete bar from which the level plays this role."""
+    threshold: float | None
+    """The close that had to be crossed (level ± buffer); None for the original role."""
+    provisional: bool = False
+
+
+class Level(Frozen):
+    """A horizontal level and its role over time (existence, ADR-0021)."""
+
+    level_id: str
+    source_type: Literal["SWING", "STRUCTURE"]
+    ref_id: str
+    """The swing or structure event the price comes from."""
+    continuity_segment_id: str
+    price: float
+    bar_date: date
+    known_at: date
+    original_role: Side
+    """A swing low or a level broken upwards starts as support; the reverse as resistance."""
+    role_history: list[RoleChange]
+    high_volume: bool = False
+    depends_on: tuple[str, ...]
+
+    @property
+    def role(self) -> Side:
+        return self.role_history[-1].role
+
+    def as_of(self, day: date) -> Level | None:
+        if self.known_at > day:
+            return None
+        return self.model_copy(
+            update={"role_history": [r for r in self.role_history if r.date <= day]}
+        )
+
+
 class ZoneSource(Frozen):
     source_type: SourceType
     ref_id: str
@@ -56,6 +102,12 @@ class ZoneSource(Frozen):
     known_at: date
     high_volume: bool = False
     """A swing whose pivot bar had volume expansion (the VOLUME source type)."""
+    level_id: str | None = None
+    """The :class:`Level` behind a swing or structure source."""
+    original_role: Side | None = None
+    role: Side | None = None
+    """The level's role at the state date."""
+    role_since: date | None = None
 
 
 class Zone(Frozen):
@@ -67,7 +119,15 @@ class Zone(Frozen):
     sources: list[ZoneSource]
     source_types: tuple[str, ...]
     touches: list[date]
-    """First bar of each run of touching complete bars, after the first source was known."""
+    """First bar of each run of touching complete bars since ``tested_since``: tests in
+    the zone's current role."""
+    tested_since: date
+    """The bar after the later of the first source becoming known and the last role
+    change of any of its levels."""
+    role_changes: list[date]
+    """Every role change of the zone's levels (breaks), oldest first."""
+    role_reversed: bool
+    """At least one of its levels now plays the opposite of its original role."""
     first_seen: date
     known_at: date
     """The latest source's ``known_at``: the zone, as built, exists from then."""
@@ -145,8 +205,12 @@ class LevelsResult(AnalyzerResult):
     atr: float | None
     """ATR at the state date: the unit of every tolerance here."""
     last_close: float | None
+    levels: list[Level]
+    """Existence: every horizontal level, in the order it became known, with its role
+    history."""
     zones: list[Zone]
-    """Current zones, nearest first on each side (at most ``max_zones_per_side`` each)."""
+    """Relevance: current zones, nearest first on each side (at most
+    ``max_zones_per_side`` each)."""
     trendlines: list[Trendline]
     """Every validated trendline, in the order it became known."""
     active_trendlines: list[ActiveTrendline]
@@ -179,20 +243,22 @@ class LevelsAnalyzer:
         index_of = cb.index()
         primary = [s for s in self.swings.primary() if s.known_at in index_of]
         trendlines = self._trendlines(cb, atr, primary, index_of)
+        levels = self._levels(cb, atr, primary, index_of)
         if cb.n == 0 or np.isnan(atr[cb.n - 1]):
             # No complete bar, or ATR still warming up: no unit to measure zones in.
-            return self._result(context, cb, None, [], trendlines, [])
+            return self._result(context, cb, None, levels, [], trendlines, [])
         a = float(atr[cb.n - 1])
-        sources = self._sources(cb, primary, index_of)
-        zones = self._zones(cb, a, sources, index_of)
+        sources = self._sources(cb, levels)
+        zones = self._zones(cb, a, sources, levels, index_of)
         active = self._active_trendlines(cb, a, trendlines)
-        return self._result(context, cb, a, zones, trendlines, active)
+        return self._result(context, cb, a, levels, zones, trendlines, active)
 
     def _result(
         self,
         context: AnalysisContext,
         cb: CompleteBars,
         a: float | None,
+        levels: list[Level],
         zones: list[Zone],
         trendlines: list[Trendline],
         active: list[ActiveTrendline],
@@ -204,6 +270,7 @@ class LevelsAnalyzer:
             state_date=cb.state_date,
             atr=a,
             last_close=float(cb.close[-1]) if cb.n else None,
+            levels=levels,
             zones=zones,
             trendlines=trendlines,
             active_trendlines=active,
@@ -211,36 +278,92 @@ class LevelsAnalyzer:
 
     # ------------------------------------------------------------------ zones
 
-    def _sources(
-        self, cb: CompleteBars, primary: list[SwingPoint], index_of: dict[date, int]
-    ) -> list[ZoneSource]:
-        cfg = self.config
-        day = cb.dates[-1]
+    # ------------------------------------------------------------------ levels
+
+    def _levels(
+        self,
+        cb: CompleteBars,
+        atr: Array,
+        primary: list[SwingPoint],
+        index_of: dict[date, int],
+    ) -> list[Level]:
         volume_state = state(self.indicators, "volume_state", cb.n)
-        out: list[ZoneSource] = []
+        origins: list[tuple[Literal["SWING", "STRUCTURE"], str, float, date, date, Side, bool]] = []
         for s in primary:
             assert s.known_at is not None
-            out.append(
-                ZoneSource(
-                    source_type="SWING",
-                    ref_id=s.swing_id,
-                    price=s.price,
-                    bar_date=s.bar_date,
-                    known_at=s.known_at,
-                    high_volume=volume_state[s.bar_index] == "EXPANSION",
-                )
+            role: Side = "SUPPORT" if s.type == "LOW" else "RESISTANCE"
+            high_volume = volume_state[s.bar_index] == "EXPANSION"
+            origins.append(
+                ("SWING", s.swing_id, s.price, s.bar_date, s.known_at, role, high_volume)
             )
         for e in self.structure.events:
             if e.known_at in index_of:
-                out.append(
-                    ZoneSource(
-                        source_type="STRUCTURE",
-                        ref_id=e.event_id,
-                        price=e.level,
-                        bar_date=e.bar_date,
-                        known_at=e.known_at,
+                role = "SUPPORT" if e.direction == "UP" else "RESISTANCE"
+                origins.append(
+                    ("STRUCTURE", e.event_id, e.level, e.bar_date, e.known_at, role, False)
+                )
+        buffer = np.nan_to_num(atr * self.config.level_break_atr, nan=0.0)
+        levels: list[Level] = []
+        for source_type, ref, price, bar_date, known_at, role, high_volume in origins:
+            k = index_of[known_at]
+            history = [RoleChange(role=role, date=known_at, threshold=None)]
+            current, t = role, k + 1  # never broken by the bar that makes it known
+            while t < cb.n:
+                below = cb.close[t:] < price - buffer[t:]
+                above = cb.close[t:] > price + buffer[t:]
+                hits = np.flatnonzero(below if current == "SUPPORT" else above)
+                if not hits.size:
+                    break
+                t += int(hits[0])
+                current = "RESISTANCE" if current == "SUPPORT" else "SUPPORT"
+                sign = -1.0 if current == "RESISTANCE" else 1.0
+                history.append(
+                    RoleChange(
+                        role=current,
+                        date=cb.dates[t],
+                        threshold=price + sign * float(buffer[t]),
+                        provisional=bool(cb.special[t]),
                     )
                 )
+                t += 1
+            levels.append(
+                Level(
+                    level_id=f"{ref}:LEVEL",
+                    source_type=source_type,
+                    ref_id=ref,
+                    continuity_segment_id=cb.segment,
+                    price=price,
+                    bar_date=bar_date,
+                    known_at=known_at,
+                    original_role=role,
+                    role_history=history,
+                    high_volume=high_volume,
+                    depends_on=(ref,),
+                )
+            )
+        levels.sort(key=lambda lv: (lv.known_at, lv.bar_date, lv.level_id))
+        return levels
+
+    # ------------------------------------------------------------------ zones
+
+    def _sources(self, cb: CompleteBars, levels: list[Level]) -> list[ZoneSource]:
+        cfg = self.config
+        day = cb.dates[-1]
+        out = [
+            ZoneSource(
+                source_type=lv.source_type,
+                ref_id=lv.ref_id,
+                price=lv.price,
+                bar_date=lv.bar_date,
+                known_at=lv.known_at,
+                high_volume=lv.high_volume,
+                level_id=lv.level_id,
+                original_role=lv.original_role,
+                role=lv.role,
+                role_since=lv.role_history[-1].date,
+            )
+            for lv in levels
+        ]
         for name in cfg.dynamic_sources:
             v = self.indicators.get(name).data[cb.n - 1]
             if v is not None:
@@ -271,7 +394,12 @@ class LevelsAnalyzer:
         return out
 
     def _zones(
-        self, cb: CompleteBars, a: float, sources: list[ZoneSource], index_of: dict[date, int]
+        self,
+        cb: CompleteBars,
+        a: float,
+        sources: list[ZoneSource],
+        levels: list[Level],
+        index_of: dict[date, int],
     ) -> list[Zone]:
         cfg = self.config
         tolerance = cfg.zone_tolerance_atr * a
@@ -306,8 +434,11 @@ class LevelsAnalyzer:
                 (c for c in candidates if c[0] == side), key=lambda c: (distance(c), c[1])
             )
             chosen += same[: cfg.max_zones_per_side]
+        by_id = {lv.level_id: lv for lv in levels}
         return [
-            self._zone(cb, a, side, low, high, srcs, index_of, distance((side, low, high, srcs)))
+            self._zone(
+                cb, a, side, low, high, srcs, by_id, index_of, distance((side, low, high, srcs))
+            )
             for side, low, high, srcs in chosen
         ]
 
@@ -319,13 +450,18 @@ class LevelsAnalyzer:
         low: float,
         high: float,
         sources: list[ZoneSource],
+        by_id: dict[str, Level],
         index_of: dict[date, int],
         dist: float,
     ) -> Zone:
         cfg = self.config
         first_seen = min(s.known_at for s in sources)
         known_at = max(s.known_at for s in sources)
-        start = index_of[first_seen] + 1  # a test needs the level known before the bar
+        zone_levels = [by_id[s.level_id] for s in sources if s.level_id is not None]
+        role_changes = sorted({r.date for lv in zone_levels for r in lv.role_history[1:]})
+        # Tests count in the zone's current role: after its first source was known and
+        # after its last break (a test needs the level known before the bar).
+        start = max([index_of[first_seen], *(index_of[d] for d in role_changes)]) + 1
         if side == "SUPPORT":
             hit = (cb.low[start:] <= high) & (cb.close[start:] >= low)
         else:
@@ -337,8 +473,17 @@ class LevelsAnalyzer:
         touch_rvol = float(rvol.max()) if rvol.size else 0.0
         if touch_idx:
             since = cb.n - 1 - touch_idx[-1]
-        else:  # never tested: recency of its latest source's bar
-            since = cb.n - 1 - max(_bar_index(s, index_of) for s in sources)
+        else:  # untested in this role: recency of its latest source bar or break
+            since = (
+                cb.n
+                - 1
+                - max(
+                    [
+                        *(_bar_index(s, index_of) for s in sources),
+                        *(index_of[d] for d in role_changes),
+                    ]
+                )
+            )
         recency = math.exp(-since / cfg.recency_halflife_weeks)
         types: set[str] = {s.source_type for s in sources}
         if any(s.high_volume for s in sources):
@@ -356,6 +501,7 @@ class LevelsAnalyzer:
             + cfg.w_recency * components["recency"]
         )
         refs = tuple(s.ref_id for s in sources)
+        level_ids = tuple(s.level_id for s in sources if s.level_id is not None)
         digest = hashlib.sha256("|".join(sorted(refs)).encode()).hexdigest()[:12]
         return Zone(
             zone_id=f"{cb.segment}:ZONE:{digest}",
@@ -366,13 +512,16 @@ class LevelsAnalyzer:
             sources=sources,
             source_types=tuple(sorted(types)),
             touches=[cb.dates[i] for i in touch_idx],
+            tested_since=cb.dates[min(start, cb.n - 1)],
+            role_changes=role_changes,
+            role_reversed=any(lv.role != lv.original_role for lv in zone_levels),
             first_seen=first_seen,
             known_at=known_at,
             last_tested=cb.dates[touch_idx[-1]] if touch_idx else None,
             strength=strength,
             strength_components=components,
             distance_atr=dist / a,
-            depends_on=refs,
+            depends_on=refs + level_ids,
         )
 
     # ------------------------------------------------------------------ trendlines

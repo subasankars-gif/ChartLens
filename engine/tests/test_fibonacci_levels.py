@@ -289,3 +289,67 @@ def test_resistance_lines_mirror_support() -> None:
     resistance = [("HIGH", 2, 3, 30.0), ("HIGH", 8, 9, 27.0), ("HIGH", 14, 15, 24.0)]
     (line,) = _lines(resistance, closes).trendlines
     assert (line.type, line.slope_per_bar, line.known_at) == ("RESISTANCE", -0.5, week(15))
+
+
+# ------------------------------------------------- levels: existence and role changes
+
+
+def _role_fixture(n: int) -> Chain:
+    closes = [50.0] * 10 + [48.5] * 5 + [50.0] * 10  # broken at bar 10, regained at 15
+    return _zones(lows=(49.0,), closes=closes[:n])
+
+
+def test_a_broken_level_changes_role_explicitly() -> None:
+    chain = _role_fixture(25)
+    level, bos = chain.levels.levels  # the swing low, and structure's BOS down through it
+    assert (bos.source_type, bos.original_role, bos.known_at) == (
+        "STRUCTURE",
+        "RESISTANCE",
+        week(10),
+    )
+    assert [(r.role, r.date) for r in bos.role_history] == [
+        ("RESISTANCE", week(10)),
+        ("SUPPORT", week(15)),
+    ]
+    assert (level.source_type, level.original_role, level.known_at) == ("SWING", "SUPPORT", week(4))
+    assert [(r.role, r.date) for r in level.role_history] == [
+        ("SUPPORT", week(4)),
+        ("RESISTANCE", week(10)),  # close 48.5 below 49 − 0.1 × ATR 1.5
+        ("SUPPORT", week(15)),  # close 50 back above 49 + 0.1 × ATR
+    ]
+    assert level.role_history[1].threshold == pytest.approx(48.85)
+    assert level.as_of(week(12)).role == "RESISTANCE"  # type: ignore[union-attr]
+    assert level.as_of(week(3)) is None
+
+
+def test_zones_count_tests_in_their_current_role_only() -> None:
+    (regained,) = _role_fixture(25).levels.zones
+    assert regained.type == "SUPPORT"
+    assert regained.role_reversed  # the BOS level was born resistance and is support again
+    assert regained.role_changes == [week(10), week(15)]
+    assert regained.tested_since == week(16)
+    assert regained.touches == []  # nothing since it was regained
+
+    (flipped,) = _role_fixture(15).levels.zones  # as of bar 14: still below
+    assert flipped.type == "RESISTANCE" and flipped.role_reversed
+    assert flipped.role_changes == [week(10)]
+    assert flipped.tested_since == week(11)
+    assert flipped.touches == [week(11)]  # tests from below, as resistance
+    source = next(s for s in flipped.sources if s.source_type == "SWING")
+    assert (source.original_role, source.role, source.role_since) == (
+        "SUPPORT",
+        "RESISTANCE",
+        week(10),
+    )
+
+
+def test_a_level_broken_upwards_starts_as_support() -> None:
+    bars = bars_from_closes(FLAT)
+    chain = run_chain(bars, NO_FIB, manual_swings(bars, [("HIGH", 3, 4, 49.6)]))
+    structural, swing = sorted(chain.levels.levels, key=lambda lv: lv.source_type)
+    assert [(r.role, r.date) for r in swing.role_history] == [
+        ("RESISTANCE", week(4)),
+        ("SUPPORT", week(5)),  # the same close that is structure's BOS
+    ]
+    assert (structural.original_role, structural.known_at) == ("SUPPORT", week(5))
+    assert structural.role_history == structural.role_history[:1]

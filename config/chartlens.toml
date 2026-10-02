@@ -161,6 +161,7 @@ w_sources = 1.0
 w_volume = 0.5
 w_recency = 2.0
 recency_halflife_weeks = 26.0
+level_break_atr = 0.10          # a level flips role on a close beyond it by 0.10 ATR
 trendline_min_bars = 4          # bars between the two anchor swings
 trendline_max_bars = 104        # validated by a third touch within this many bars
 trendline_touch_atr = 0.5
@@ -174,7 +175,7 @@ max_bars = 52
 rsi_min_delta = 2.0             # RSI points
 macd_min_delta_atr = 0.05       # x ATR at the second swing
 obv_min_delta_volume = 0.05     # x volume SMA at the second swing
-max_wait_bars = 26              # FORMING -> EXPIRED
+expiry_weeks = 26               # FORMING -> EXPIRED (aged out, not proven wrong)
 
 [analysis.volume]               # ADR-0021 §F
 breakout_rvol_confirm = 1.5

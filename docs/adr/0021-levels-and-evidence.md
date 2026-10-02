@@ -166,8 +166,25 @@ The subset confirmed in K5, on **complete** bars only. Definitions:
 
 ## Implementation rules (Phase 4)
 
-These were settled while building Phase 4. Where they sharpen or change the text above,
-they take precedence.
+These were settled while building Phase 4 and confirmed in Suba's Phase 4 review. Where
+they sharpen or change the text above, they take precedence.
+
+**Existence and relevance are separate questions.**
+
+- **Existence:** does this technical object exist, given only what was known at that
+  time? Levels, trendlines, Fibonacci structures, divergences and every other event
+  answer this. They are kept in full, with `known_at` and an append-only history, and
+  they are prefix-stable.
+- **Relevance:** is the object close, strong or recent enough to be part of the current
+  picture? The nearest `max_zones_per_side` zones, the active trendlines and the current
+  Fibonacci structures answer this. They are current state as of the state date.
+- Relevance selection is analysis methodology: it is configured, hashed into
+  `analysis_methodology_hash` and computed by the engine. The serving layer and the
+  frontend never re-select, filter or rank analysis objects. They show what the engine
+  published, and may only hide or show whole layers.
+- There is no age cut-off on existence. A level established hundreds of weeks ago stays
+  a candidate. Its age only lowers the recency component of a zone's strength, and the
+  nearest-zone selection keeps the output small.
 
 **Order and inputs.**
 
@@ -220,6 +237,21 @@ they take precedence.
 - "Current" Fibonacci is the latest structure for each sensitivity that is known by the
   state date.
 
+**D. Levels: role changes.**
+
+- Every primary swing price and every BOS/CHoCH level is a `Level` (existence), known
+  from its source's `known_at`.
+- **Original role:**
+  - a swing low, or a level broken upwards (BOS/CHoCH UP), starts as support;
+  - a swing high, or a level broken downwards, starts as resistance.
+- **Role changes are explicit:** a support becomes resistance on a complete close below
+  it by `level_break_atr` (0.10) × ATR at that bar, and the reverse. Each change is an
+  entry in the level's append-only `role_history`, dated by the closing bar.
+- A level is never broken by the bar that makes it known.
+- So a broken support never goes on looking like an untouched one. Its history stays
+  available, and the role reversal is visible for the breakout and retest patterns
+  later.
+
 **D. Zones.**
 
 - **Sources:**
@@ -234,11 +266,17 @@ they take precedence.
   swallow nearby zones.
 - **Side:** decided by the zone's midpoint against the last complete close, which
   settles a zone that contains the close.
-- **Touches:** counted only on bars after the zone's first source is known.
+- **Touches:** tests in the zone's **current role**. They are counted only on bars after
+  both its first source is known and the last role change of any of its levels
+  (`tested_since`).
+- **Each zone reports its role changes:** `role_changes` and `role_reversed` (at least
+  one level now plays the opposite of its original role), and each source carries its
+  level's original role, current role and `role_since`.
 - **Strength:** the sum of `w_touch` × touches, `w_sources` × distinct source types,
   `w_volume` × the largest RVOL at a touch, and `w_recency` × e^(−bars since the last
   test / 26).
-  - A zone that has never been tested takes its recency from its latest source bar.
+  - A zone untested in its current role takes its recency from its latest source bar or
+    role change, whichever is later.
   - Strength is reported with all its components. It measures how much a level has
     mattered. It is not a probability, a signal or a score of the security.
 - **No ATR yet** (warm-up): no zones.
@@ -285,9 +323,13 @@ they take precedence.
 - **Confirmation:** the most extreme opposite primary swing between the two that is
   known by the divergence's `known_at`. There is no confirmation level when no such
   swing exists.
-- **EXPIRED is added:** a divergence that is neither confirmed nor invalidated within
-  `max_wait_bars` (26) of `known_at` expires. CONFIRMED, INVALIDATED and EXPIRED are
-  terminal.
+- **EXPIRED is added:** a FORMING divergence that is neither confirmed nor invalidated
+  within `expiry_weeks` (26, configurable) of `known_at` is EXPIRED.
+  - EXPIRED means it aged out unresolved. It is not proof the divergence was wrong; that
+    is INVALIDATED.
+  - CONFIRMED stays CONFIRMED: a confirmed divergence is a fact that happened. How
+    recent it is, is relevance, not existence.
+  - CONFIRMED, INVALIDATED and EXPIRED are terminal.
 
 **F. Volume.**
 
@@ -319,6 +361,10 @@ they take precedence.
   - structure's trend state at the bar;
   - the volume state and RVOL.
 - **Bars a candle may use:** every one must have range > 0.
+- **The K5 definitions are kept exactly** (Suba, Phase 4 review). The candle layer
+  answers "did this candle occur?" and never "is it significant?". Significance comes
+  from context (prior move, structure, S/R, volume) in later layers. Frequent candles
+  stay available as evidence, and ADR-0023 only hides them on the chart by default.
 - **Engulfing:** needs the current body to cover the previous body. At least one edge
   must be strictly beyond, and equal edges count.
 - **Outside bar:** needs at least one strictly greater extreme. An identical bar is an

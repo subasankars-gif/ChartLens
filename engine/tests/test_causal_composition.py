@@ -127,6 +127,7 @@ def _project(full: Chain, end: date) -> dict[str, object]:
     return {
         "fibonacci": [x for f in full.fibonacci.structures if (x := f.as_of(end))],
         "trendlines": [x for t in full.levels.trendlines if (x := t.as_of(end))],
+        "levels": [x for lv in full.levels.levels if (x := lv.as_of(end))],
         "divergences": [x for d in full.divergence.divergences if (x := d.as_of(end))],
         "volume": [e for e in full.volume.events if e.known_at <= end],
         "volatility": [e for e in full.volatility.events if e.known_at <= end],
@@ -138,6 +139,7 @@ def _events(part: Chain) -> dict[str, object]:
     return {
         "fibonacci": part.fibonacci.structures,
         "trendlines": part.levels.trendlines,
+        "levels": part.levels.levels,
         "divergences": part.divergence.divergences,
         "volume": part.volume.events,
         "volatility": part.volatility.events,
@@ -212,6 +214,7 @@ def test_special_session_closes_make_phase_4_decisions_provisional() -> None:
     entries = [
         *[e for f in chain.fibonacci.structures for e in f.status_history],
         *[e for t in chain.levels.trendlines for e in t.status_history],
+        *[r for lv in chain.levels.levels for r in lv.role_history[1:]],
         *[e for d in chain.divergence.divergences for e in d.status_history],
     ]
     assert entries

@@ -91,6 +91,7 @@ def known_at_of(chain: Chain) -> dict[str, date]:
     out |= {e.event_id: e.known_at for e in chain.structure.events}
     out |= {f.fib_id: f.known_at for f in chain.fibonacci.structures}
     out |= {t.trendline_id: t.known_at for t in chain.levels.trendlines}
+    out |= {lv.level_id: lv.known_at for lv in chain.levels.levels}
     out |= {z.zone_id: z.known_at for z in chain.levels.zones}
     for z in chain.levels.zones:
         out |= {s.ref_id: s.known_at for s in z.sources}
@@ -106,6 +107,7 @@ def derived(chain: Chain) -> list[tuple[str, date, tuple[str, ...]]]:
     rows: list[tuple[str, date, tuple[str, ...]]] = []
     rows += [(f.fib_id, f.known_at, f.depends_on) for f in chain.fibonacci.structures]
     rows += [(t.trendline_id, t.known_at, t.depends_on) for t in chain.levels.trendlines]
+    rows += [(lv.level_id, lv.known_at, lv.depends_on) for lv in chain.levels.levels]
     rows += [(z.zone_id, z.known_at, z.depends_on) for z in chain.levels.zones]
     rows += [(d.divergence_id, d.known_at, d.depends_on) for d in chain.divergence.divergences]
     rows += [(e.event_id, e.known_at, e.depends_on) for e in chain.volume.events]
