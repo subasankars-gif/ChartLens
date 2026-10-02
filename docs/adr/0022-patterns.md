@@ -1,8 +1,8 @@
 # ADR-0022: Classical patterns: candidates, geometry, identity, status
 
-**Status:** Proposed for review. This rewrite (2026-10-02) replaces the first version
-accepted with K5 and K8. Suba reviews the rule table before the candidate engine is
-built (Phase 5).
+**Status:** Accepted · 2026-10-02. This rewrite replaces the first version accepted
+with K5 and K8. Suba reviewed the rule table on 2026-10-02 and approved it with the
+amendments recorded in §8.
 
 These are layers G (candidates) and H (validation and status) of ADR-0019. A pattern is
 never a visual likeness. It exists only when the measurable rules below hold on swings
@@ -93,11 +93,15 @@ FORMING ────┤               ├── COMPLETED   (within completion_w
   - before confirmation, confirmation and invalidation are judged first, then expiry;
   - after confirmation, if a bar both reaches the zone and closes back through the
     level, it is FAILED (the close is the bar's final state).
-- **First judgement.** The first transitions are judged on the bar that makes the
-  pattern known, against levels known before that bar.
-  - A pattern that is already beyond its confirmation level at that bar is CONFIRMED on
-    that bar, with reason `RECOGNISED_AFTER_BREAKOUT`.
-  - Its confirmation date is never earlier than `known_at`.
+- **First judgement (same-bar rule).** On the `known_at` bar, the engine evaluates the
+  newly created pattern against all geometry and confirmation levels that are computable
+  from information available by the close of that bar. It never uses anything from a
+  later bar.
+  - For many patterns the confirmation level itself only becomes computable when the
+    last defining swing becomes known, so it cannot be "known before" that bar.
+  - A pattern whose close at `known_at` is already beyond its confirmation level (by the
+    buffer) is CONFIRMED on that bar, with reason `RECOGNISED_AFTER_BREAKOUT`.
+  - The invariant is `confirmation_date ≥ known_at`, never earlier.
 - **Terminal statuses:** INVALIDATED, EXPIRED, FAILED and COMPLETED. A CONFIRMED pattern
   that neither fails nor completes within its windows stays CONFIRMED, as a historical
   fact. How recent it is, is relevance.
@@ -130,6 +134,17 @@ methodology, applied by the engine:
    confidence first, ties to the later `known_at`.
 
 The relevant set is published as references into the full list, which stays available.
+
+- **Relevance never modifies a pattern.** It is a separate list of annotations, one per
+  pattern:
+
+  ```text
+  relevance: pattern_id, included (true/false), reason (RECENT | CONTAINED | CAPPED | AGED_OUT), contained_by
+  ```
+
+- `contained_by` lives only in that annotation, never on the pattern object. The
+  pattern itself, with its status history and geometry, is the same whether or not it
+  is relevant.
 
 ## 5. Common definitions
 
@@ -236,8 +251,9 @@ Bearish patterns mirror these.
   flag is usually smaller than the primary method's 3-ATR reversal, so the primary
   swings never see the flag's turns. These three therefore use the swing layer's
   `fine_sensitivity` of the primary method (default MICRO: a 1-ATR reversal).
-- Patterns never detect pivots themselves (§1.2). The sensitivity is configuration, and
-  no method is named in code.
+- Patterns never detect pivots themselves (§1.2). The sensitivity is configuration
+  (`[analysis.patterns] fine_sensitivity`, default MICRO), and no method is named in
+  code.
 
 ## 7. Rule table
 
@@ -433,27 +449,19 @@ security.
 | Confidence | Geometry: convergence, slope agreement, touches known by `known_at`. Context: as listed |
 | Overlap | As for triangles |
 
-### 7.9 Channel (proposed move to the levels layer; see §8 Q4)
+### 7.9 Channel: moved to the levels layer
 
-`[analysis.patterns.channel]`: `parallel_tol_atr` 0.01, `fit_tol_atr` 0.5,
-`confirm_touches` 5, `min_span` 12.
-
-| Field | Rule |
-|---|---|
-| Swing sequence | Four consecutive alternating primary swings |
-| Candidate geometry | Two non-flat lines with \|s_u − s_l\| ≤ `parallel_tol_atr` × ATR_D |
-| Confirmation | ≥ `confirm_touches` touches known while every close stayed inside: CONFIRMED (the channel is established) |
-| Invalidation | Before confirmation: a complete close outside either line by ≥ `breakout_atr` × ATR_pre |
-| After confirmation | A close outside ends it. With the generic machine this would be FAILED or COMPLETED, and neither fits a container. Hence Q4 |
-| Measured-move zone | None (a channel is a container, not a projection) |
-| Identity | CHANNEL_{UP\|DOWN} + the four defining swings |
-| `known_at` | k(last defining swing) |
+A channel is a container: two parallel trendlines, not a projection. It does not fit
+FAILED or COMPLETED, and it has no measured move. It is a levels object (ADR-0021: an
+ACTIVE / BROKEN channel built from the trendline machinery), and its breaks feed the
+same breakout events as any level. The pattern engine does not detect channels.
 
 ### 7.10 Bull flag / bear flag
 
-`[analysis.patterns.flag]`: `fine_sensitivity` MICRO, `pole_atr` 3.0, `pole_max_bars` 6,
-`flag_min_bars` 3, `flag_max_bars` 12, `parallel_tol_atr` 0.05, `max_retrace` 0.5,
-`flat_slope_atr` 0.02. `max_wait_bars` is derived: `flag_max_bars` from the pole's end.
+`[analysis.patterns.flag]`: `pole_atr` 3.0, `pole_max_bars` 6, `flag_min_bars` 3,
+`flag_max_bars` 12, `parallel_tol_atr` 0.05, `max_retrace` 0.5, `flat_slope_atr` 0.02,
+`fit_tol_atr` 0.5. Swings are at `[analysis.patterns] fine_sensitivity`. `max_wait_bars`
+is derived: `flag_max_bars` from the pole's end.
 
 | Field | Rule |
 |---|---|
@@ -513,31 +521,26 @@ security.
 | Confidence | Geometry: R² scaled, `closeness(|H_a − H_b|, rim_tol)`, `margin(depth_atr, min_depth)`, `closeness(handle ratio, handle_max_ratio)`. Context: as listed |
 | Overlap | Coexists with the rounding bottom on the same rims. Relevance prefers the cup & handle |
 
-## 8. Open questions for the review
+## 8. Review decisions (Suba, 2026-10-02)
 
-1. **Fixed geometry (§2).** Lines and levels are fixed by the defining swings and never
-   refitted, so judgements never move after the fact. The alternative is an
-   append-only geometry-revision history, judged with the previous bar's geometry. It
-   is more faithful to least-squares fits with many touches, but heavier. I recommend
-   fixed geometry.
-2. **`fine_sensitivity` for flags, pennants and handles (§6).** These use the primary
-   method at MICRO, which is a change from "pole = a primary leg". Without it, most
-   flags are invisible to ATR/INTERMEDIATE swings.
-3. **ATR for breakout buffers.** I propose ATR_pre (the bar before) for pattern
-   breakouts, failures and retests, per the Phase 4 decision. Structure's BOS/CHoCH
-   (Phase 3) and level role changes (Phase 4) currently use ATR at the breaking bar.
-   Should those be aligned to ATR_pre too? That would change approved behaviour, so I
-   have left them.
-4. **Channels.** Move them to the levels layer (a parallel pair of trendlines with
-   ACTIVE / BROKEN), where their breaks feed breakout events like any level. Or keep
-   them here with a container-specific status after confirmation.
-5. **`RECOGNISED_AFTER_BREAKOUT` (§3).** A pattern already beyond its confirmation level
-   when it becomes known is CONFIRMED at `known_at`, with that reason. The alternative
-   is that it can never confirm, and expires.
-6. **Thresholds of the first version kept unchanged:** `eq_tol` 0.5, `min_height` 2.0,
-   `breakout_atr` 0.25, `fail_window` 8, `mm_zone_atr` 0.5 and the per-pattern windows.
-   New in this version: `completion_window` (52), the per-pattern `max_wait_bars` and
-   the relevance rules (§4).
+| Question | Decision |
+|---|---|
+| Fixed geometry | **Approved.** Defining swings set the geometry; later observations are touches, and nothing is refitted |
+| `fine_sensitivity` = MICRO for flags, pennants and handles | **Approved**, as configuration. Patterns consume the swing layer; they never compute pivots |
+| ATR for pattern breakouts | **ATR_pre** for pattern confirmation, failure and retest thresholds |
+| Change BOS/CHoCH or level role changes to ATR_pre | **No.** The approved Phase 3/4 methodology stays as it is. A structure or level break and a pattern confirmation are deliberately different concepts |
+| Channels | **Moved to the levels layer** (§7.9). Not part of the pattern engine |
+| `RECOGNISED_AFTER_BREAKOUT` | **Approved**, with the same-bar wording of §3: `confirmation_date ≥ known_at` |
+| EXPIRED; pattern-specific `max_wait_bars` | **Approved** |
+| Identity and evolution | **Approved**: deterministic identity, first known wins, no refits |
+| Relevance and containment | **Kept separate from existence**: an annotation, never a change to the pattern (§4) |
+| Historical statistics | Remain `null` |
+| Confidence | Definition fit only, never probability |
+
+**Phase 5 is built in steps.** The first checkpoint (5a) is candidate generation,
+geometric validation, identity, same-formation handling and FORMING patterns, with
+candidate counts, overlap behaviour, identity stability and timings reported. Context,
+confirmation and the rest of the status machine follow after that review.
 
 ## Testing (mandatory)
 
@@ -551,7 +554,6 @@ security.
 - rectangle;
 - the three triangles;
 - both wedges;
-- channel;
 - bull and bear flag;
 - pennant;
 - cup and handle and the inverse;
@@ -575,6 +577,13 @@ security.
 - relevance: containment and caps.
 
 **Also:**
+
+- **Geometry immutability**, for every pattern:
+  - the geometry from a run on the full history equals the geometry from a run on the
+    prefix ending at `known_at`;
+  - it equals the geometry from runs ending at any later T, as touches arrive.
+
+  This protects the fixed-geometry decision from future refactoring.
 
 - prefix stability (ADR-0020) over every fixture and over random series;
 - causal composition: no pattern is known before its defining swings or any evidence it

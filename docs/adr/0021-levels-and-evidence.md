@@ -305,6 +305,26 @@ they sharpen or change the text above, they take precedence.
   most `max_trendlines_per_side` (2) per side, most recently touched first, with their
   value at the state date.
 
+**D. Channels (moved here from ADR-0022 on 2026-10-02; not yet built).**
+
+A channel is a container of the levels layer, not a classical pattern. It is built from
+the trendline machinery when the levels layer is next extended, outside Phase 5.
+
+- **Candidate:** four consecutive alternating primary swings. The upper line runs
+  through the two highs and the lower line through the two lows.
+  - The lines must be non-flat and parallel: |slope difference| ≤ `parallel_tol_atr`
+    (0.01) × ATR per bar.
+  - No complete close may lie outside either line inside the span.
+- **Becomes known:** ACTIVE once it holds `confirm_touches` (5) touches, each within
+  `fit_tol_atr` (0.5) × ATR of its line, with every close inside. `known_at` is the
+  fifth touch's `known_at`. `depends_on` is the touching swings.
+- **Status history:** ACTIVE, then BROKEN_UP or BROKEN_DOWN on the first complete close
+  outside a line by `trendline_break_atr` × ATR at that bar (the same rule as trendlines).
+  These are terminal. Each break feeds the breakout events (ADR-0022 §5) like any level
+  role change.
+- **De-duplication:** causal, as for trendlines.
+- **Relevance:** active channels, the most recently touched first.
+
 **F. Divergence.**
 
 - The price side is **structure's label** of the second swing:
