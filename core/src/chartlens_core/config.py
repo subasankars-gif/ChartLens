@@ -1,13 +1,18 @@
 """Centralised configuration.
 
-Two kinds of settings live here, and the distinction matters for reproducibility:
+Three kinds of settings live here, and the distinction matters for reproducibility:
 
-* **Infrastructure** (``runtime``, ``storage``, ``firestore``, ``api``): where things
-  run and where data lives. Changing these never changes a result.
-* **Methodology** (``universe``, ``weekly``, ``adjustment``, ``data_quality`` and,
-  from Phase 2, every analysis threshold): anything that can change a number
-  ChartLens produces. These are hashed into ``methodology_hash`` and stamped on
-  every output, so a silent methodology change is impossible (spec §57 rule 13).
+* **Infrastructure** (``runtime``, ``storage``, ``firestore``, ``api``, ``http``,
+  ``providers``): where things run and where data lives. Changing these never changes a
+  result.
+* **Data methodology** (``universe``, ``weekly``, ``adjustment``, ``data_quality``,
+  ``identity``): anything that can change the data ChartLens produces. Hashed into
+  ``methodology_hash`` and stamped on every data output, so a silent methodology change
+  is impossible (spec §57 rule 13).
+* **Analysis methodology** (``analysis``): every technical-analysis period, multiplier,
+  tolerance and threshold. Hashed separately into ``analysis_methodology_hash``
+  (ADR-0019), so an analysis change never rebuilds data and a data change is never
+  mistaken for an analysis change.
 
 Precedence (highest first): explicit kwargs → environment (``CHARTLENS_`` prefix,
 ``__`` for nesting) → TOML file → defaults below.
@@ -27,7 +32,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -201,6 +206,65 @@ class IdentityConfig(_Section):
     """A security traded within this many sessions of the latest ingested session is ACTIVE."""
 
 
+# --------------------------------------------------------------------------- analysis
+#
+# Technical-analysis methodology (ADR-0019/0020). Hashed separately from the data
+# methodology above (``analysis_methodology_hash``): changing an analysis threshold must
+# never change weekly data or its versions.
+
+
+class IndicatorConfig(_Section):
+    """Weekly indicators (ADR-0020 §A). Every value is part of a definition."""
+
+    sma_periods: tuple[int, ...] = (10, 20, 40, 50, 100, 200)
+    """Simple moving averages. "10W", "20W", ... are aliases of these on weekly bars."""
+    ema_periods: tuple[int, ...] = (10, 20, 50, 100, 200)
+    rsi_period: int = Field(default=14, ge=2)
+    """Wilder's RSI."""
+    macd_fast: int = Field(default=12, ge=1)
+    macd_slow: int = Field(default=26, ge=2)
+    macd_signal: int = Field(default=9, ge=1)
+    stochastic_k: int = Field(default=14, ge=1)
+    """Look-back of raw %K."""
+    stochastic_k_smoothing: int = Field(default=3, ge=1)
+    """Slow %K = SMA of raw %K over this many bars."""
+    stochastic_d: int = Field(default=3, ge=1)
+    roc_period: int = Field(default=12, ge=1)
+    atr_period: int = Field(default=14, ge=1)
+    """Wilder's ATR."""
+    bollinger_period: int = Field(default=20, ge=2)
+    bollinger_k: float = Field(default=2.0, gt=0)
+    """Band width in population standard deviations."""
+    volume_sma_period: int = Field(default=20, ge=1)
+    rvol_baseline: int = Field(default=20, ge=1)
+    """RVOL[t] = volume[t] / mean(volume[t-n .. t-1]): the current week is never part of its
+    own baseline."""
+    volume_trend_short: int = Field(default=10, ge=1)
+    volume_trend_long: int = Field(default=20, ge=2)
+    volume_trend_band: float = Field(default=0.10, ge=0)
+    """RISING / FALLING when the short volume SMA is beyond the long one by this fraction."""
+    rvol_expansion: float = Field(default=1.5, gt=0)
+    rvol_contraction: float = Field(default=0.67, gt=0)
+
+    @model_validator(mode="after")
+    def _coherent(self) -> IndicatorConfig:
+        if self.macd_fast >= self.macd_slow:
+            raise ValueError("macd_fast must be shorter than macd_slow")
+        if self.volume_trend_short >= self.volume_trend_long:
+            raise ValueError("volume_trend_short must be shorter than volume_trend_long")
+        if self.rvol_contraction >= self.rvol_expansion:
+            raise ValueError("rvol_contraction must be below rvol_expansion")
+        if any(n < 1 for n in (*self.sma_periods, *self.ema_periods)):
+            raise ValueError("moving-average periods must be positive")
+        return self
+
+
+class AnalysisConfig(_Section):
+    """Everything that can change a technical-analysis result (ADR-0019)."""
+
+    indicators: IndicatorConfig = IndicatorConfig()
+
+
 class ChartLensSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="CHARTLENS_",
@@ -221,6 +285,8 @@ class ChartLensSettings(BaseSettings):
     adjustment: AdjustmentConfig = AdjustmentConfig()
     data_quality: DataQualityConfig = DataQualityConfig()
     identity: IdentityConfig = IdentityConfig()
+
+    analysis: AnalysisConfig = AnalysisConfig()
 
     METHODOLOGY_SECTIONS: ClassVar[tuple[str, ...]] = (
         "universe",
@@ -252,9 +318,26 @@ class ChartLensSettings(BaseSettings):
         }
 
     def methodology_hash(self) -> str:
-        """Stable 12-hex-char fingerprint of the methodology settings."""
-        canonical = json.dumps(self.methodology(), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode()).hexdigest()[:12]
+        """Stable 12-hex-char fingerprint of the (data) methodology settings."""
+        return _fingerprint(self.methodology())
+
+    ANALYSIS_SECTIONS: ClassVar[tuple[str, ...]] = ("analysis",)
+
+    def analysis_methodology(self) -> dict[str, object]:
+        """The settings that can change a technical-analysis result (ADR-0019)."""
+        return {
+            name: getattr(self, name).model_dump(mode="json") for name in self.ANALYSIS_SECTIONS
+        }
+
+    def analysis_methodology_hash(self) -> str:
+        """Fingerprint of the analysis settings only: an analysis threshold never changes
+        ``methodology_hash``, and a data setting never changes this one."""
+        return _fingerprint(self.analysis_methodology())
+
+
+def _fingerprint(payload: dict[str, object]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
 
 def resolve_config_file(start: Path | None = None) -> Path | None:

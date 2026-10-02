@@ -153,3 +153,11 @@ binary floats. The OpenAPI document is at `/api/v1/openapi.json` and the docs at
   snapshot loads on the first request after a cold start.
 - **One-time setup:** `scripts/gcp_setup_m5.sh`, plus enabling Firebase and Google
   sign-in in the console.
+
+## Amendment (2026-10-02, M8): technical analysis is served, not computed
+
+The API also serves precomputed technical analysis (`GET /securities/{id}/analysis`,
+ADR-0023). It is published in the serving snapshot as content-addressed documents
+(schema 3) and read through the pointer, exactly like weekly bars. The invariant is
+unchanged: the API calculates nothing. The engine runs in the pipeline (ADR-0019).
+`?as_of` stays refused.

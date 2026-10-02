@@ -78,3 +78,10 @@ exact text. Playwright drives the built site against the real API over a test la
 that end-to-end build only, a test sign-in replaces Google. The production build refuses
 that mode, and CI checks the deployed bundle for it. A probe also renders real securities
 from a copy of the lake for screenshots.
+
+## Amendment (2026-10-02, M8): drawing analysis
+
+The faithful-visualization invariant extends to technical analysis (ADR-0023). The chart
+draws the swings, structure, zones, Fibonacci levels, divergences and pattern geometry
+that the API returns, behind toggles that are off by default. It never fits, detects,
+tests or decides any of them.
