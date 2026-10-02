@@ -245,6 +245,7 @@ version = "0.1.0"
 source = { editable = "pipeline" }
 dependencies = [
     { name = "chartlens-core" },
+    { name = "google-cloud-firestore" },
     { name = "google-cloud-storage" },
     { name = "httpx" },
     { name = "numpy" },
@@ -257,6 +258,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "chartlens-core", editable = "core" },
+    { name = "google-cloud-firestore", specifier = ">=2.19" },
     { name = "google-cloud-storage", specifier = ">=2.19" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "numpy", specifier = ">=2.1" },

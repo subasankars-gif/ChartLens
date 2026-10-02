@@ -53,10 +53,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Real token verification and Firestore allowlist against the emulators
+      - name: Real token verification, Firestore allowlist and run store against the emulators
         run: >
           npx --yes firebase-tools@13 emulators:exec --only auth,firestore
-          --project demo-chartlens "uv run pytest -m emulator backend/tests -v"
+          --project demo-chartlens "uv run pytest -m emulator backend/tests pipeline/tests -v"
 
   frontend:
     name: Frontend — lint, types, tests, build

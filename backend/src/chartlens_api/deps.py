@@ -13,8 +13,10 @@ from fastapi import Depends, Header, HTTPException, status
 
 from chartlens_api.appstate import AppState, FirestoreAppState, User
 from chartlens_api.auth import AuthenticationError, FirebaseTokenVerifier, TokenVerifier
+from chartlens_api.github import GitHubAppDispatcher, WorkflowDispatcher
 from chartlens_api.lake import LakeUnavailable, SnapshotProvider
 from chartlens_core.config import ChartLensSettings, get_settings
+from chartlens_pipeline.runs import FirestoreRunStore, RunStore
 from chartlens_pipeline.serving import ServingSnapshot
 from chartlens_pipeline.storage import object_store_from_config
 
@@ -60,6 +62,38 @@ def _verifier(project: str) -> TokenVerifier:
 @lru_cache(maxsize=4)
 def _appstate(project: str) -> AppState:
     return FirestoreAppState(project)
+
+
+@lru_cache(maxsize=4)
+def _runs(project: str) -> RunStore:
+    return FirestoreRunStore(project)
+
+
+def runs_dep(settings: Annotated[ChartLensSettings, Depends(settings_dep)]) -> RunStore:
+    """Production runs and snapshot history (ADR-0018), in the same Firestore project."""
+    return _runs(_project(settings))
+
+
+_dispatchers: dict[tuple[str, str, str, str], WorkflowDispatcher] = {}
+
+
+def dispatcher_dep(
+    settings: Annotated[ChartLensSettings, Depends(settings_dep)],
+) -> WorkflowDispatcher | None:
+    """The GitHub App that starts the refresh workflow, or None when not configured."""
+    api = settings.api
+    if not (api.github_app_id and api.github_app_private_key and api.github_repository):
+        return None
+    key = (api.github_app_id, api.github_repository, api.github_workflow, api.github_ref)
+    if key not in _dispatchers:
+        _dispatchers[key] = GitHubAppDispatcher(
+            app_id=api.github_app_id,
+            private_key=api.github_app_private_key.get_secret_value(),
+            repository=api.github_repository,
+            workflow=api.github_workflow,
+            ref=api.github_ref,
+        )
+    return _dispatchers[key]
 
 
 def verifier_dep(settings: Annotated[ChartLensSettings, Depends(settings_dep)]) -> TokenVerifier:
@@ -128,4 +162,6 @@ AdminUser = Annotated[User, Depends(admin_user)]
 Snapshot = Annotated[ServingSnapshot, Depends(snapshot_dep)]
 Snapshots = Annotated[SnapshotProvider, Depends(snapshots_dep)]
 AppStateDep = Annotated[AppState, Depends(appstate_dep)]
+Runs = Annotated[RunStore, Depends(runs_dep)]
+Dispatcher = Annotated[WorkflowDispatcher | None, Depends(dispatcher_dep)]
 Settings = Annotated[ChartLensSettings, Depends(settings_dep)]

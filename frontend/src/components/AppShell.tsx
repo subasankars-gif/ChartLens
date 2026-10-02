@@ -28,6 +28,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <SearchBox compact />
               </div>
               <nav className="flex shrink-0 items-center gap-3 text-sm" aria-label="Account">
+                <Link href="/system/" className="text-muted hover:text-ink">
+                  System
+                </Link>
                 {access.user.role === "admin" && (
                   <Link href="/admin/users/" className="text-muted hover:text-ink">
                     Users

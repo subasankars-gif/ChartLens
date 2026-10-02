@@ -4,8 +4,9 @@
 # workflow holds no pipeline logic, so moving jobs to Cloud Run Jobs later means
 # changing where the container runs, not what it does.
 #
-# Triggered on a weekday schedule (the "daily" chain), manually, and from Milestone 7
-# by the API's refresh endpoint (workflow_dispatch via the GitHub REST API).
+# One-off jobs, run by hand. The daily chain is the tracked production refresh
+# (production-refresh.yml, ADR-0018): its schedule, its API trigger and its run history
+# live there. Both workflows share the concurrency group, so they never write at once.
 
 name: Pipeline job
 
@@ -15,7 +16,7 @@ on:
       job:
         description: Job to run
         type: choice
-        options: [info, daily, ingest-daily, backfill, reprocess-pending, corporate-actions-fetch, adjust, data-quality, weekly, publish-serving, identity-rebuild, refresh-security]
+        options: [info, ingest-daily, backfill, reprocess-pending, corporate-actions-fetch, adjust, data-quality, weekly, publish-serving, identity-rebuild, refresh-security]
         default: info
       trade_date:
         description: "ingest-daily: YYYY-MM-DD (blank = latest session)"
@@ -33,12 +34,6 @@ on:
         description: Print the plan only
         type: boolean
         default: true
-  # Weekdays at 14:45 UTC = 20:15 IST, after NSE publishes the day's bhavcopy. The
-  # "daily" chain catches up every session since the last ingested one, so a missed or
-  # failed run (or a run on a holiday) is filled by the next. Requires the GCS variables
-  # (README: "Production storage"); on an empty lake the daily job refuses to run.
-  schedule:
-    - cron: "45 14 * * 1-5"   # job defaults to "daily"
 
 # Jobs write to the data lake; never let two run at once.
 concurrency:
@@ -60,14 +55,16 @@ jobs:
       # storage); otherwise the runner's disk, which is discarded after the job.
       CHARTLENS_STORAGE__BACKEND: ${{ vars.GCS_BUCKET && 'gcs' || 'local' }}
       CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+      # A manual publish-serving is recorded in the snapshot history too (ADR-0018).
+      CHARTLENS_FIRESTORE__PROJECT_ID: ${{ vars.GCS_BUCKET && vars.GCP_PROJECT_ID || '' }}
       # Inputs are passed through env, never interpolated into the script, so a
       # crafted input value cannot inject shell commands.
-      JOB: ${{ inputs.job || 'daily' }}
+      JOB: ${{ inputs.job }}
       TRADE_DATE: ${{ inputs.trade_date }}
       START: ${{ inputs.start }}
       END: ${{ inputs.end }}
       SYMBOL: ${{ inputs.symbol }}
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
@@ -91,19 +88,6 @@ jobs:
         run: |
           set -euo pipefail
           run() { uv run --no-sync chartlens-pipeline "$@"; }
-          if [ "$JOB" = "daily" ]; then
-            # The scheduled chain: every session since the last ingested one → feed
-            # refresh → adjust → data quality → weekly → serving snapshot.
-            # adjust exits 5 (not published) if a hard requirement fails.
-            if [ "$DRY_RUN" = "true" ]; then run ingest-daily --dry-run; exit 0; fi
-            run ingest-daily ${TRADE_DATE:+--trade-date "$TRADE_DATE"}
-            run corporate-actions fetch
-            run adjust
-            run data-quality
-            run weekly
-            run publish-serving
-            exit 0
-          fi
           if [ "$JOB" = "corporate-actions-fetch" ]; then run corporate-actions fetch; exit 0; fi
           args=("$JOB")
           if [ "$JOB" = "ingest-daily" ] && [ -n "$TRADE_DATE" ]; then args+=(--trade-date "$TRADE_DATE"); fi

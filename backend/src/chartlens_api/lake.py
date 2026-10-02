@@ -3,9 +3,10 @@
 The in-memory metadata is keyed by ``(exchange, meta_version)`` and swapped whole: a
 request sees exactly one snapshot, never a mixture. Every ``snapshot_refresh_seconds``
 the provider checks the snapshot pointer; a new version is loaded and verified *before*
-it replaces the old one, so a half-published snapshot is never served. A weekly file
-that no longer matches the snapshot (a newer run republished it) triggers an immediate
-reload; if the reloaded snapshot still does not match, the request fails with 503.
+it replaces the old one, so a half-published snapshot is never served. Weekly bars come
+from the snapshot's immutable, content-hashed copies (ADR-0018), so a run in progress or
+a failed run cannot change them. (A schema-1 snapshot, published before ADR-0018, reads
+the curated files instead: one rewritten since triggers an immediate reload, then 503.)
 
 Read-only: this module never builds, adjusts or writes anything.
 """
@@ -101,8 +102,13 @@ class SnapshotProvider:
                 return snap, self._weekly[key]
             try:
                 bars = snap.weekly_bars(self.store, security_id)
-            except StorageError:
-                raise LakeUnavailable("a weekly file is missing from the lake") from None
+            except (StorageError, SnapshotUnavailable):
+                # A copy removed after a newer publication: this process may still hold
+                # an older snapshot. Reload the pointer once before giving up.
+                if attempt == 2:
+                    raise LakeUnavailable("a weekly file is missing from the lake") from None
+                self.refresh(force=True)
+                continue
             except StaleSnapshot:
                 if attempt == 2:
                     raise LakeUnavailable("the lake is being republished; retry shortly") from None

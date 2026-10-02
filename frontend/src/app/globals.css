@@ -56,6 +56,23 @@ body {
   outline-offset: 2px;
 }
 
+/* A running stage: slow diagonal stripes, the only motion on the System page. */
+.run-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0 4px,
+    color-mix(in srgb, var(--color-accent) 55%, transparent) 4px 8px
+  );
+  background-size: 22px 22px;
+  animation: run-stripes 1.2s linear infinite;
+}
+
+@keyframes run-stripes {
+  to {
+    background-position: 22px 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;

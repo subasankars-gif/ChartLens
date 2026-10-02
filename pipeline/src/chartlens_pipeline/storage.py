@@ -212,6 +212,7 @@ class DataLakeLayout:
         curated/weekly/exchange={EX}/{security_id}.parquet (+ _manifest.json)      weekly bars
         curated/weekly_scan/exchange={EX}/v={version}/part-NNN.parquet (+ _manifest.json)
         curated/serving/exchange={EX}/v={meta_version}/{name}.parquet (+ _manifest.json)
+        curated/serving/exchange={EX}/weekly/{sha256}.parquet   immutable weekly copies (ADR-0018)
 
     Raw keys embed the content hash, so if an exchange re-issues a file for the same
     date, both versions are kept side by side instead of one replacing the other.
@@ -392,6 +393,25 @@ class DataLakeLayout:
         return validate_key(
             f"curated/serving/exchange={exchange.upper()}/v={meta_version}/{name}.parquet"
         )
+
+    @staticmethod
+    def serving_version_manifest_key(exchange: str, meta_version: str) -> str:
+        """A copy of the snapshot's manifest, kept with its files (ADR-0018)."""
+        return validate_key(
+            f"curated/serving/exchange={exchange.upper()}/v={meta_version}/manifest.json"
+        )
+
+    @staticmethod
+    def serving_weekly_prefix(exchange: str) -> str:
+        return f"curated/serving/exchange={exchange.upper()}/weekly/"
+
+    @staticmethod
+    def serving_weekly_key(exchange: str, sha256: str) -> str:
+        """An immutable copy of a weekly file, named by its content (ADR-0018). The API
+        reads weekly bars only from here, so no later run can change what is served."""
+        if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+            raise StorageError(f"not a SHA-256: {sha256!r}")
+        return validate_key(f"curated/serving/exchange={exchange.upper()}/weekly/{sha256}.parquet")
 
     @staticmethod
     def serving_manifest_key(exchange: str) -> str:

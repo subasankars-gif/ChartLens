@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -65,15 +66,19 @@ def test_snapshot_is_published_whole_and_read_back_verified(lake) -> None:  # ty
     assert ServingPublisher(settings, provider, store).run()["meta_version"] == snap.meta_version
 
 
-def test_a_republished_weekly_file_makes_the_snapshot_stale(lake) -> None:  # type: ignore[no-untyped-def]
+def test_a_republished_weekly_file_never_changes_a_published_snapshot(lake) -> None:  # type: ignore[no-untyped-def]
+    """Schema 2 (ADR-0018) serves immutable copies; schema 1 refused a rewritten file."""
     settings, provider, store = lake
     ServingPublisher(settings, provider, store).run()
     snap = ServingSnapshot.load(store, "NSE")
     sid = next(iter(snap.securities))
+    bars = snap.weekly_bars(store, sid)
     key = DataLakeLayout.curated_weekly_key("NSE", sid)
     store.put(key, store.get(key) + b"x")  # a later run rewrote it in place
+    assert snap.weekly_bars(store, sid) == bars
+    legacy = dataclasses.replace(snap, schema_version=1)
     with pytest.raises(StaleSnapshot):
-        snap.weekly_bars(store, sid)
+        legacy.weekly_bars(store, sid)
 
 
 def test_a_tampered_or_missing_snapshot_is_not_served(lake) -> None:  # type: ignore[no-untyped-def]

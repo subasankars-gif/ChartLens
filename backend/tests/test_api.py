@@ -66,6 +66,7 @@ def env(tmp_path: Path) -> dict[str, Any]:
         "store": store,
         "appstate": appstate,
         "clock": clock,
+        "snapshots": snapshots,
         "pipeline": (settings, provider, store),
     }
 
@@ -168,26 +169,41 @@ def test_weekly_serves_stored_bars_as_exact_decimals(env: dict[str, Any]) -> Non
     assert r.status_code == 400 and "ADR-0016" in r.json()["detail"]
 
 
-def test_a_republished_lake_is_never_mixed_with_the_served_snapshot(env: dict[str, Any]) -> None:
+def test_a_run_in_progress_or_failed_never_touches_the_served_snapshot(
+    env: dict[str, Any],
+) -> None:
+    """Weekly bars come from the snapshot's immutable copies (ADR-0018): a later run that
+    rewrites the curated weekly file — and then fails, or has not published yet — changes
+    nothing that is served."""
     client: TestClient = env["client"]
     store: LocalObjectStore = env["store"]
     demer = sid(client, "DEMERCO")
-    before = client.get("/api/v1/system/status", headers=ADMIN).json()["meta_version"]
-    # A later run rewrites a weekly file in place, but has not published a snapshot yet:
+    before = client.get(f"/api/v1/securities/{demer}/weekly", headers=ADMIN).json()
+    key = DataLakeLayout.curated_weekly_key("NSE", demer)
+    store.put(key, store.get(key) + b"x")  # a run rewrites it, then dies before publishing
+    env["clock"].t += 61
+    after = client.get(f"/api/v1/securities/{demer}/weekly", headers=ADMIN)
+    assert after.status_code == 200 and after.json() == before
+
+
+def test_a_schema_1_snapshot_is_still_served_until_the_next_publication(
+    env: dict[str, Any],
+) -> None:
+    """Snapshots published before ADR-0018 read the curated file, with its hash check: a
+    rewritten file is refused (503), never served against the old snapshot."""
+    client: TestClient = env["client"]
+    store: LocalObjectStore = env["store"]
+    manifest_key = DataLakeLayout.serving_manifest_key("NSE")
+    manifest = json.loads(store.get(manifest_key))
+    store.put(manifest_key, json.dumps({**manifest, "schema_version": 1}).encode())
+    env["snapshots"].refresh(force=True)
+    demer = sid(client, "DEMERCO")
     key = DataLakeLayout.curated_weekly_key("NSE", demer)
     original = store.get(key)
     store.put(key, original + b"x")
-    r = client.get(f"/api/v1/securities/{demer}/weekly", headers=ADMIN)
-    assert r.status_code == 503  # refused, rather than served against the old snapshot
-    # The run finishes: weekly republished (content unchanged here) and a new pointer.
+    assert client.get(f"/api/v1/securities/{demer}/weekly", headers=ADMIN).status_code == 503
     store.put(key, original)
-    manifest_key = DataLakeLayout.serving_manifest_key("NSE")
-    manifest = json.loads(store.get(manifest_key))
-    store.put(
-        manifest_key, json.dumps({**manifest, "generated_at": "2024-02-21T00:00:00+00:00"}).encode()
-    )
     assert client.get(f"/api/v1/securities/{demer}/weekly", headers=ADMIN).status_code == 200
-    assert client.get("/api/v1/system/status", headers=ADMIN).json()["meta_version"] == before
 
 
 def test_a_new_snapshot_is_picked_up_after_the_refresh_interval(env: dict[str, Any]) -> None:
