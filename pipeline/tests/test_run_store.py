@@ -30,6 +30,7 @@ from chartlens_pipeline.runs import (
     RunNotClaimable,
     RunNotFound,
     RunStore,
+    RunStoreBusy,
 )
 
 T0 = datetime(2026, 10, 2, 14, 45, tzinfo=UTC)
@@ -254,9 +255,13 @@ def test_concurrent_refresh_requests_admit_exactly_one(store: RunStore) -> None:
             return "created"
         except ActiveRunExists:
             return "refused"
+        except RunStoreBusy:  # Firestore gave up under contention: nothing written
+            return "busy"
 
     with ThreadPoolExecutor(8) as pool:
         outcomes = list(pool.map(attempt, range(8)))
-    assert outcomes.count("created") == 1 and outcomes.count("refused") == 7
+    assert outcomes.count("created") == 1, outcomes
     active = store.active()
-    assert active is not None and store.get(active.run_id) is not None
+    assert active is not None
+    written = [i for i in range(8) if store.get(f"run-{i}") is not None]
+    assert written == [int(active.run_id.removeprefix("run-"))]  # busy ones wrote nothing

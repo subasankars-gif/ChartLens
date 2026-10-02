@@ -33,6 +33,7 @@ OPS = "ops"
 SNAPSHOTS = "snapshots"
 LOCK_DOC = "active_run"
 LAST_SUCCESS_DOC = "last_successful_run"
+TX_ATTEMPTS = 10
 
 
 class ActiveRunExists(RuntimeError):
@@ -49,6 +50,10 @@ class RunNotClaimable(RuntimeError):
 
 class RunNotFound(KeyError):
     pass
+
+
+class RunStoreBusy(RuntimeError):
+    """Too many simultaneous writers: the transaction gave up. Nothing was written."""
 
 
 # ----------------------------------------------------------------------------- decisions
@@ -452,7 +457,12 @@ class FirestoreRunStore:
     def _transact(self, body: Any) -> Any:
         from google.cloud import firestore
 
-        return firestore.transactional(body)(self._db.transaction())
+        try:
+            return firestore.transactional(body)(self._db.transaction(max_attempts=TX_ATTEMPTS))
+        except ValueError as exc:  # the client's "retries exhausted" signal; ours propagate
+            if str(exc).startswith("Failed to commit transaction"):
+                raise RunStoreBusy(str(exc)) from None
+            raise
 
     def _read_lock(self, tx: Any) -> tuple[str | None, RunRecord | None]:
         lock = self._lock_ref().get(transaction=tx)

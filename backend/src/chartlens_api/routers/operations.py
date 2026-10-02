@@ -36,7 +36,13 @@ from chartlens_core.runs import (
     end_run,
     new_run_id,
 )
-from chartlens_pipeline.runs import ActiveRunExists, RunNotClaimable, RunNotFound, RunStore
+from chartlens_pipeline.runs import (
+    ActiveRunExists,
+    RunNotClaimable,
+    RunNotFound,
+    RunStore,
+    RunStoreBusy,
+)
 
 router = APIRouter(tags=["operations"])
 log = logging.getLogger("chartlens.api.operations")
@@ -160,6 +166,10 @@ def _store_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
         return fn(*args, **kwargs)
     except (ActiveRunExists, RunNotFound, RunNotClaimable, HTTPException):
         raise
+    except RunStoreBusy:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "run history is busy; try again in a moment"
+        ) from None
     except Exception:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, "run history is unavailable right now"
