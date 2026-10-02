@@ -7,7 +7,7 @@ they show — structure, trend, patterns, and the conditions that would confirm 
 invalidate each scenario. Deterministic, explainable, point-in-time correct. No
 fundamentals, no news, no buy/sell calls.
 
-> **Status: Phase 1 · Milestone 4 (weekly data product).**
+> **Status: Phase 1 · Milestone 5 (API, authentication, serving).**
 > ChartLens downloads NSE bhavcopies and the corporate-action feed and stores the original
 > bytes immutably. It resolves every row to a stable internal security and writes
 > exact-decimal canonical daily bars. From these it derives an adjusted analytical dataset:
@@ -15,6 +15,8 @@ fundamentals, no news, no buy/sell calls.
 > creates or worsens a discontinuity. Each security gets a data-quality status, a
 > `usable_from` date and its continuity segments. Weekly bars are built from the adjusted
 > series, never across a continuity break, and can be read point-in-time as of any date.
+> A private, read-only API on Cloud Run serves a version-bound snapshot of all of it to
+> signed-in, allowlisted users (ADR-0016).
 
 ## Repository layout
 
@@ -80,6 +82,10 @@ uv run chartlens-pipeline identity-rebuild                            # after ch
 uv run chartlens-pipeline weekly                                      # per-security files + scan dataset
 uv run chartlens-pipeline weekly-bars --symbol RELIANCE               # the valid segment, latest bars
 uv run chartlens-pipeline weekly-bars --symbol RELIANCE --as-of 2015-06-30 --all-segments
+
+# Milestone 5: serving snapshot + API (ADR-0016)
+uv run chartlens-pipeline publish-serving                             # version-bound snapshot for the API
+uv run poe api                                                        # API on :8080 (needs Firebase config)
 ```
 
 Reviewed decisions live in version-controlled files:
@@ -125,10 +131,30 @@ repository. The service account has `roles/storage.objectUser` on the bucket onl
 
 The lake was populated on 2026-10-01/02 (2006 → 2026-09-30, 5,145 sessions), and the
 weekday schedule (20:15 IST) runs the `daily` chain: `ingest-daily` → corporate-action
-feed → `adjust` → `data-quality` → `weekly`. Without `--trade-date`, `ingest-daily` catches up every
+feed → `adjust` → `data-quality` → `weekly` → `publish-serving`. Without `--trade-date`, `ingest-daily` catches up every
 expected session since the latest ingested one (and re-checks recently unpublished
 dates), so a missed or failed run leaves no hole; the next run fills it. On an empty
 lake it refuses: the first load is an explicit `backfill`.
+
+## API deployment
+
+The API (ADR-0016) is a private, read-only presentation layer on Cloud Run in
+`us-central1`, next to the lake. Every route but `/api/v1/health` needs a Firebase
+Google sign-in **and** an enabled user in the Firestore allowlist. Contract:
+`/api/v1/docs`.
+
+One-time setup:
+1. In the [Firebase console](https://console.firebase.google.com), add Firebase to the
+   existing project `chartlens-lake-13934`, then enable **Authentication → Google**.
+2. In Cloud Shell, run `scripts/gcp_setup_m5.sh`. It sets up Firestore, Artifact Registry,
+   the read-only `chartlens-api` identity and the keyless `chartlens-deployer`.
+3. Add the repository variables `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_DEPLOY_SA`,
+   `GCP_API_SA` and `API_ADMIN_EMAILS` (comma-separated). The emails listed become
+   admins on their first verified sign-in. Everyone else waits as pending until an admin
+   enables them (`PATCH /api/v1/admin/users/{uid}`).
+
+Every merge to `main` that touches the API then deploys it
+(`.github/workflows/deploy-api.yml`) and smoke-tests it.
 
 ## Configuration
 
@@ -148,8 +174,8 @@ impossible. Changing one means writing an ADR and recalculating.
 | 1 | Skeleton: repo, config, core contracts, API health, frontend shell, Docker, CI | ✅ |
 | 2 | Security master, exchange calendar, NSE bhavcopy provider, immutable raw store, GCS, backfill | ✅ |
 | 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | ✅ |
-| 4 | Weekly builder + property tests | In review |
-| 5 | API: securities, weekly bars, data quality; Firestore; auth | |
+| 4 | Weekly builder + property tests | ✅ |
+| 5 | API: securities, weekly bars, data quality; Firestore; auth | In review |
 | 6 | Frontend: search, weekly chart, last update, data-quality badge | |
 | 7 | Jobs: daily incremental, backfill, single-security refresh, job tracking | |
 
@@ -160,5 +186,6 @@ corporate actions as the source; 20-year target history; EQ + BE series; Parquet
 GCS as the canonical store; Firestore for application state only; GitHub-hosted
 runners behind a CLI; immutable internal security IDs resolved ISIN-first with
 evidence-only linking; exact-decimal prices; calendars as versioned data; weekly bars
-by ISO week, split at continuity breaks, point-in-time as of any date; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
+by ISO week, split at continuity breaks, point-in-time as of any date; a read-only API
+over a version-bound serving snapshot, private behind Google sign-in and an allowlist; splits, bonuses and rights adjusted, dividends not; `as_of` enforced
 everywhere.
