@@ -80,7 +80,8 @@ def sid(client: TestClient, symbol: str) -> str:
 
 def test_every_route_but_health_needs_a_signed_in_allowlisted_user(env: dict[str, Any]) -> None:
     client: TestClient = env["client"]
-    assert client.get("/api/v1/health").status_code == 200
+    health = client.get("/api/v1/health").json()
+    assert health["serving"]["data_as_of"] == SESSIONS[-1].isoformat()  # versions only
     for path in ("/api/v1/securities?q=SPLITCO", "/api/v1/system/status", "/api/v1/me"):
         assert client.get(path).status_code == 401
         assert client.get(path, headers={"Authorization": "Bearer junk"}).status_code == 401
@@ -252,3 +253,13 @@ def test_watchlists_are_per_user_and_validated_against_the_snapshot(env: dict[st
     )
     assert client.delete("/api/v1/me/watchlists/core", headers=ADMIN).status_code == 204
     assert client.delete("/api/v1/me/watchlists/core", headers=ADMIN).status_code == 404
+
+
+def test_large_responses_are_compressed(env: dict[str, Any]) -> None:
+    client: TestClient = env["client"]
+    r = client.get(
+        f"/api/v1/securities/{sid(client, 'SPLITCO')}/weekly",
+        params={"segments": "all"},
+        headers={**ADMIN, "Accept-Encoding": "gzip"},
+    )
+    assert r.status_code == 200 and r.headers.get("content-encoding") == "gzip"

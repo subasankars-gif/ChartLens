@@ -31,7 +31,7 @@ def _snapshots(settings: ChartLensSettings) -> SnapshotProvider:
     key = f"{settings.storage.model_dump_json()}|{settings.universe.exchange}"
     if key not in _providers:
         _providers[key] = SnapshotProvider(
-            object_store_from_config(settings.storage),
+            lambda: object_store_from_config(settings.storage),
             settings.universe.exchange,
             refresh_seconds=settings.api.snapshot_refresh_seconds,
             weekly_cache_size=settings.api.weekly_cache_size,

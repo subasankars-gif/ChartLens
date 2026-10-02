@@ -123,7 +123,7 @@ but `/health`.
 
 | Route | Auth | Returns |
 |---|---|---|
-| `GET /health` | none | Versions, methodology hash |
+| `GET /health` | none | Versions, methodology hash, and the serving snapshot's `meta_version` and `as_of` (versions only, no market data; `null` until one can be read) |
 | `GET /securities?q=&universe=analytical\|all&limit=` | user | Matches on current or past symbol, ISIN or name, best first |
 | `GET /securities/{security_id}` | user | Identity and its history, instrument type, analytical flag, status, `usable_from`, segments |
 | `GET /securities/{security_id}/weekly?segments=valid\|all` | user | Stored weekly bars: the valid segment (default) or all of them, with flags and versions. `as_of` → 400 |
@@ -133,7 +133,8 @@ but `/health`.
 | `GET /me/watchlists`, `PUT/DELETE /me/watchlists/{id}` | user | Watchlists (20 per user, 200 securities each). Ids are validated against the snapshot |
 | `GET /admin/users`, `PATCH /admin/users/{uid}` | admin | The allowlist |
 
-Prices and volumes are **exact decimal strings** (for example `"1269.375000"`), never
+Responses over 1 KB are gzip-compressed. A full 20-year weekly history is about 0.5 MB of
+JSON before compression. Prices and volumes are **exact decimal strings** (for example `"1269.375000"`), never
 binary floats. The OpenAPI document is at `/api/v1/openapi.json` and the docs at
 `/api/v1/docs`.
 

@@ -16,10 +16,11 @@ import logging
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 
 from chartlens_core.weekly import WeeklyBar
 from chartlens_pipeline.serving import ServingSnapshot, SnapshotUnavailable, StaleSnapshot
-from chartlens_pipeline.storage import ObjectStore
+from chartlens_pipeline.storage import ObjectStore, StorageError
 
 log = logging.getLogger("chartlens.api.lake")
 
@@ -31,14 +32,14 @@ class LakeUnavailable(RuntimeError):
 class SnapshotProvider:
     def __init__(
         self,
-        store: ObjectStore,
+        store: ObjectStore | Callable[[], ObjectStore],
         exchange: str,
         *,
         refresh_seconds: float = 60.0,
         weekly_cache_size: int = 512,
         clock: object = time.monotonic,
     ) -> None:
-        self.store = store
+        self._store = store
         self.exchange = exchange
         self.refresh_seconds = refresh_seconds
         self._clock = clock
@@ -48,6 +49,14 @@ class SnapshotProvider:
         self.loaded_at: float | None = None
         self._weekly: OrderedDict[tuple[str, str, str], list[WeeklyBar]] = OrderedDict()
         self._weekly_cache_size = weekly_cache_size
+
+    @property
+    def store(self) -> ObjectStore:
+        """The object store, opened on first use: a misconfigured lake makes the data
+        routes answer 503 instead of stopping the service from starting."""
+        if callable(self._store):
+            self._store = self._store()
+        return self._store
 
     def _now(self) -> float:
         return float(self._clock())  # type: ignore[operator]
@@ -70,9 +79,12 @@ class SnapshotProvider:
                 if not force and self._snapshot and self._snapshot.meta_version == current:
                     return
                 loaded = ServingSnapshot.load(self.store, self.exchange)
-            except (SnapshotUnavailable, OSError) as exc:
+            except SnapshotUnavailable as exc:
                 # Keep serving the previous complete snapshot; never a partial one.
                 log.warning("serving snapshot not loaded: %s", exc)
+                return
+            except Exception:  # lake unreachable or misconfigured: same rule, louder
+                log.exception("serving snapshot could not be read")
                 return
             if self._snapshot is None or loaded.meta_version != self._snapshot.meta_version:
                 log.info("serving snapshot %s loaded", loaded.meta_version)
@@ -89,6 +101,8 @@ class SnapshotProvider:
                 return snap, self._weekly[key]
             try:
                 bars = snap.weekly_bars(self.store, security_id)
+            except StorageError:
+                raise LakeUnavailable("a weekly file is missing from the lake") from None
             except StaleSnapshot:
                 if attempt == 2:
                     raise LakeUnavailable("the lake is being republished; retry shortly") from None

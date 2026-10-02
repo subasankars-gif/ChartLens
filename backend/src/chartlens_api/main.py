@@ -13,6 +13,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 import chartlens_api
 from chartlens_api.routers import admin, health, me, securities, system
@@ -35,6 +36,8 @@ def create_app(settings: ChartLensSettings | None = None) -> FastAPI:
         docs_url=f"{API_PREFIX}/docs",
         openapi_url=f"{API_PREFIX}/openapi.json",
     )
+    # A full weekly history is ~0.5 MB of JSON; it compresses about tenfold.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.api.cors_origins),

@@ -79,8 +79,10 @@ jobs:
           set -euo pipefail
           url=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "${{ vars.GCP_PROJECT_ID }}" --format 'value(status.url)')
           echo "service: $url"
-          curl -fsS "$url/api/v1/health"
+          curl -fsS "$url/api/v1/health" | tee health.json
           echo
+          # "serving" is null until the daily chain has published a serving snapshot.
+          python3 -c "import json; s=json.load(open('health.json'))['serving']; print('serving:', s or 'no snapshot yet')"
           code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/v1/system/status")
           echo "unauthenticated /system/status -> $code (expected 401)"
           test "$code" = 401
