@@ -603,3 +603,60 @@ def test_cli_exits_non_zero_for_a_quarantined_session(
     monkeypatch.setattr(cli, "_service", lambda _s, _e: service(fake, lake))
     result = CliRunner().invoke(cli.app, ["backfill", "--date", "2024-01-22"])
     assert result.exit_code == 2
+
+
+# ----------------------------------------------------------------------------- daily catch-up
+
+
+def daily_service(fake: FakeNse, lake: LocalObjectStore, today: date) -> IngestionService:
+    settings = ChartLensSettings.model_construct()
+    return IngestionService(
+        settings,
+        fake_provider(fake, CAL, settings),
+        lake,
+        overrides=IdentityOverrides(),
+        today=lambda: today,
+    )
+
+
+def test_daily_catch_up_fills_sessions_missed_before_a_holiday(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    """Regression (first `daily` on main, 2026-10-02): the job ran on a holiday and only
+    looked at that date, so the previous session (2026-10-01) was never ingested."""
+    serve_week(fake)
+    daily_service(fake, lake, MON).backfill(MON, MON)
+    report = daily_service(fake, lake, FRI).catch_up()  # FRI is a holiday
+    assert report.metrics.dates_ingested == 3  # TUE, WED, THU
+    assert all(manifest(lake, d)["status"] == DateStatus.INGESTED for d in (TUE, WED, THU))
+    assert (report.start, report.end) == (TUE, FRI)
+
+
+def test_daily_catch_up_rechecks_a_recently_unpublished_session(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    """A file that appears late is picked up by the next daily run, even after a later
+    session was ingested."""
+    for day in (MON, WED, THU):
+        fake.serve(*legacy_zip(day, bhav(day, BASE_ROWS)))
+    daily_service(fake, lake, THU).backfill(MON, THU)
+    assert manifest(lake, TUE)["status"] == DateStatus.NOT_PUBLISHED
+    fake.serve(*legacy_zip(TUE, bhav(TUE, BASE_ROWS)))  # NSE publishes TUE late
+    report = daily_service(fake, lake, FRI).catch_up()
+    assert report.start == TUE and manifest(lake, TUE)["status"] == DateStatus.INGESTED
+
+
+def test_daily_catch_up_skips_what_is_already_ingested(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    serve_week(fake)
+    service(fake, lake).backfill(MON, THU)
+    report = daily_service(fake, lake, FRI).catch_up()
+    assert report.metrics.dates_ingested == 0 and report.metrics.errors == []
+
+
+def test_daily_catch_up_refuses_an_empty_lake(fake: FakeNse, lake: LocalObjectStore) -> None:
+    from chartlens_pipeline.ingest import NothingToCatchUp
+
+    with pytest.raises(NothingToCatchUp, match="backfill first"):
+        daily_service(fake, lake, FRI).catch_up()

@@ -4,8 +4,8 @@
 # workflow holds no pipeline logic, so moving jobs to Cloud Run Jobs later means
 # changing where the container runs, not what it does.
 #
-# Triggered manually now; by the API's refresh endpoint (workflow_dispatch via the
-# GitHub REST API) from Milestone 7; and on a weekday schedule once ingestion lands.
+# Triggered on a weekday schedule (the "daily" chain), manually, and from Milestone 7
+# by the API's refresh endpoint (workflow_dispatch via the GitHub REST API).
 
 name: Pipeline job
 
@@ -33,13 +33,12 @@ on:
         description: Print the plan only
         type: boolean
         default: true
-  # Enable once GCS + Workload Identity Federation are configured (see README →
-  # "Production storage"). Without them a scheduled run would write to the runner's
-  # disk and lose everything. NSE publishes the day's bhavcopy in the evening IST;
-  # 14:45 UTC = 20:15 IST.
-  # Enable after the first full backfill has populated the bucket:
-  # schedule:
-  #   - cron: "45 14 * * 1-5"   # job defaults to "daily"
+  # Weekdays at 14:45 UTC = 20:15 IST, after NSE publishes the day's bhavcopy. The
+  # "daily" chain catches up every session since the last ingested one, so a missed or
+  # failed run (or a run on a holiday) is filled by the next. Requires the GCS variables
+  # (README: "Production storage"); on an empty lake the daily job refuses to run.
+  schedule:
+    - cron: "45 14 * * 1-5"   # job defaults to "daily"
 
 # Jobs write to the data lake; never let two run at once.
 concurrency:
@@ -93,7 +92,8 @@ jobs:
           set -euo pipefail
           run() { uv run --no-sync chartlens-pipeline "$@"; }
           if [ "$JOB" = "daily" ]; then
-            # The scheduled chain: today's session → feed refresh → adjust → data quality.
+            # The scheduled chain: every session since the last ingested one → feed
+            # refresh → adjust → data quality.
             # adjust exits 5 (not published) if a hard requirement fails.
             if [ "$DRY_RUN" = "true" ]; then run ingest-daily --dry-run; exit 0; fi
             run ingest-daily ${TRADE_DATE:+--trade-date "$TRADE_DATE"}

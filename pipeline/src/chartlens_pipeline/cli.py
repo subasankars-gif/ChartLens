@@ -20,7 +20,7 @@ import chartlens_pipeline
 from chartlens_core.config import ChartLensSettings, get_settings, resolve_config_file
 from chartlens_core.domain import JobType
 from chartlens_core.logs import configure_logging, log_event
-from chartlens_pipeline.ingest import IdentityInputsChanged
+from chartlens_pipeline.ingest import BackfillReport, IdentityInputsChanged, NothingToCatchUp
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="ChartLens data pipeline")
 
@@ -129,6 +129,10 @@ def backfill(
     except IdentityInputsChanged as err:
         typer.echo(f"Refusing to run: {err}", err=True)
         raise typer.Exit(code=4) from None
+    _finish_backfill(report, report_file)
+
+
+def _finish_backfill(report: BackfillReport, report_file: str | None) -> None:
     typer.echo(report.render())
     payload = {
         "job_type": JobType.BACKFILL,
@@ -150,13 +154,32 @@ def backfill(
 
 @app.command("ingest-daily")
 def ingest_daily(
-    trade_date: Annotated[str | None, typer.Option(help="YYYY-MM-DD; default: today")] = None,
+    trade_date: Annotated[
+        str | None,
+        typer.Option(help="YYYY-MM-DD: just this session. Default: catch up through today."),
+    ] = None,
     exchange: Exchange = "NSE",
     dry_run: DryRun = False,
+    report_file: Annotated[str | None, typer.Option(help="Also write the JSON report here")] = None,
 ) -> None:
-    """Ingest one session (the scheduled daily job). Same pipeline as ``backfill --date``."""
-    day = _parse_day(trade_date, "--trade-date") or date.today()  # noqa: DTZ011 — exchange-local date
-    backfill(day=day.isoformat(), exchange=exchange, dry_run=dry_run)
+    """The scheduled daily job. Without --trade-date, ingests every expected session since
+    the latest ingested one through today, so a missed run leaves no hole."""
+    if trade_date is not None:
+        day = _parse_day(trade_date, "--trade-date")
+        assert day
+        backfill(day=day.isoformat(), exchange=exchange, dry_run=dry_run, report_file=report_file)
+        return
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    try:
+        report = _service(settings, exchange).catch_up(dry_run=dry_run)
+    except IdentityInputsChanged as err:
+        typer.echo(f"Refusing to run: {err}", err=True)
+        raise typer.Exit(code=4) from None
+    except NothingToCatchUp as err:
+        typer.echo(f"Refusing to run: {err}", err=True)
+        raise typer.Exit(code=2) from None
+    _finish_backfill(report, report_file)
 
 
 @app.command("reprocess-pending")

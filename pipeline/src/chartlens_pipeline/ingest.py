@@ -72,6 +72,10 @@ is assigned to. Excluded from the identity fingerprint, so changing them never f
 identity rebuild. Every UniverseConfig field must be classified (test_ingest guards this)."""
 
 
+class NothingToCatchUp(RuntimeError):
+    """The daily catch-up needs at least one ingested session to continue from."""
+
+
 class IdentityInputsChanged(RuntimeError):
     """The identity inputs differ from the ones the existing security master was built with.
     Continuing would mix two identity states, so incremental processing refuses."""
@@ -953,6 +957,30 @@ class IngestionService:
             **{k: v for k, v in metrics.as_dict().items() if isinstance(v, int)},
         )
         return report
+
+    def catch_up(self, *, dry_run: bool = False, job_id: str | None = None) -> BackfillReport:
+        """The scheduled daily ingest: every expected session from the day after the latest
+        ingested one through today, so a missed run (runner failure, a late file, a
+        holiday on the run date) is filled by the next one instead of leaving a hole.
+
+        Recently not-published dates are re-checked too (RECHECK_UNPUBLISHED_DAYS); dates
+        already ingested are skipped, so the window costs nothing when nothing was missed.
+        Refuses on an empty lake: the first load is an explicit backfill."""
+        manifests = self.manifests()
+        ingested = [d for d, m in manifests.items() if m["status"] == DateStatus.INGESTED]
+        if not ingested:
+            raise NothingToCatchUp(
+                "no ingested session yet; run a backfill first (the daily job only catches up)"
+            )
+        today = self._today()
+        recheck_from = today - timedelta(days=RECHECK_UNPUBLISHED_DAYS)
+        unpublished = [
+            d
+            for d, m in manifests.items()
+            if m["status"] == DateStatus.NOT_PUBLISHED and d >= recheck_from
+        ]
+        start = min([max(ingested) + timedelta(days=1), *unpublished])
+        return self.backfill(start, max(start, today), dry_run=dry_run, job_id=job_id)
 
     def reprocess_pending(self, *, job_id: str | None = None) -> BackfillReport:
         """Re-run every ingested date that still has identity-pending rows (newest first)."""
