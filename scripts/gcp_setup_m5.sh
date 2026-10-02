@@ -7,7 +7,7 @@
 set -u
 PROJECT_ID=chartlens-lake-13934
 PROJECT_NUMBER=1082278531047
-REGION=${REGION:?set REGION to the bucket location first: gcloud storage buckets describe gs://chartlens-lake-13934-data --format="value(location)"}
+REGION=${REGION:-us-central1}   # the bucket's region (ADR-0016)
 BUCKET=chartlens-lake-13934-data
 REPO=subasankars-gif/ChartLens
 POOL_PRINCIPAL="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/${REPO}"
