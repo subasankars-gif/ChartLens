@@ -100,8 +100,9 @@ venv = ".venv"
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["core/tests", "engine/tests", "pipeline/tests", "backend/tests", "tests"]
-pythonpath = ["pipeline/tests"]
+pythonpath = ["pipeline/tests", "backend/tests"]
 addopts = "-ra --strict-markers --import-mode=importlib"
 markers = [
     "network: test requires outbound network access (skipped in CI by default)",
+    "emulator: test needs the Firebase Auth and Firestore emulators (CI job api-emulators)",
 ]
