@@ -117,10 +117,12 @@ variables → Actions → Variables):
 Authentication is keyless, through Workload Identity Federation restricted to this
 repository. The service account has `roles/storage.objectUser` on the bucket only.
 
-To switch on:
-1. Run the `backfill` job once over 2006 → today.
-2. Run the `corporate-actions-fetch`, `adjust` and `data-quality` jobs.
-3. Enable the weekday schedule, which runs the `daily` chain.
+The lake was populated on 2026-10-01/02 (2006 → 2026-09-30, 5,145 sessions), and the
+weekday schedule (20:15 IST) runs the `daily` chain: `ingest-daily` → corporate-action
+feed → `adjust` → `data-quality`. Without `--trade-date`, `ingest-daily` catches up every
+expected session since the latest ingested one (and re-checks recently unpublished
+dates), so a missed or failed run leaves no hole; the next run fills it. On an empty
+lake it refuses: the first load is an explicit `backfill`.
 
 ## Configuration
 
