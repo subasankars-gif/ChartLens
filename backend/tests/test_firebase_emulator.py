@@ -100,9 +100,9 @@ def test_real_tokens_and_the_firestore_allowlist(client: TestClient) -> None:
     client.patch(f"/api/v1/admin/users/{other}", json={"enabled": True}, headers=admin)
     assert client.get("/api/v1/me", headers=pending).json()["enabled"] is True
 
-    sid = client.get("/api/v1/securities", params={"q": "PLAIN"}, headers=admin).json()[
-        "results"
-    ][0]["security_id"]
+    sid = client.get("/api/v1/securities", params={"q": "PLAIN"}, headers=admin).json()["results"][
+        0
+    ]["security_id"]
     put = client.put(
         "/api/v1/me/watchlists/main", json={"name": "Main", "security_ids": [sid]}, headers=admin
     )
