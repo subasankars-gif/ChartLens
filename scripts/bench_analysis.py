@@ -15,11 +15,12 @@ from datetime import date
 
 import numpy as np
 
-from chartlens_core.config import IndicatorConfig, SwingConfig
+from chartlens_core.config import IndicatorConfig, StructureConfig, SwingConfig
 from chartlens_core.domain import Timeframe
 from chartlens_core.testing import make_bars
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
+from chartlens_engine.structure import StructureAnalyzer
 from chartlens_engine.swings import SwingAnalyzer
 
 securities = int(sys.argv[1]) if len(sys.argv) > 1 else 4061
@@ -29,6 +30,8 @@ analyzer = IndicatorAnalyzer(IndicatorConfig())
 timings: list[float] = []
 swing_timings: list[float] = []
 swing_count = 0
+structure_timings: list[float] = []
+event_count = 0
 for i, n in enumerate(lengths.tolist()):
     sid = f"SEC-{i}"
     bars = make_bars(date(2006, 1, 2), n, freq="W-FRI", seed=i).assign(
@@ -48,6 +51,10 @@ for i, n in enumerate(lengths.tolist()):
     swings = run_analyzer(SwingAnalyzer(SwingConfig(), indicators), bars, ctx)
     swing_timings.append(time.perf_counter() - t)
     swing_count += len(swings.swings)
+    t = time.perf_counter()
+    structure = run_analyzer(StructureAnalyzer(StructureConfig(), indicators, swings), bars, ctx)
+    structure_timings.append(time.perf_counter() - t)
+    event_count += len(structure.events)
 print(f"securities={securities} bars={int(lengths.sum()):,}")
 
 
@@ -61,4 +68,5 @@ def report(name: str, seconds: list[float]) -> None:
 
 report("indicators", timings)
 report("swings (4 methods x 4 sensitivities)", swing_timings)
-print(f"swings found: {swing_count:,}")
+report("structure", structure_timings)
+print(f"swings found: {swing_count:,}; structure events: {event_count:,}")

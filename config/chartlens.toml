@@ -137,3 +137,9 @@ MICRO = 5
 MINOR = 10
 INTERMEDIATE = 15
 MAJOR = 25
+
+[analysis.structure]            # ADR-0020 §C — from the primary confirmed swings only
+equal_tolerance_atr = 0.25      # highs (lows) within this many ATR are EQUAL
+break_atr = 0.10                # a break: complete close beyond the level by this many ATR
+range_swings = 4                # RANGE when the last 4 confirmed swings ...
+range_width_atr = 3.0           # ... span at most 3 ATR

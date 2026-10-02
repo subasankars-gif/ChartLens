@@ -133,3 +133,14 @@ def test_engine_has_no_look_ahead_idioms() -> None:
         if idiom in py.read_text()
     ]
     assert not offenders, offenders
+
+
+def test_structure_consumes_swings_and_never_finds_pivots() -> None:
+    """ADR-0020 §C: market structure reads the primary confirmed swings; it never imports
+    the swing methods or names a method itself."""
+    for py in (ROOT / "engine/src/chartlens_engine/structure").rglob("*.py"):
+        text = py.read_text()
+        modules = {m for m, _ in _from_imports(py)}
+        assert "chartlens_engine.swings.methods" not in modules, py
+        for forbidden in ('"ATR"', '"INTERMEDIATE"', "fractal(", "zigzag("):
+            assert forbidden not in text, f"{py.name}: {forbidden}"

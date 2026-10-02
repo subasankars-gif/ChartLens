@@ -313,11 +313,24 @@ class SwingConfig(_Section):
         return self
 
 
+class StructureConfig(_Section):
+    """Market structure (ADR-0020 §C), built from the primary confirmed swings only."""
+
+    equal_tolerance_atr: float = Field(default=0.25, ge=0)
+    """Two swing highs (or lows) within this many ATR are EQUAL, not higher or lower."""
+    break_atr: float = Field(default=0.10, ge=0)
+    """A break needs a complete close beyond the level by this many ATR."""
+    range_swings: int = Field(default=4, ge=2)
+    range_width_atr: float = Field(default=3.0, gt=0)
+    """RANGE when the last ``range_swings`` confirmed swings span at most this many ATR."""
+
+
 class AnalysisConfig(_Section):
     """Everything that can change a technical-analysis result (ADR-0019)."""
 
     indicators: IndicatorConfig = IndicatorConfig()
     swings: SwingConfig = SwingConfig()
+    structure: StructureConfig = StructureConfig()
 
 
 class ChartLensSettings(BaseSettings):

@@ -161,6 +161,32 @@ Built from the **primary, confirmed** swings, in `known_at` order:
 
   The state carries `since`, the swings and events that determine it, and `provisional`.
 
+**Implementation rules (Phase 3):**
+
+- **Inputs.** Structure reads `SwingResult.primary()` and the ATR series, nothing else.
+  It never finds a pivot itself and never names a method (a layer test enforces both).
+  Removing every non-primary swing set changes nothing.
+- **Order inside one bar.** Breaks are judged first, against levels known *before* the
+  bar. Swings that the bar confirms become known after that.
+  - A level can never be broken by the bar that makes it known.
+  - An event's invalidation swing is the opposite swing known before the break.
+- **Thresholds.** A break uses ATR at the breaking bar. A label's equality band uses
+  ATR at the labelled swing's bar. Both are known at those bars.
+- **Each event records:**
+  - kind and direction;
+  - `bar_date = known_at`, the triggering complete bar;
+  - the close, the level and the level's originating swing;
+  - the prior regime and prior trend state;
+  - the confirmation and invalidation conditions, as data (rule, level, buffer, ATR,
+    threshold, swing) with a description;
+  - the segment, and `provisional` (the bar closed on a non-regular session).
+- **Trend history is append-only.** A new entry is added whenever anything but `since`
+  changes, including a provisional state being held by a regular week. So the state as
+  of T is the last entry with `since ≤ T`.
+- **Causality** is proved as for swings: prefix stability for events, labels and history,
+  and future independence. The forming week cannot break structure: a break seen inside
+  a week exists only once that week's bar is complete, and is `known_at` that bar.
+
 ## Testing (layers A–C)
 
 - Known values, seeding and null warm-up for every indicator.
