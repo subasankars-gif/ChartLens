@@ -66,6 +66,11 @@ log = logging.getLogger("chartlens.pipeline.ingest")
 RECHECK_UNPUBLISHED_DAYS = 7
 """A date that was 'not published' is re-checked while it is this recent (files can appear late)."""
 
+NON_IDENTITY_UNIVERSE_FIELDS = frozenset({"analytical_instrument_types"})
+"""UniverseConfig fields that choose what is analysed and scanned, not which security a row
+is assigned to. Excluded from the identity fingerprint, so changing them never forces an
+identity rebuild. Every UniverseConfig field must be classified (test_ingest guards this)."""
+
 
 class IdentityInputsChanged(RuntimeError):
     """The identity inputs differ from the ones the existing security master was built with.
@@ -263,10 +268,14 @@ class IngestionService:
         """Everything that can change which security a row is assigned to.
 
         Only identity-relevant settings are included (identity + universe), so changing,
-        say, adjustment methodology never invalidates identity."""
+        say, adjustment methodology never invalidates identity. Universe fields that only
+        select what is analysed (NON_IDENTITY_UNIVERSE_FIELDS) are excluded too: they never
+        change which security a row belongs to."""
         config = {
             "identity": self.settings.identity.model_dump(mode="json"),
-            "universe": self.settings.universe.model_dump(mode="json"),
+            "universe": self.settings.universe.model_dump(
+                mode="json", exclude=set(NON_IDENTITY_UNIVERSE_FIELDS)
+            ),
         }
         canonical = json.dumps(config, sort_keys=True, separators=(",", ":"))
         return {

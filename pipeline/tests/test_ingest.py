@@ -507,6 +507,53 @@ def test_identity_inputs_ignore_non_identity_methodology(
     assert report.metrics.dates_skipped == 2
 
 
+def test_identity_inputs_ignore_the_analytical_universe(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    """Regression (first `daily` on main, 2026-10-02): adding analytical_instrument_types
+    changed the identity fingerprint and refused ingestion, though it never affects which
+    security a row belongs to."""
+    from chartlens_core.config import UniverseConfig
+
+    serve_week(fake)
+    service(fake, lake).backfill(MON, TUE)
+    s = ChartLensSettings.model_construct(
+        universe=UniverseConfig(analytical_instrument_types=("EQUITY_SHARE", "FUND_UNIT"))
+    )
+    svc = IngestionService(
+        s, fake_provider(fake, CAL, s), lake, overrides=IdentityOverrides(), today=lambda: TODAY
+    )
+    report = svc.backfill(MON, WED)  # no IdentityInputsChanged
+    assert report.metrics.dates_skipped == 2 and report.metrics.dates_ingested == 1
+
+
+def test_identity_relevant_universe_fields_still_count(
+    fake: FakeNse, lake: LocalObjectStore
+) -> None:
+    from chartlens_core.config import UniverseConfig
+    from chartlens_pipeline.ingest import IdentityInputsChanged
+
+    serve_week(fake)
+    service(fake, lake).backfill(MON, TUE)
+    s = ChartLensSettings.model_construct(universe=UniverseConfig(series=("EQ",)))
+    svc = IngestionService(
+        s, fake_provider(fake, CAL, s), lake, overrides=IdentityOverrides(), today=lambda: TODAY
+    )
+    with pytest.raises(IdentityInputsChanged, match="config:"):
+        svc.backfill(WED, WED)
+
+
+def test_every_universe_field_is_classified_for_identity() -> None:
+    """A new UniverseConfig field must be consciously placed: identity-relevant (hashed, the
+    default) or analysis-only (NON_IDENTITY_UNIVERSE_FIELDS). Excluding a field changes the
+    fingerprint of an existing lake; adding one to the hash forces an identity rebuild."""
+    from chartlens_core.config import UniverseConfig
+    from chartlens_pipeline.ingest import NON_IDENTITY_UNIVERSE_FIELDS
+
+    hashed = {"exchange", "series", "history_target_years"}
+    assert set(UniverseConfig.model_fields) == hashed | NON_IDENTITY_UNIVERSE_FIELDS
+
+
 # ----------------------------------------------------------------------------- H2: quarantined sessions
 
 

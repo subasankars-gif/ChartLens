@@ -10,6 +10,14 @@ These inputs are pinned to the security master in `identity_state.json`, and
 incremental ingestion refuses to run on changed inputs (`IdentityInputsChanged`, exit
 4). A changed input must therefore have a way to take effect.
 
+Universe fields that only select what is analysed — `analytical_instrument_types`
+(ADR-0012) — are not identity inputs and are excluded from the fingerprint
+(`NON_IDENTITY_UNIVERSE_FIELDS`). Adding that field on 2026-10-02 changed the config
+fingerprint (45d29f6c9df5 → 87be61584755) and refused the first `daily` run on `main`,
+although no row's security could change. With the exclusion the fingerprint is
+45d29f6c9df5 again, matching the lake. A test requires every `UniverseConfig` field to be
+classified as one or the other.
+
 ## Decision
 
 `chartlens-pipeline identity-rebuild` re-resolves **every stored session from its
