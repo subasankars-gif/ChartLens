@@ -163,3 +163,163 @@ The subset confirmed in K5, on **complete** bars only. Definitions:
   - one fixture per rule, plus near misses;
   - the forming week never produces an event.
 - Prefix stability for every event type (ADR-0020).
+
+## Implementation rules (Phase 4)
+
+These were settled while building Phase 4. Where they sharpen or change the text above,
+they take precedence.
+
+**Order and inputs.**
+
+- **Order:** Fibonacci (E) runs before levels (D), because active Fibonacci levels are
+  zone sources. Evidence (F) runs last.
+- **Levels and evidence consume, they never re-derive.** They read:
+  - the primary confirmed swings;
+  - structure's labels and BOS/CHoCH events;
+  - the Fibonacci layer;
+  - the indicator series.
+
+  They never find a pivot, label a swing, judge a break of structure or name a swing
+  method. A layer test enforces this.
+- **Complete bars only.** Layers D–F never read the forming week. Their current state
+  (zones, active trendlines, current Fibonacci, the volume and volatility state) is as
+  of the last complete bar, recorded as `state_date`. Every event is dated by a complete
+  bar.
+
+**Causal composition.**
+
+- Every derived object records `depends_on`: the ids of the swings, structure events,
+  Fibonacci structures, trendlines or contraction episodes it was built from.
+- **A derived object is never `known_at` before any of them.**
+- For a zone, `known_at` is the latest `known_at` of its sources and `first_seen` is the
+  earliest. A zone that includes a moving average is therefore `known_at` the state date.
+- A generic test checks this rule for every object of every layer. A scenario test
+  checks it for a swing known on 2026-07-10 and the Fibonacci structure, divergence and
+  zone built from it.
+
+**Status histories.**
+
+- An object's first status is judged on the bar that makes it known. Later statuses are
+  judged on each complete bar after that.
+- The levels compared against were all known by that bar. The rule from structure still
+  holds: a level is never broken by the bar that makes it known.
+- Each entry is marked `provisional` when its bar closed on a non-regular session.
+- Every event type has an `as_of(T)` projection. The prefix-stability tests compare a
+  run on the bars up to T with the full run projected to T.
+
+**E. Fibonacci.**
+
+- A leg is two **consecutive confirmed** primary-method swings of opposite type, at the
+  primary sensitivity and at each of `extra_sensitivities` (default MAJOR).
+- A pending extreme is never an anchor.
+- A leg is meaningful when |counter − anchor| ≥ `min_leg_atr` (2.0) × ATR at the counter
+  swing's bar.
+- `known_at` is the later `known_at` of the two swings.
+- Each leg is an event with its own status history. ACTIVE becomes BROKEN or EXTENDED
+  on a complete close beyond the anchor or the counter swing. Both are terminal.
+- "Current" Fibonacci is the latest structure for each sensitivity that is known by the
+  state date.
+
+**D. Zones.**
+
+- **Sources:**
+  - primary swing prices;
+  - structure's BOS/CHoCH levels (the prior breakout levels);
+  - `dynamic_sources` (SMA 50 and SMA 200 at the state date);
+  - the `fibonacci_ratios` (38.2, 50 and 61.8 %) of the current Fibonacci structures
+    that are ACTIVE.
+- **Volume (a change from the text above).** A swing whose pivot bar is in volume
+  EXPANSION adds the source type VOLUME. Its bar's whole high–low range is not used as a
+  zone edge, because on high-volume weeks that range is several ATR wide and would
+  swallow nearby zones.
+- **Side:** decided by the zone's midpoint against the last complete close, which
+  settles a zone that contains the close.
+- **Touches:** counted only on bars after the zone's first source is known.
+- **Strength:** the sum of `w_touch` × touches, `w_sources` × distinct source types,
+  `w_volume` × the largest RVOL at a touch, and `w_recency` × e^(−bars since the last
+  test / 26).
+  - A zone that has never been tested takes its recency from its latest source bar.
+  - Strength is reported with all its components. It measures how much a level has
+    mattered. It is not a probability, a signal or a score of the security.
+- **No ATR yet** (warm-up): no zones.
+
+**D. Trendlines (added in Phase 4).**
+
+- **Candidate:** a line through two primary swings of one type, `trendline_min_bars`
+  (4) to `trendline_max_bars` (104) bars apart.
+  - Support lines use swing lows and must rise; resistance lines use swing highs and
+    must fall. Flat levels are zones.
+  - The line advances per bar of the segment, not per calendar week.
+- **Rejected** when either of these happens:
+  - a swing of that type between the anchors (known by then) lies beyond the line by
+    more than `trendline_touch_atr` (0.5) × ATR at that swing's bar;
+  - a complete close is beyond the line by `trendline_break_atr` (0.10) × ATR before the
+    line exists.
+- **Validated** by a third swing within the touch tolerance that is known within
+  `trendline_max_bars` of the first anchor and before any break.
+  - `known_at` is the later of the third touch's `known_at` and the second anchor's.
+  - `depends_on` is the three swings.
+- **Later touches** are added with their own `known_at`.
+- **BROKEN:** the first complete close beyond the line by the buffer. This is terminal.
+- **De-duplication is causal.** A line validated later that shares two touches (known by
+  then) with an accepted line that is not yet broken is the same line, and is dropped.
+- **Reported:** every validated line as an event. The active ones are current state: at
+  most `max_trendlines_per_side` (2) per side, most recently touched first, with their
+  value at the state date.
+
+**F. Divergence.**
+
+- The price side is **structure's label** of the second swing:
+  - LL gives a regular bullish divergence;
+  - HL gives a hidden bullish divergence;
+  - HH gives a regular bearish divergence;
+  - LH gives a hidden bearish divergence;
+  - EQL and EQH give none.
+
+  So the equality band and the pairing of consecutive swings are structure's own.
+- **The indicator:** read at the two swing bars and compared with its minimum delta. The
+  comparison is strict, and the delta must be greater than 0.
+- **Strength:** |indicator change| ÷ minimum delta, which says how clearly the indicator
+  disagrees. The price change in ATR, the indicator change, the delta and the bars apart
+  are reported with it.
+- **Confirmation:** the most extreme opposite primary swing between the two that is
+  known by the divergence's `known_at`. There is no confirmation level when no such
+  swing exists.
+- **EXPIRED is added:** a divergence that is neither confirmed nor invalidated within
+  `max_wait_bars` (26) of `known_at` expires. CONFIRMED, INVALIDATED and EXPIRED are
+  terminal.
+
+**F. Volume.**
+
+- **Breakout volume** is judged on the bars of breaks the earlier layers recorded:
+  structure BOS/CHoCH events and trendline breaks. Patterns will add their own breaks in
+  later phases.
+- **Climax and expansion:** the true range is compared with the ATR of the **previous**
+  bar, so the bar's own range does not dampen its yardstick.
+- **Volume divergence** uses structure's HH and LL labels.
+- **State:** volume, volume SMA, RVOL, volume state, volume trend, OBV, and the OBV
+  trend.
+  - The OBV trend is RISING or FALLING when the change in OBV over `obv_trend_bars` (10),
+    divided by (bars × volume SMA), exceeds `obv_trend_band` (0.10).
+
+**F. Volatility.**
+
+- **Percentiles** use numpy's linear interpolation over the previous `lookback` bars.
+  There is no value while any of those bars is missing.
+- **NR7** is strict: the narrowest bar, with no tie.
+- **Contractions are episodes:** one event on the first bar of each run. Expansion
+  after contraction is also one event per run, and its `depends_on` names the
+  contraction episodes in its window.
+
+**F. Candles.**
+
+- **Context recorded on each event:**
+  - the prior direction and the prior change in ATR (for a star, measured before its
+    first bar);
+  - structure's trend state at the bar;
+  - the volume state and RVOL.
+- **Bars a candle may use:** every one must have range > 0.
+- **Engulfing:** needs the current body to cover the previous body. At least one edge
+  must be strictly beyond, and equal edges count.
+- **Outside bar:** needs at least one strictly greater extreme. An identical bar is an
+  inside bar.

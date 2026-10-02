@@ -22,13 +22,16 @@ decides anything.
 | A Indicators | `indicators` | bars |
 | B Swings | `swings` | bars, ATR |
 | C Market structure | `structure` | primary swings |
-| D Support / resistance | `levels` | swings, structure, indicators, volume |
-| E Fibonacci | `fibonacci` | primary swings |
-| F Volume, momentum, divergence, volatility, candles | `evidence` | bars, indicators, swings |
+| E Fibonacci | `fibonacci` | primary swings (and the primary method at extra sensitivities), ATR |
+| D Support / resistance and trendlines | `levels` | primary swings, structure events, Fibonacci, indicators |
+| F Divergence, volume, volatility, candles | `evidence` | bars, indicators, primary swings, structure, levels |
 | G Pattern candidates | `patterns.candidates` | primary swings, zones |
 | H Validation and status | `patterns.validate`, `patterns.status` | candidates, every layer above |
 | — Explanations | `explain` | structured facts only |
 | — Orchestration | `analysis` | runs A→H in order, typed outputs passed explicitly |
+
+Fibonacci (E) runs before support/resistance (D), because its active levels are zone
+sources (ADR-0021, Phase 4 rules). The letters keep the ADR sections stable.
 
 Each layer is a separate module behind the existing `Analyzer` contract
 (`chartlens_engine.interfaces`). There is no all-in-one function: the orchestrator only

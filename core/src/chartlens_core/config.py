@@ -325,12 +325,130 @@ class StructureConfig(_Section):
     """RANGE when the last ``range_swings`` confirmed swings span at most this many ATR."""
 
 
+class FibonacciConfig(_Section):
+    """Fibonacci structures (ADR-0021 §E), from confirmed swing legs only."""
+
+    extra_sensitivities: tuple[Sensitivity, ...] = ("MAJOR",)
+    """Besides the primary sensitivity, legs of the primary method at these sensitivities."""
+    min_leg_atr: float = Field(default=2.0, gt=0)
+    """A leg is meaningful when it spans at least this many ATR (at its end swing's bar)."""
+    retracements: tuple[float, ...] = (0.236, 0.382, 0.5, 0.618, 0.786)
+    extensions: tuple[float, ...] = (1.272, 1.618, 2.618)
+
+    @model_validator(mode="after")
+    def _ratios(self) -> FibonacciConfig:
+        if any(not 0 < r < 1 for r in self.retracements):
+            raise ValueError("retracement ratios lie strictly between 0 and 1")
+        if any(e <= 1 for e in self.extensions):
+            raise ValueError("extension ratios are above 1")
+        return self
+
+
+class LevelsConfig(_Section):
+    """Support/resistance zones and trendlines (ADR-0021 §D)."""
+
+    zone_tolerance_atr: float = Field(default=0.5, gt=0)
+    """A source joins a zone within this many ATR of the zone's mean."""
+    zone_min_width_atr: float = Field(default=0.25, ge=0)
+    max_zones_per_side: int = Field(default=4, ge=1)
+    dynamic_sources: tuple[str, ...] = ("sma_50", "sma_200")
+    """Indicator series whose value at the state date is a dynamic level."""
+    fibonacci_ratios: tuple[float, ...] = (0.382, 0.5, 0.618)
+    """Retracements of the active Fibonacci structures used as zone sources."""
+    w_touch: float = Field(default=1.0, ge=0)
+    w_sources: float = Field(default=1.0, ge=0)
+    w_volume: float = Field(default=0.5, ge=0)
+    w_recency: float = Field(default=2.0, ge=0)
+    recency_halflife_weeks: float = Field(default=26.0, gt=0)
+    trendline_min_bars: int = Field(default=4, ge=1)
+    """Bars between a trendline's two anchor swings, at least."""
+    trendline_max_bars: int = Field(default=104, ge=2)
+    """A trendline must be validated within this many bars of its first anchor."""
+    trendline_touch_atr: float = Field(default=0.5, gt=0)
+    """A swing touches a line within this many ATR (at the swing's bar)."""
+    trendline_break_atr: float = Field(default=0.10, ge=0)
+    """A complete close beyond the line by this many ATR breaks it."""
+    max_trendlines_per_side: int = Field(default=2, ge=1)
+
+
+class DivergenceConfig(_Section):
+    """Divergence between price swings and an indicator (ADR-0021 §F)."""
+
+    indicators: tuple[Literal["rsi", "macd", "obv"], ...] = ("rsi", "macd", "obv")
+    min_bars: int = Field(default=4, ge=1)
+    max_bars: int = Field(default=52, ge=2)
+    rsi_min_delta: float = Field(default=2.0, gt=0)
+    """RSI points."""
+    macd_min_delta_atr: float = Field(default=0.05, gt=0)
+    """MACD line, in ATR at the second swing's bar."""
+    obv_min_delta_volume: float = Field(default=0.05, gt=0)
+    """OBV, as a fraction of the volume SMA at the second swing's bar."""
+    max_wait_bars: int = Field(default=26, ge=1)
+    """A divergence neither confirmed nor invalidated within this many bars expires."""
+
+
+class VolumeEvidenceConfig(_Section):
+    """Volume evidence (ADR-0021 §F). Expansion/contraction thresholds are the
+    indicators' ``rvol_expansion`` / ``rvol_contraction``."""
+
+    breakout_rvol_confirm: float = Field(default=1.5, gt=0)
+    breakout_rvol_contradict: float = Field(default=0.8, gt=0)
+    climax_rvol: float = Field(default=2.5, gt=0)
+    climax_range_atr: float = Field(default=2.0, gt=0)
+    """True range against the ATR of the bar before."""
+    divergence_min: float = Field(default=0.10, gt=0, lt=1)
+    """Volume SMA lower at the second of two HH (LL) swings by more than this fraction."""
+    obv_trend_bars: int = Field(default=10, ge=1)
+    obv_trend_band: float = Field(default=0.10, ge=0)
+    """OBV RISING / FALLING when its change over ``obv_trend_bars`` exceeds this fraction of
+    the volume traded over those bars (bars × volume SMA)."""
+
+    @model_validator(mode="after")
+    def _ordered(self) -> VolumeEvidenceConfig:
+        if self.breakout_rvol_contradict >= self.breakout_rvol_confirm:
+            raise ValueError("breakout_rvol_contradict must be below breakout_rvol_confirm")
+        return self
+
+
+class VolatilityConfig(_Section):
+    """Volatility evidence (ADR-0021 §F)."""
+
+    lookback: int = Field(default=52, ge=5)
+    """Previous complete bars the percentiles are taken over (the bar itself excluded)."""
+    compression_percentile: float = Field(default=20.0, gt=0, lt=100)
+    nr_window: int = Field(default=7, ge=2)
+    """NR7: the smallest true range of the last ``nr_window`` bars."""
+    expansion_range_atr: float = Field(default=1.5, gt=0)
+    """True range against the ATR of the bar before."""
+    expansion_window: int = Field(default=4, ge=1)
+
+
+class CandleConfig(_Section):
+    """Candlestick evidence (ADR-0021 §F, K5 subset)."""
+
+    context_bars: int = Field(default=5, ge=1)
+    """Prior direction = sign of close[t−1] − close[t−1−context_bars]."""
+    doji_body: float = Field(default=0.1, gt=0, lt=1)
+    shadow_body: float = Field(default=2.0, gt=0)
+    """Hammer family: the long shadow is at least this many bodies."""
+    opposite_shadow: float = Field(default=0.25, ge=0, lt=1)
+    """Hammer family: the other shadow is at most this fraction of the range."""
+    star_first_body: float = Field(default=0.6, gt=0, le=1)
+    star_middle_body: float = Field(default=0.3, gt=0, lt=1)
+
+
 class AnalysisConfig(_Section):
     """Everything that can change a technical-analysis result (ADR-0019)."""
 
     indicators: IndicatorConfig = IndicatorConfig()
     swings: SwingConfig = SwingConfig()
     structure: StructureConfig = StructureConfig()
+    fibonacci: FibonacciConfig = FibonacciConfig()
+    levels: LevelsConfig = LevelsConfig()
+    divergence: DivergenceConfig = DivergenceConfig()
+    volume: VolumeEvidenceConfig = VolumeEvidenceConfig()
+    volatility: VolatilityConfig = VolatilityConfig()
+    candles: CandleConfig = CandleConfig()
 
 
 class ChartLensSettings(BaseSettings):

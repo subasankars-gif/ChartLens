@@ -11,27 +11,47 @@ from __future__ import annotations
 import statistics
 import sys
 import time
+from collections import defaultdict
 from datetime import date
 
 import numpy as np
 
-from chartlens_core.config import IndicatorConfig, StructureConfig, SwingConfig
+from chartlens_core.config import AnalysisConfig
 from chartlens_core.domain import Timeframe
 from chartlens_core.testing import make_bars
+from chartlens_engine.evidence import (
+    CandleAnalyzer,
+    DivergenceAnalyzer,
+    VolatilityAnalyzer,
+    VolumeAnalyzer,
+)
+from chartlens_engine.fibonacci import FibonacciAnalyzer
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
+from chartlens_engine.levels import LevelsAnalyzer
 from chartlens_engine.structure import StructureAnalyzer
 from chartlens_engine.swings import SwingAnalyzer
 
 securities = int(sys.argv[1]) if len(sys.argv) > 1 else 4061
 rng = np.random.default_rng(int(sys.argv[2]) if len(sys.argv) > 2 else 0)
 lengths = np.clip(rng.exponential(440, securities).astype(int), 1, 1083)
-analyzer = IndicatorAnalyzer(IndicatorConfig())
-timings: list[float] = []
-swing_timings: list[float] = []
-swing_count = 0
-structure_timings: list[float] = []
-event_count = 0
+cfg = AnalysisConfig()
+timings: dict[str, list[float]] = defaultdict(list)
+counts: dict[str, int] = defaultdict(int)
+
+
+class Clock:
+    """Charge the time since the last call to a layer."""
+
+    def __init__(self) -> None:
+        self.t = time.perf_counter()
+
+    def lap(self, layer: str) -> None:
+        now = time.perf_counter()
+        timings[layer].append(now - self.t)
+        self.t = now
+
+
 for i, n in enumerate(lengths.tolist()):
     sid = f"SEC-{i}"
     bars = make_bars(date(2006, 1, 2), n, freq="W-FRI", seed=i).assign(
@@ -44,29 +64,44 @@ for i, n in enumerate(lengths.tolist()):
         methodology_hash="bench",
         continuity_segment_id=f"{sid}@2006-01-06",
     )
-    t = time.perf_counter()
-    indicators = run_analyzer(analyzer, bars, ctx)
-    timings.append(time.perf_counter() - t)
-    t = time.perf_counter()
-    swings = run_analyzer(SwingAnalyzer(SwingConfig(), indicators), bars, ctx)
-    swing_timings.append(time.perf_counter() - t)
-    swing_count += len(swings.swings)
-    t = time.perf_counter()
-    structure = run_analyzer(StructureAnalyzer(StructureConfig(), indicators, swings), bars, ctx)
-    structure_timings.append(time.perf_counter() - t)
-    event_count += len(structure.events)
+    clock = Clock()
+    ind = run_analyzer(IndicatorAnalyzer(cfg.indicators), bars, ctx)
+    clock.lap("indicators")
+    sw = run_analyzer(SwingAnalyzer(cfg.swings, ind), bars, ctx)
+    clock.lap("swings")
+    st = run_analyzer(StructureAnalyzer(cfg.structure, ind, sw), bars, ctx)
+    clock.lap("structure")
+    fib = run_analyzer(FibonacciAnalyzer(cfg.fibonacci, ind, sw), bars, ctx)
+    clock.lap("fibonacci")
+    lv = run_analyzer(LevelsAnalyzer(cfg.levels, ind, sw, st, fib), bars, ctx)
+    clock.lap("levels")
+    div = run_analyzer(DivergenceAnalyzer(cfg.divergence, ind, sw, st), bars, ctx)
+    clock.lap("divergence")
+    vol = run_analyzer(VolumeAnalyzer(cfg.volume, ind, sw, st, lv), bars, ctx)
+    clock.lap("volume")
+    vty = run_analyzer(VolatilityAnalyzer(cfg.volatility, ind), bars, ctx)
+    clock.lap("volatility")
+    cdl = run_analyzer(CandleAnalyzer(cfg.candles, ind, st), bars, ctx)
+    clock.lap("candles")
+    counts["swings"] += len(sw.swings)
+    counts["structure events"] += len(st.events)
+    counts["fibonacci structures"] += len(fib.structures)
+    counts["zones"] += len(lv.zones)
+    counts["trendlines"] += len(lv.trendlines)
+    counts["divergences"] += len(div.divergences)
+    counts["volume events"] += len(vol.events)
+    counts["volatility events"] += len(vty.events)
+    counts["candle events"] += len(cdl.events)
+
 print(f"securities={securities} bars={int(lengths.sum()):,}")
-
-
-def report(name: str, seconds: list[float]) -> None:
+total = 0.0
+for layer, seconds in timings.items():
     ms = [x * 1000 for x in seconds]
+    total += sum(seconds)
     print(
-        f"{name}: total {sum(seconds):.1f} s | per security mean {statistics.mean(ms):.1f} ms, "
-        f"median {statistics.median(ms):.1f} ms, max {max(ms):.1f} ms"
+        f"{layer:<11} total {sum(seconds):7.1f} s | per security mean "
+        f"{statistics.mean(ms):6.2f} ms, median {statistics.median(ms):6.2f} ms, "
+        f"max {max(ms):7.1f} ms"
     )
-
-
-report("indicators", timings)
-report("swings (4 methods x 4 sensitivities)", swing_timings)
-report("structure", structure_timings)
-print(f"swings found: {swing_count:,}; structure events: {event_count:,}")
+print(f"{'all':<11} total {total:7.1f} s")
+print(", ".join(f"{k}: {v:,}" for k, v in counts.items()))

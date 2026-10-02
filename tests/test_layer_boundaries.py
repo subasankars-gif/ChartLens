@@ -144,3 +144,29 @@ def test_structure_consumes_swings_and_never_finds_pivots() -> None:
         assert "chartlens_engine.swings.methods" not in modules, py
         for forbidden in ('"ATR"', '"INTERMEDIATE"', "fractal(", "zigzag("):
             assert forbidden not in text, f"{py.name}: {forbidden}"
+
+
+LATER_LAYERS = ("fibonacci", "levels", "evidence")
+METHOD_NAMES = ('"ATR"', '"FRACTAL"', '"PERCENT"', '"ZIGZAG"', '"INTERMEDIATE"', '"MAJOR"')
+
+
+@pytest.mark.parametrize("layer", LATER_LAYERS)
+def test_later_layers_consume_structure_and_never_rederive_it(layer: str) -> None:
+    """ADR-0021 Phase 4 rules: levels, Fibonacci and evidence read the primary swings and
+    structure's output. They never find pivots, label swings or judge a break of
+    structure themselves, and never name a swing method or sensitivity."""
+    for py in (ROOT / "engine/src/chartlens_engine" / layer).rglob("*.py"):
+        text = py.read_text()
+        imported = _from_imports(py)
+        modules = {m for m, _ in imported}
+        assert "chartlens_engine.swings.methods" not in modules, py
+        private = [
+            n
+            for m, names in imported
+            if m.startswith("chartlens_engine")
+            for n in names
+            if n.startswith("_")
+        ]
+        assert not private, f"{py.name}: {private}"
+        for forbidden in (*METHOD_NAMES, "fractal(", "zigzag(", '"BOS"', '"CHoCH"'):
+            assert forbidden not in text, f"{py.name}: {forbidden}"

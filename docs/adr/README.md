@@ -27,6 +27,6 @@ an ADR before the code changes (spec §57 rule 13).
 | [0018](0018-production-runs.md) | Production runs: tracked refresh (GitHub Actions + Firestore), one active run, immutable content-hashed serving, snapshot history | Accepted (ANALYSIS stage added by 0019) | M7 |
 | [0019](0019-technical-engine-architecture.md) | Technical engine: layered modules, causal `known_at` event model, point-in-time rules, valid segment only, separate analysis methodology hash, precomputed in a tracked ANALYSIS stage | Accepted | M8 |
 | [0020](0020-indicators-swings-structure.md) | Indicators (causal, per-segment warm-up), swing methods and sensitivities (configurable primary), market structure and trend states | Accepted | M8 |
-| [0021](0021-levels-and-evidence.md) | Support/resistance zones, Fibonacci, divergence, volume, volatility and candlestick evidence | Accepted | M8 |
+| [0021](0021-levels-and-evidence.md) | Support/resistance zones and trendlines, Fibonacci, divergence, volume, volatility and candlestick evidence; causal composition (`depends_on`) | Accepted | M8 |
 | [0022](0022-patterns.md) | Classical patterns: candidates, geometric and context validation, confirmation, status machine, confidence as definition fit | Accepted | M8 |
 | [0023](0023-analysis-serving-and-visualization.md) | Serving analysis (content-addressed, schema 3), the analysis API and chart overlays drawn only from backend geometry | Accepted | M8 |
