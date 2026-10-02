@@ -23,3 +23,4 @@ an ADR before the code changes (spec §57 rule 13).
 | [0014](0014-weekly-data-product.md) | Weekly data product, continuity segments, point-in-time weekly bars | Accepted | M4 |
 | [0015](0015-non-regular-sessions-and-comparability-guard.md) | Non-regular sessions (kept as traded, flagged, provisional confirmations) and the engine comparability guard | Accepted | M4 follow-up |
 | [0016](0016-api-auth-and-serving.md) | API as a read-only presentation layer; private access (Firebase Auth + Firestore allowlist); version-bound serving snapshot; us-central1 | Accepted | M5 |
+| [0017](0017-frontend.md) | Frontend: a faithful, untrusted visualization layer (Firebase Hosting, Google sign-in, Lightweight Charts) | Accepted | M6 |

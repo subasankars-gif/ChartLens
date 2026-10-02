@@ -7,7 +7,7 @@ they show — structure, trend, patterns, and the conditions that would confirm 
 invalidate each scenario. Deterministic, explainable, point-in-time correct. No
 fundamentals, no news, no buy/sell calls.
 
-> **Status: Phase 1 · Milestone 5 (API, authentication, serving).**
+> **Status: Phase 1 · Milestone 6 (frontend: sign-in, search, weekly chart).**
 > ChartLens downloads NSE bhavcopies and the corporate-action feed and stores the original
 > bytes immutably. It resolves every row to a stable internal security and writes
 > exact-decimal canonical daily bars. From these it derives an adjusted analytical dataset:
@@ -16,7 +16,8 @@ fundamentals, no news, no buy/sell calls.
 > `usable_from` date and its continuity segments. Weekly bars are built from the adjusted
 > series, never across a continuity break, and can be read point-in-time as of any date.
 > A private, read-only API on Cloud Run serves a version-bound snapshot of all of it to
-> signed-in, allowlisted users (ADR-0016).
+> signed-in, allowlisted users (ADR-0016). A static site on Firebase Hosting lets them search
+> and read each security's weekly chart, data quality and provenance (ADR-0017).
 
 ## Repository layout
 
@@ -156,6 +157,34 @@ One-time setup:
 Every merge to `main` that touches the API then deploys it
 (`.github/workflows/deploy-api.yml`) and smoke-tests it.
 
+## Web deployment
+
+The site (ADR-0017) is a static export at **`https://chartlenslab.web.app`**: the Firebase
+Hosting site `chartlenslab` in the project `chartlens-lake-13934`. It holds only public
+identifiers; the API decides every access. One-time setup:
+
+1. Firebase console → Project settings → Add app → Web. Tick "Also set up Firebase
+   Hosting". Note the `apiKey` and `appId`.
+2. Give `chartlens-deployer` the roles `roles/firebasehosting.admin` and
+   `roles/serviceusage.serviceUsageConsumer`.
+3. Add the repository variables `FIREBASE_WEB_API_KEY` and `FIREBASE_WEB_APP_ID`.
+4. Create the Hosting site `chartlenslab`. Add `chartlenslab.web.app` to Authentication →
+   Settings → Authorized domains. Add `https://chartlenslab.web.app/__/auth/handler` to the
+   authorized redirect URIs of the web OAuth client (Google Cloud console → APIs & Services →
+   Credentials), because sign-in runs on the site's own domain.
+
+While the move to `chartlenslab` is being verified, the API also accepts the project's
+default Hosting domains (`chartlens-lake-13934.web.app` and `.firebaseapp.com`). A
+follow-up change removes them from `deploy-api.yml`.
+
+Every merge to `main` that touches the frontend then builds it with the API address read
+from Cloud Run, checks that no test sign-in is in the bundle, and deploys
+(`.github/workflows/deploy-web.yml`).
+
+Local development: `uv run poe api` and `cd frontend && pnpm dev`. Set
+`NEXT_PUBLIC_FIREBASE_*` in `frontend/.env.local`. The end-to-end tests run the built site
+against the real API over a test lake: `pnpm e2e:build && pnpm e2e`.
+
 ## Configuration
 
 `config/chartlens.toml` is the single source of truth; environment variables
@@ -175,8 +204,8 @@ impossible. Changing one means writing an ADR and recalculating.
 | 2 | Security master, exchange calendar, NSE bhavcopy provider, immutable raw store, GCS, backfill | ✅ |
 | 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | ✅ |
 | 4 | Weekly builder + property tests | ✅ |
-| 5 | API: securities, weekly bars, data quality; Firestore; auth | In review |
-| 6 | Frontend: search, weekly chart, last update, data-quality badge | |
+| 5 | API: securities, weekly bars, data quality; Firestore; auth | ✅ |
+| 6 | Frontend: search, weekly chart, last update, data-quality badge | In review |
 | 7 | Jobs: daily incremental, backfill, single-security refresh, job tracking | |
 
 ## Key decisions

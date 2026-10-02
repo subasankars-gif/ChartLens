@@ -1,0 +1,82 @@
+# Milestone 6 verification on real data, without writing to the production lake: copies
+# the published inputs from GCS, builds weekly + serving locally, runs the real API over
+# that copy (test sign-in) and the end-to-end site, and screenshots real securities.
+# Results → probe-results/m6.
+
+name: M6 verify
+
+on:
+  push:
+    branches: ["probe/m6"]
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CHARTLENS_STORAGE__BACKEND: local
+  CHARTLENS_STORAGE__LOCAL_ROOT: ${{ github.workspace }}/lake
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Copy published inputs from GCS (read-only)
+        env:
+          BUCKET: ${{ vars.GCS_BUCKET }}
+        run: |
+          uv run --no-sync python - <<'PY'
+          import os
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          from chartlens_pipeline.storage import GcsObjectStore, LocalObjectStore
+          src = GcsObjectStore(os.environ["BUCKET"])
+          dst = LocalObjectStore(Path(os.environ["CHARTLENS_STORAGE__LOCAL_ROOT"]))
+          keys = [k for p in ("curated/adjusted/", "metadata/") for k in src.list(p)]
+          with ThreadPoolExecutor(32) as pool:
+              list(pool.map(lambda k: dst.put(k, src.get(k)), keys))
+          print("copied", len(keys))
+          PY
+      - name: Data quality, weekly, serving snapshot
+        run: |
+          uv run --no-sync chartlens-pipeline data-quality > /dev/null 2> dq.log
+          uv run --no-sync chartlens-pipeline weekly > /dev/null 2> weekly.log
+          uv run --no-sync chartlens-pipeline publish-serving > /dev/null 2> serving.log
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Site against the real lake
+        working-directory: frontend
+        env:
+          E2E_LAKE: ${{ github.workspace }}/lake
+        run: |
+          pnpm install --frozen-lockfile
+          npx playwright install --with-deps chromium
+          pnpm e2e:build
+          pnpm e2e
+      - name: Publish
+        if: always()
+        run: |
+          mkdir -p out && cp frontend/test-results/*.png out/ 2>/dev/null || true
+          cd out
+          git init -q -b probe-results/m6
+          git -c user.name=m6-verify -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=m6-verify -c user.email=probe@users.noreply.github.com commit -qm "M6 verify ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/m6

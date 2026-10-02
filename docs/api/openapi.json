@@ -1,0 +1,1747 @@
+{
+  "components": {
+    "schemas": {
+      "ComponentVersions": {
+        "properties": {
+          "api": {
+            "title": "Api",
+            "type": "string"
+          },
+          "core": {
+            "title": "Core",
+            "type": "string"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "pipeline": {
+            "title": "Pipeline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api",
+          "core",
+          "engine",
+          "pipeline"
+        ],
+        "title": "ComponentVersions",
+        "type": "object"
+      },
+      "DataQualityResponse": {
+        "properties": {
+          "continuity_breaks": {
+            "title": "Continuity Breaks",
+            "type": "integer"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "dq_version": {
+            "title": "Dq Version",
+            "type": "string"
+          },
+          "failures": {
+            "title": "Failures",
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "usable_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usable From"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "data_as_of",
+          "dq_version",
+          "status",
+          "usable_from",
+          "continuity_breaks",
+          "warnings",
+          "failures",
+          "findings"
+        ],
+        "title": "DataQualityResponse",
+        "type": "object"
+      },
+      "Environment": {
+        "enum": [
+          "local",
+          "ci",
+          "prod"
+        ],
+        "title": "Environment",
+        "type": "string"
+      },
+      "Finding": {
+        "properties": {
+          "breaks_continuity": {
+            "title": "Breaks Continuity",
+            "type": "boolean"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "evidence": {
+            "title": "Evidence",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          }
+        },
+        "required": [
+          "start_date",
+          "end_date",
+          "dimension",
+          "severity",
+          "code",
+          "breaks_continuity",
+          "detail",
+          "evidence"
+        ],
+        "title": "Finding",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "environment": {
+            "$ref": "#/components/schemas/Environment"
+          },
+          "exchange": {
+            "title": "Exchange",
+            "type": "string"
+          },
+          "methodology_hash": {
+            "title": "Methodology Hash",
+            "type": "string"
+          },
+          "server_time": {
+            "format": "date-time",
+            "title": "Server Time",
+            "type": "string"
+          },
+          "serving": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServingInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/ComponentVersions"
+          }
+        },
+        "required": [
+          "status",
+          "environment",
+          "exchange",
+          "methodology_hash",
+          "versions",
+          "server_time",
+          "serving"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "Identifier": {
+        "properties": {
+          "identifier_type": {
+            "title": "Identifier Type",
+            "type": "string"
+          },
+          "identifier_value": {
+            "title": "Identifier Value",
+            "type": "string"
+          },
+          "valid_from": {
+            "format": "date",
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_to": {
+            "format": "date",
+            "title": "Valid To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier_type",
+          "identifier_value",
+          "valid_from",
+          "valid_to"
+        ],
+        "title": "Identifier",
+        "type": "object"
+      },
+      "SearchResponse": {
+        "properties": {
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SecuritySummary"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "meta_version",
+          "data_as_of",
+          "query",
+          "results"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
+      "SecurityDetail": {
+        "properties": {
+          "analytical_universe": {
+            "title": "Analytical Universe",
+            "type": "boolean"
+          },
+          "continuity_breaks": {
+            "title": "Continuity Breaks",
+            "type": "integer"
+          },
+          "current_segment_id": {
+            "title": "Current Segment Id",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "failures": {
+            "title": "Failures",
+            "type": "integer"
+          },
+          "first_date": {
+            "format": "date",
+            "title": "First Date",
+            "type": "string"
+          },
+          "identifiers": {
+            "items": {
+              "$ref": "#/components/schemas/Identifier"
+            },
+            "title": "Identifiers",
+            "type": "array"
+          },
+          "instrument_type": {
+            "title": "Instrument Type",
+            "type": "string"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "last_date": {
+            "format": "date",
+            "title": "Last Date",
+            "type": "string"
+          },
+          "listing_status": {
+            "title": "Listing Status",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "usable_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usable From"
+          },
+          "usable_sessions": {
+            "title": "Usable Sessions",
+            "type": "integer"
+          },
+          "warnings": {
+            "title": "Warnings",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "security_id",
+          "symbol",
+          "name",
+          "isin",
+          "series",
+          "listing_status",
+          "instrument_type",
+          "analytical_universe",
+          "status",
+          "usable_from",
+          "last_date",
+          "meta_version",
+          "data_as_of",
+          "first_date",
+          "sessions",
+          "usable_sessions",
+          "continuity_breaks",
+          "warnings",
+          "failures",
+          "current_segment_id",
+          "segments",
+          "identifiers"
+        ],
+        "title": "SecurityDetail",
+        "type": "object"
+      },
+      "SecuritySummary": {
+        "properties": {
+          "analytical_universe": {
+            "title": "Analytical Universe",
+            "type": "boolean"
+          },
+          "instrument_type": {
+            "title": "Instrument Type",
+            "type": "string"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "last_date": {
+            "format": "date",
+            "title": "Last Date",
+            "type": "string"
+          },
+          "listing_status": {
+            "title": "Listing Status",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "usable_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usable From"
+          }
+        },
+        "required": [
+          "security_id",
+          "symbol",
+          "name",
+          "isin",
+          "series",
+          "listing_status",
+          "instrument_type",
+          "analytical_universe",
+          "status",
+          "usable_from",
+          "last_date"
+        ],
+        "title": "SecuritySummary",
+        "type": "object"
+      },
+      "Segment": {
+        "properties": {
+          "cause": {
+            "title": "Cause",
+            "type": "string"
+          },
+          "continuity_segment_id": {
+            "title": "Continuity Segment Id",
+            "type": "string"
+          },
+          "segment_end": {
+            "format": "date",
+            "title": "Segment End",
+            "type": "string"
+          },
+          "segment_start": {
+            "format": "date",
+            "title": "Segment Start",
+            "type": "string"
+          },
+          "sessions": {
+            "title": "Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "continuity_segment_id",
+          "segment_start",
+          "segment_end",
+          "sessions",
+          "cause"
+        ],
+        "title": "Segment",
+        "type": "object"
+      },
+      "ServingInfo": {
+        "description": "Which lake snapshot this instance serves. Versions only: no market data.",
+        "properties": {
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "meta_version",
+          "data_as_of"
+        ],
+        "title": "ServingInfo",
+        "type": "object"
+      },
+      "ServingStatus": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "exchange": {
+            "title": "Exchange",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "refresh_seconds": {
+            "title": "Refresh Seconds",
+            "type": "number"
+          },
+          "snapshot_generated_at": {
+            "format": "date-time",
+            "title": "Snapshot Generated At",
+            "type": "string"
+          },
+          "snapshot_loaded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Loaded At"
+          },
+          "versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Versions",
+            "type": "object"
+          }
+        },
+        "required": [
+          "exchange",
+          "meta_version",
+          "data_as_of",
+          "versions",
+          "counts",
+          "snapshot_generated_at",
+          "snapshot_loaded_at",
+          "refresh_seconds"
+        ],
+        "title": "ServingStatus",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "role": {
+            "default": "user",
+            "enum": [
+              "admin",
+              "user"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "uid": {
+            "title": "Uid",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid"
+        ],
+        "title": "User",
+        "type": "object"
+      },
+      "UserPatch": {
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "admin",
+                  "user"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "title": "UserPatch",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "Watchlist": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "security_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Security Ids",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "watchlist_id": {
+            "title": "Watchlist Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "watchlist_id",
+          "name",
+          "security_ids"
+        ],
+        "title": "Watchlist",
+        "type": "object"
+      },
+      "WatchlistIn": {
+        "properties": {
+          "name": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "security_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Security Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "security_ids"
+        ],
+        "title": "WatchlistIn",
+        "type": "object"
+      },
+      "WeeklyBarOut": {
+        "properties": {
+          "close": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Close",
+            "type": "string"
+          },
+          "closes_on_special_session": {
+            "title": "Closes On Special Session",
+            "type": "boolean"
+          },
+          "closing_session_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closing Session Type"
+          },
+          "continuity_segment_id": {
+            "title": "Continuity Segment Id",
+            "type": "string"
+          },
+          "first_session_date": {
+            "format": "date",
+            "title": "First Session Date",
+            "type": "string"
+          },
+          "high": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "High",
+            "type": "string"
+          },
+          "is_complete": {
+            "title": "Is Complete",
+            "type": "boolean"
+          },
+          "iso_week": {
+            "title": "Iso Week",
+            "type": "integer"
+          },
+          "iso_year": {
+            "title": "Iso Year",
+            "type": "integer"
+          },
+          "last_session_date": {
+            "format": "date",
+            "title": "Last Session Date",
+            "type": "string"
+          },
+          "low": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Low",
+            "type": "string"
+          },
+          "open": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Open",
+            "type": "string"
+          },
+          "partial_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Partial Reason"
+          },
+          "raw_close": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Raw Close",
+            "type": "string"
+          },
+          "special_sessions": {
+            "title": "Special Sessions",
+            "type": "integer"
+          },
+          "trading_days": {
+            "title": "Trading Days",
+            "type": "integer"
+          },
+          "volume": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Volume",
+            "type": "string"
+          },
+          "week_end_date": {
+            "format": "date",
+            "title": "Week End Date",
+            "type": "string"
+          },
+          "week_start_date": {
+            "format": "date",
+            "title": "Week Start Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "continuity_segment_id",
+          "iso_year",
+          "iso_week",
+          "week_start_date",
+          "week_end_date",
+          "first_session_date",
+          "last_session_date",
+          "open",
+          "high",
+          "low",
+          "close",
+          "volume",
+          "raw_close",
+          "trading_days",
+          "is_complete",
+          "partial_reason",
+          "special_sessions",
+          "closes_on_special_session",
+          "closing_session_type"
+        ],
+        "title": "WeeklyBarOut",
+        "type": "object"
+      },
+      "WeeklyResponse": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "bars": {
+            "items": {
+              "$ref": "#/components/schemas/WeeklyBarOut"
+            },
+            "title": "Bars",
+            "type": "array"
+          },
+          "current_segment_id": {
+            "title": "Current Segment Id",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "segment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Segment Ids",
+            "type": "array"
+          },
+          "segments": {
+            "enum": [
+              "valid",
+              "all"
+            ],
+            "title": "Segments",
+            "type": "string"
+          },
+          "versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Versions",
+            "type": "object"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "as_of",
+          "versions",
+          "segments",
+          "current_segment_id",
+          "segment_ids",
+          "bars"
+        ],
+        "title": "WeeklyResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "summary": "See the structure. Read the trend.",
+    "title": "ChartLens API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/admin/users": {
+      "get": {
+        "operationId": "list_users_api_v1_admin_users_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "title": "Response List Users Api V1 Admin Users Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Users",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{uid}": {
+      "patch": {
+        "operationId": "update_user_api_v1_admin_users__uid__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "uid",
+            "required": true,
+            "schema": {
+              "title": "Uid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update User",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Liveness plus the provenance a client needs to label what it is showing. Reports\nthe serving snapshot's version, so a deployment can confirm it reads the lake.",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "me_api_v1_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/watchlists": {
+      "get": {
+        "operationId": "list_watchlists_api_v1_me_watchlists_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Watchlist"
+                  },
+                  "title": "Response List Watchlists Api V1 Me Watchlists Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Watchlists",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/watchlists/{watchlist_id}": {
+      "delete": {
+        "operationId": "delete_watchlist_api_v1_me_watchlists__watchlist_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watchlist_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+              "title": "Watchlist Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Watchlist",
+        "tags": [
+          "me"
+        ]
+      },
+      "put": {
+        "description": "Create or replace a watchlist. Every security must exist in the served snapshot.",
+        "operationId": "put_watchlist_api_v1_me_watchlists__watchlist_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "watchlist_id",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+              "title": "Watchlist Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchlistIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Watchlist"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Watchlist",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/securities": {
+      "get": {
+        "description": "Search current and past symbols, ISINs and names.",
+        "operationId": "search_api_v1_securities_get",
+        "parameters": [
+          {
+            "description": "Symbol, ISIN or name",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Symbol, ISIN or name",
+              "maxLength": 40,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "universe",
+            "required": false,
+            "schema": {
+              "default": "analytical",
+              "enum": [
+                "analytical",
+                "all"
+              ],
+              "title": "Universe",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search",
+        "tags": [
+          "securities"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}": {
+      "get": {
+        "operationId": "detail_api_v1_securities__security_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecurityDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "securities"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/data-quality": {
+      "get": {
+        "operationId": "data_quality_api_v1_securities__security_id__data_quality_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataQualityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Data Quality",
+        "tags": [
+          "securities"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/weekly": {
+      "get": {
+        "description": "Stored weekly bars as of the data's ``as_of``. ``segments=valid`` (default) returns\nonly the continuity segment analysis may use; ``all`` returns every segment (charts).",
+        "operationId": "weekly_api_v1_securities__security_id__weekly_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "segments",
+            "required": false,
+            "schema": {
+              "default": "valid",
+              "enum": [
+                "valid",
+                "all"
+              ],
+              "title": "Segments",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Weekly",
+        "tags": [
+          "securities"
+        ]
+      }
+    },
+    "/api/v1/system/status": {
+      "get": {
+        "operationId": "serving_status_api_v1_system_status_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Serving Status",
+        "tags": [
+          "system"
+        ]
+      }
+    }
+  }
+}
