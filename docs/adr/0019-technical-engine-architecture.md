@@ -25,8 +25,8 @@ decides anything.
 | E Fibonacci | `fibonacci` | primary swings (and the primary method at extra sensitivities), ATR |
 | D Support / resistance and trendlines | `levels` | primary swings, structure events, Fibonacci, indicators |
 | F Divergence, volume, volatility, candles | `evidence` | bars, indicators, primary swings, structure, levels |
-| G Pattern candidates | `patterns.candidates` | primary swings, zones |
-| H Validation and status | `patterns.validate`, `patterns.status` | candidates, every layer above |
+| G Pattern candidates | `patterns.candidates` | primary swings (fine sensitivity for flags, pennants, handles) |
+| H Validation and status | `patterns.validate`, `patterns.status` | candidates, structure history, levels (role histories), Fibonacci, evidence |
 | — Explanations | `explain` | structured facts only |
 | — Orchestration | `analysis` | runs A→H in order, typed outputs passed explicitly |
 
