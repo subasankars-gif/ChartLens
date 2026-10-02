@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+from collections.abc import Iterable
 from datetime import date, datetime
 from functools import cache
 from importlib import resources
@@ -27,6 +28,7 @@ from chartlens_pipeline.providers.base import (
     RawArtifact,
 )
 from chartlens_pipeline.providers.nse.bhavcopy import PARSER_VERSION, parse_bhavcopy
+from chartlens_pipeline.providers.nse.corporate_actions import NseCorporateActions
 
 EXCHANGE: Final = "NSE"
 PROVIDER: Final = "nse"
@@ -81,6 +83,20 @@ class NseIdentityPolicy:
         if len(isin) == 12 and isin.startswith("INE"):
             return isin[:9]
         return None
+
+    def instrument_type(self, isins: Iterable[str]) -> str:
+        """From the latest ISIN: ``INF`` = mutual-fund / ETF units; otherwise the 2-digit
+        security type at positions 8-9: ``01`` equity shares (``IN9`` DVRs included),
+        ``20`` rights entitlements, anything else OTHER_<type>. No ISIN (NSE rows before
+        2011-06-22 only) = UNKNOWN."""
+        latest = [i for i in isins if len(i) == 12][-1:]
+        if not latest:
+            return "UNKNOWN"
+        isin = latest[0]
+        if isin.startswith("INF"):
+            return "FUND_UNIT"
+        kind = isin[7:9]
+        return {"01": "EQUITY_SHARE", "20": "RIGHTS_ENTITLEMENT"}.get(kind, f"OTHER_{kind}")
 
 
 class NseDailyBars:
@@ -181,6 +197,7 @@ class NseProvider:
         self._fetcher = fetcher
         self._calendar = calendar
         self.daily_bars = NseDailyBars(config, fetcher)
+        self.corporate_actions = NseCorporateActions(config, fetcher)
 
     def trading_calendar(self) -> DataCalendar:
         return self._calendar if self._calendar is not None else load_calendar()

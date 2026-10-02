@@ -1,6 +1,8 @@
 # ADR-0005: Corporate-action price adjustment policy
 
-**Status:** Accepted · 2026-09-30
+**Status:** Accepted · 2026-09-30 · Method details (formulas, validation, storage, the
+`OTHER` class) superseded by [ADR-0011](0011-corporate-actions-and-adjustment.md); the
+policy below stands
 
 ## Decision
 

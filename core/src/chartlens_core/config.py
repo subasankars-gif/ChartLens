@@ -94,6 +94,9 @@ class NseProviderConfig(_Section):
     """Where NSE publishes daily bhavcopies. Established by the NSE probe (ADR-0008)."""
 
     archive_base_url: str = "https://nsearchives.nseindia.com"
+    api_base_url: str = "https://www.nseindia.com"
+    """Host of NSE's JSON APIs (corporate actions). Answers hosted runners (ADR-0011)."""
+    corporate_actions_first_month: date = date(2006, 1, 1)
     udiff_first_date: date = date(2024, 1, 1)
     """Earliest date for which the UDiFF bhavcopy is tried first (probe: present 2024-01-19,
     absent 2020-03-02). Before this, only the legacy file is requested."""
@@ -114,6 +117,10 @@ class UniverseConfig(_Section):
     series: tuple[str, ...] = ("EQ", "BE")
     history_target_years: int = Field(default=20, ge=1)
     """Target, not a requirement: every security keeps whatever history actually exists."""
+    analytical_instrument_types: tuple[str, ...] = ("EQUITY_SHARE",)
+    """Instrument types analysed and scanned (decision 2026-10-02: equity shares only).
+    Every ingested series (ETFs, rights entitlements...) stays in the canonical data; the
+    exchange's identity policy assigns the type from the ISIN. ADR-0012."""
 
 
 class WeeklyConfig(_Section):
@@ -130,13 +137,32 @@ class AdjustmentConfig(_Section):
     """Rights issues adjusted with the theoretical ex-rights price (TERP) factor."""
     dividends: bool = False
     """Charts show prices as traded; dividends are not adjusted by default. See ADR-0005."""
+    validation_min_tolerance: float = Field(default=0.15, gt=0)
+    """An applied factor is VERIFIED when |ln(ex-date gap / factor)| is within
+    max(this, sigma_multiplier × the stock's robust overnight-gap sigma). ADR-0011."""
+    validation_sigma_multiplier: float = Field(default=5.0, gt=0)
+    validation_window: int = Field(default=250, ge=20)
+    """Trailing rows used for the robust overnight-gap sigma (point-in-time: before the event)."""
+    gap_report_threshold: float = Field(default=0.25, gt=0)
+    """A large gap in the market-wide discontinuity report: |open / prev close - 1| above this."""
 
 
 class DataQualityConfig(_Section):
     max_unexplained_move: float = Field(default=0.25, gt=0)
-    """Close-to-close move (as a fraction) that is flagged when no corporate action explains it."""
+    """Adjusted close-to-close move (as a fraction) flagged for review when no corporate
+    action explains it. A warning only: a large move may be real (ADR-0012)."""
     max_missing_session_ratio: float = Field(default=0.02, ge=0, le=1)
     """Fraction of expected sessions that may be missing before status degrades to WARN."""
+    max_trading_gap_sessions: int = Field(default=65, ge=1)
+    """A security absent for more than this many consecutive expected sessions (about three
+    months) has no price discovery across the gap: a continuity break (ADR-0012)."""
+    unexplained_gap_break: float = Field(default=0.5, gt=0)
+    """An analytical-universe security whose adjusted overnight gap |open / previous close
+    - 1| exceeds this, with no accepted corporate-action explanation, has a continuity break
+    (UNEXPLAINED_PRICE_DISCONTINUITY). Never an inferred adjustment. Decision 2026-10-02."""
+    unexplained_gap_min_reference_price: float = Field(default=2.0, ge=0)
+    """The break rule applies only when the previous raw close is at least this (rupees):
+    below it, tick-size moves dominate."""
     max_session_quarantine_ratio: float = Field(default=0.05, ge=0, le=1)
     """Share of a session's in-scope rows the parser may reject before the session is
     treated as QUARANTINED rather than ingested (the 2020-07-13 case rejected 100%)."""

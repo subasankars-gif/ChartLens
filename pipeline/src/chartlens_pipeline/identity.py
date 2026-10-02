@@ -38,6 +38,7 @@ overrides, config), and rows are processed in a fixed order, so reruns are ident
 
 from __future__ import annotations
 
+import json
 import tomllib
 import uuid
 from collections import defaultdict
@@ -98,6 +99,11 @@ class IdentityPolicy(Protocol):
         exchange offers no such rule for this ISIN."""
         ...
 
+    def instrument_type(self, isins: Iterable[str]) -> str:
+        """What kind of instrument a security is, from its ISINs (latest last). Exchange
+        knowledge, never guessed: no ISIN means UNKNOWN."""
+        ...
+
 
 @dataclass(frozen=True)
 class SymbolChangeNotice:
@@ -121,7 +127,17 @@ class IdentityOverrides:
     distinct_isin: frozenset[str] = frozenset()
     """ISINs that must never be linked to an existing security."""
     status: dict[str, StatusOverride] = field(default_factory=dict)
+    link_breaks_continuity: dict[str, str] = field(default_factory=dict)
+    """Linked ISIN (``isin`` of a ``link_isin`` entry with ``price_continuity = "break"``)
+    → reason. The link joins *identity* only: prices across it are not comparable, so
+    data quality starts ``usable_from`` at the first session under this ISIN (ADR-0013)."""
     fingerprint: str = "none"
+    """Hash of the *decisions* that affect resolution (links, distinct ISINs, statuses).
+    Pinned as an identity input: changing it requires an identity rebuild. Wording,
+    evidence and comments do not change it."""
+    document_hash: str = "none"
+    """Hash of the whole file (decisions + evidence text + price continuity), for
+    outputs that quote it (data quality)."""
 
     def partners(self, isin: str) -> set[str]:
         """ISINs a reviewed ``link_isin`` entry declares to be the same security as ``isin``.
@@ -138,16 +154,34 @@ class IdentityOverrides:
 
         raw = path.read_bytes()
         data = tomllib.loads(raw.decode())
+        breaks: dict[str, str] = {}
+        for e in data.get("link_isin", []):
+            continuity = e.get("price_continuity", "continuous")
+            if continuity not in ("continuous", "break"):
+                raise ValueError(f"{path}: price_continuity must be continuous|break: {e}")
+            if continuity == "break":
+                breaks[e["isin"]] = e["reason"]
+        link_isin = {e["isin"]: e["existing_isin"] for e in data.get("link_isin", [])}
+        distinct = frozenset(e["isin"] for e in data.get("distinct_isin", []))
+        status = {
+            e["isin"]: StatusOverride(
+                ListingStatus(e["status"]), date.fromisoformat(str(e["effective"])), e["reason"]
+            )
+            for e in data.get("status", [])
+        }
+        decisions = {
+            "link_isin": sorted(link_isin.items()),
+            "distinct_isin": sorted(distinct),
+            "status": sorted((k, str(v.status), str(v.effective)) for k, v in status.items()),
+        }
+        semantic = json.dumps(decisions, sort_keys=True, separators=(",", ":")).encode()
         return cls(
-            link_isin={e["isin"]: e["existing_isin"] for e in data.get("link_isin", [])},
-            distinct_isin=frozenset(e["isin"] for e in data.get("distinct_isin", [])),
-            status={
-                e["isin"]: StatusOverride(
-                    ListingStatus(e["status"]), date.fromisoformat(str(e["effective"])), e["reason"]
-                )
-                for e in data.get("status", [])
-            },
-            fingerprint=hashlib.sha256(raw).hexdigest()[:12],
+            link_isin=link_isin,
+            link_breaks_continuity=breaks,
+            distinct_isin=distinct,
+            status=status,
+            fingerprint=hashlib.sha256(semantic).hexdigest()[:12],
+            document_hash=hashlib.sha256(raw).hexdigest()[:12],
         )
 
 

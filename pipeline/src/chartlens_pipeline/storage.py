@@ -270,6 +270,58 @@ class DataLakeLayout:
         )
 
     @staticmethod
+    def security_aliases_key(exchange: str) -> str:
+        """Retired security_id → surviving security_id, accumulated over identity rebuilds."""
+        return validate_key(f"metadata/security_master/{exchange.lower()}/aliases.parquet")
+
+    @staticmethod
+    def identity_rebuild_key(exchange: str, rebuild_id: str) -> str:
+        return validate_key(
+            f"metadata/security_master/{exchange.lower()}/rebuilds/{rebuild_id}.json"
+        )
+
+    @staticmethod
+    def adjusted_daily_key(exchange: str, security_id: str) -> str:
+        return validate_key(f"curated/adjusted/exchange={exchange.upper()}/{security_id}.parquet")
+
+    @staticmethod
+    def adjusted_daily_prefix(exchange: str) -> str:
+        return f"curated/adjusted/exchange={exchange.upper()}/"
+
+    @staticmethod
+    def adjusted_manifest_key(exchange: str) -> str:
+        """Written last: the adjustment version and the content hash of every current file."""
+        return validate_key(f"curated/adjusted/exchange={exchange.upper()}/_manifest.json")
+
+    @staticmethod
+    def corporate_actions_table_key(exchange: str) -> str:
+        return validate_key(f"metadata/corporate_actions/{exchange.lower()}/actions.parquet")
+
+    @staticmethod
+    def adjustment_events_key(exchange: str) -> str:
+        return validate_key(f"metadata/adjustments/{exchange.lower()}/events.parquet")
+
+    @staticmethod
+    def unexplained_gaps_key(exchange: str) -> str:
+        return validate_key(f"metadata/adjustments/{exchange.lower()}/unexplained_gaps.parquet")
+
+    @staticmethod
+    def adjustment_report_key(exchange: str) -> str:
+        return validate_key(f"metadata/adjustments/{exchange.lower()}/report.json")
+
+    @staticmethod
+    def data_quality_findings_key(exchange: str) -> str:
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/findings.parquet")
+
+    @staticmethod
+    def data_quality_status_key(exchange: str) -> str:
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/status.parquet")
+
+    @staticmethod
+    def data_quality_report_key(exchange: str) -> str:
+        return validate_key(f"metadata/data_quality/{exchange.lower()}/report.json")
+
+    @staticmethod
     def curated_weekly_key(exchange: str, security_id: str) -> str:
         return validate_key(f"curated/weekly/{exchange.lower()}/{security_id}.parquet")
 

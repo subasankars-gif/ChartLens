@@ -439,3 +439,16 @@ def test_resolution_invariants_hold_for_arbitrary_histories(
     # every ISIN belongs to exactly one security
     for isin in {i for i in ISINS if i}:
         assert len(m.by_isin(isin)) <= 1
+
+
+def test_override_fingerprint_tracks_decisions_not_wording(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "nse.toml"
+    entry = '[[link_isin]]\nisin = "{a}"\nexisting_isin = "{b}"\nreason = "{r}"\n'
+    path.write_text(entry.format(a=TCS, b=RELIANCE, r="first wording"))
+    first = IdentityOverrides.load(path)
+    path.write_text("# comment\n" + entry.format(a=TCS, b=RELIANCE, r="corrected evidence"))
+    reworded = IdentityOverrides.load(path)
+    assert first.fingerprint == reworded.fingerprint  # no identity rebuild for wording
+    assert first.document_hash != reworded.document_hash  # but outputs quoting it change
+    path.write_text(entry.format(a=THREE_I_NEW, b=RELIANCE, r="x"))
+    assert IdentityOverrides.load(path).fingerprint != first.fingerprint

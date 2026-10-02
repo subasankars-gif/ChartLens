@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from chartlens_core.domain import utc_now
 from chartlens_pipeline.calendar import TradingCalendar
+from chartlens_pipeline.corporate_actions_model import SubjectInterpretation
 from chartlens_pipeline.daily import ParsedDaily
 from chartlens_pipeline.identity import IdentityPolicy, SymbolChangeNotice
 
@@ -108,37 +110,64 @@ class ExchangeProvider(Protocol):
 
     def parse_symbol_changes(self, content: bytes) -> list[SymbolChangeNotice]: ...
 
-
-# --------------------------------------------------------------- corporate actions (Milestone 3)
-
-
-class CorporateActionType(StrEnum):
-    SPLIT = "SPLIT"
-    BONUS = "BONUS"
-    RIGHTS = "RIGHTS"
-    DIVIDEND = "DIVIDEND"
-    SYMBOL_CHANGE = "SYMBOL_CHANGE"
-    MERGER = "MERGER"
-    DELISTING = "DELISTING"
-    OTHER = "OTHER"
+    @property
+    def corporate_actions(self) -> CorporateActionSource: ...
 
 
-class CorporateActionRecord(BaseModel):
-    """A parsed corporate action. The original text is always kept for audit.
+# --------------------------------------------------------------- corporate actions (ADR-0011)
 
-    Ratios are expressed as ``numerator:denominator`` in the exchange's own terms.
-    Converting them into price adjustment factors is Milestone 3's job, not the parser's.
+
+@dataclass(frozen=True)
+class CorporateActionRecord:
+    """One corporate-action announcement as the exchange published it.
+
+    Fields are normalised (dates parsed, blanks to None) but nothing is interpreted:
+    the subject text is verbatim. Interpreting it (split? bonus 1:1?) is the job of
+    the exchange's subject parser, kept separate so it can be versioned and re-run.
     """
-
-    model_config = ConfigDict(frozen=True)
 
     exchange: str
     symbol: str
+    series: str | None
     isin: str | None
-    ex_date: date
-    action_type: CorporateActionType
-    numerator: float | None = None
-    denominator: float | None = None
-    issue_price: float | None = None
-    raw_description: str
-    source_sha256: str
+    company: str | None
+    subject: str
+    ex_date: date | None
+    record_date: date | None
+    face_value: Decimal | None
+    """As published. NSE reports the *current* face value on historical records
+    (a 2011 "10 → 2" split record shows 1), so it is never used as the face value at
+    the time without reconstruction (ADR-0011)."""
+    broadcast_at: str | None
+    record_key: str
+    """SHA-256 of the record's canonical JSON — a stable identity for the exact record."""
+
+
+@dataclass
+class ParsedActions:
+    records: list[CorporateActionRecord]
+    rejected: list[tuple[str, str]]
+    """(reason, raw record JSON) for records that could not be normalised. Never dropped."""
+
+
+class CorporateActionSource(Protocol):
+    @property
+    def source_dataset(self) -> str: ...
+
+    @property
+    def parser_version(self) -> str: ...
+
+    def windows(self, start: date, end: date) -> list[tuple[date, date]]:
+        """Download windows (inclusive) covering ``[start, end]``, by ex-date."""
+        ...
+
+    def download(self, window: tuple[date, date]) -> DownloadResult: ...
+
+    def parse(self, content: bytes) -> ParsedActions: ...
+
+    @property
+    def grammar_version(self) -> str: ...
+
+    def interpret(self, subject: str) -> SubjectInterpretation:
+        """Exchange-specific reading of the free-text subject into neutral components."""
+        ...

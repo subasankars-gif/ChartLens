@@ -1,0 +1,30 @@
+# Reviewed corporate-action decisions for NSE (ADR-0011).
+#
+# The adjustment engine never derives a factor from a price gap. An event the feed does
+# not quantify (demerger, scheme, capital reduction...) can only be resolved here, on
+# evidence of an allowed source. The file's hash is part of adjustment_version.
+#
+# Evidence hierarchy (decided 2026-10-02):
+#   PRIMARY   NSE special pre-open session: the exchange-discovered price on the ex-date.
+#             factor = discovered_price / last close before the ex-date (computed, exact).
+#   SUPPORT   Company cost-of-acquisition apportionment: cost-basis allocation, not the
+#             market value removed on the ex-date. Record it as supporting_evidence; it is
+#             never used as a factor (source = "cost_apportionment" is refused).
+#
+# [[factor]]
+#   isin = "INE..."; ex_date = 2023-07-20
+#   source = "nse_special_preopen"      # or "no_price_effect" (reviewed: price unaffected)
+#   discovered_price = "2580.00"        # nse_special_preopen only
+#   evidence = "NSE circular <number/date/URL>"
+#   supporting_evidence = "company cost apportionment ..."   # optional, never used
+#   reviewed_by = "name, date"
+#
+# [[suppress]]   record_key → reason: a feed record judged wrong (duplicate, wrong security).
+#
+# A factor is still validated against prices; one the prices contradict is rejected like
+# any other. Because the discovered price usually opens the ex-date, that check is not
+# independent for pre-open factors, and the event says so.
+#
+# Deliberately no entry for 3i Infotech (2021-10-22): the identity link is approved in
+# config/identity/nse.toml, but no primary-document factor exists, so the history stays
+# discontinuous (usable_from = 2021-10-22).

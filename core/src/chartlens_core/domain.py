@@ -25,11 +25,12 @@ class Timeframe(StrEnum):
 
 
 class DataQualityStatus(StrEnum):
-    """Per security/timeframe status. The engine refuses high-confidence output below OK."""
+    """Per-security status under the current methodology (ADR-0012), always relative to
+    ``usable_from`` — the earliest date from which the technical history is reliable."""
 
-    OK = "OK"
-    WARN = "WARN"
-    FAIL = "FAIL"
+    USABLE = "USABLE"
+    USABLE_WITH_WARNINGS = "USABLE_WITH_WARNINGS"
+    NOT_USABLE = "NOT_USABLE"
     UNKNOWN = "UNKNOWN"
 
 

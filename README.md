@@ -7,10 +7,13 @@ they show — structure, trend, patterns, and the conditions that would confirm 
 invalidate each scenario. Deterministic, explainable, point-in-time correct. No
 fundamentals, no news, no buy/sell calls.
 
-> **Status: Phase 1 · Milestone 2 (NSE ingestion) complete.** ChartLens downloads NSE
-> bhavcopies (both historical formats), stores the original bytes immutably, resolves
-> every row to a stable internal security, and writes exact-decimal canonical daily bars
-> to Parquet. No corporate-action adjustment yet (Milestone 3).
+> **Status: Phase 1 · Milestone 3 (corporate actions, adjustment, data quality).**
+> ChartLens downloads NSE bhavcopies and the corporate-action feed and stores the original
+> bytes immutably. It resolves every row to a stable internal security and writes
+> exact-decimal canonical daily bars. From these it derives an adjusted analytical dataset:
+> exact factors, each validated against prices, published only when no adjustment
+> creates or worsens a discontinuity. Each security gets a data-quality status and a
+> `usable_from` date.
 
 ## Repository layout
 
@@ -62,7 +65,22 @@ uv run chartlens-pipeline backfill --start-date 2026-09-01 --end-date 2026-09-29
 uv run chartlens-pipeline security --symbol RELIANCE                  # identity + history
 uv run chartlens-pipeline quarantine-report --start-date 2026-09-01 --end-date 2026-09-29
 uv run chartlens-pipeline reprocess-pending                           # retry unresolved identities
+
+# Milestone 3: corporate actions → adjusted dataset → data quality (no network after fetch)
+uv run chartlens-pipeline corporate-actions fetch                     # 2006 → 90 days ahead
+uv run chartlens-pipeline corporate-actions summary                   # classes, unrecognised subjects
+uv run chartlens-pipeline adjust --report-file adjust.json            # exit 5 = not published
+uv run chartlens-pipeline data-quality                                # findings, status, usable_from
+uv run chartlens-pipeline adjustment-report --symbol HDFCBANK         # every event + evidence
+uv run chartlens-pipeline security-quality --symbol TATACOMM          # status, usable_from, findings
+uv run chartlens-pipeline identity-rebuild                            # after changing config/identity/
 ```
+
+Reviewed decisions live in version-controlled files:
+- `config/identity/nse.toml` holds identity links, for example 3i Infotech. Changing
+  it requires an `identity-rebuild` (ADR-0013).
+- `config/corporate_actions/nse.toml` holds factors taken from primary documents and
+  suppressed feed records (ADR-0011).
 
 `backfill` flags: `--refetch` downloads again even if stored (catches re-issued files;
 a different file for the same date is kept alongside, never overwritten), `--reprocess`
@@ -85,14 +103,24 @@ docker compose run --rm pipeline info      # any pipeline command
 
 ## Production storage
 
-Market data belongs in GCS (ADR-0002); the code is ready (`GcsObjectStore`), the cloud
-project is not yet created. To switch on:
+Market data belongs in GCS (ADR-0002). The flow is: NSE → runner → GCS raw (immutable)
+→ GCS curated → adjusted → (M4) weekly. `.github/workflows/pipeline-job.yml` switches to
+GCS automatically once these repository **variables** exist (Settings → Secrets and
+variables → Actions → Variables):
 
-1. Create a GCS bucket and a service account with object read/write on it.
-2. Set up Workload Identity Federation for this repository (no JSON keys) and store
-   `GCP_WIF_PROVIDER` / `GCP_PIPELINE_SA` as repository variables.
-3. Uncomment the auth step and the schedule in `.github/workflows/pipeline-job.yml`, and
-   set `CHARTLENS_STORAGE__BACKEND=gcs`, `CHARTLENS_STORAGE__GCS_BUCKET=<bucket>`.
+| Variable | Example |
+|---|---|
+| `GCS_BUCKET` | `chartlens-lake-13934-data` |
+| `GCP_WIF_PROVIDER` | `projects/<number>/locations/global/workloadIdentityPools/github/providers/chartlens-repo` |
+| `GCP_PIPELINE_SA` | `chartlens-pipeline@<project>.iam.gserviceaccount.com` |
+
+Authentication is keyless, through Workload Identity Federation restricted to this
+repository. The service account has `roles/storage.objectUser` on the bucket only.
+
+To switch on:
+1. Run the `backfill` job once over 2006 → today.
+2. Run the `corporate-actions-fetch`, `adjust` and `data-quality` jobs.
+3. Enable the weekday schedule, which runs the `daily` chain.
 
 ## Configuration
 
@@ -111,7 +139,7 @@ impossible. Changing one means writing an ADR and recalculating.
 |---|---|---|
 | 1 | Skeleton: repo, config, core contracts, API health, frontend shell, Docker, CI | ✅ |
 | 2 | Security master, exchange calendar, NSE bhavcopy provider, immutable raw store, GCS, backfill | ✅ |
-| 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | Next |
+| 3 | Corporate actions, adjustment factors, data quality → canonical daily dataset | In review |
 | 4 | Weekly builder + property tests | |
 | 5 | API: securities, weekly bars, data quality; Firestore; auth | |
 | 6 | Frontend: search, weekly chart, last update, data-quality badge | |

@@ -1,0 +1,154 @@
+# Bootstrap the production lake on GCS straight from NSE (the production path:
+# NSE → runner → GCS raw immutable → GCS curated → adjusted → data quality).
+#
+# Resumable: the master is committed before every session and already-ingested
+# sessions are skipped, so if "ingest" hits the runner time limit, push again and it
+# continues. "analyse" runs only after a complete ingest. Report → probe-results/gcs-bootstrap.
+
+name: GCS bootstrap
+
+on:
+  push:
+    branches: ["probe/gcs-bootstrap"]
+
+concurrency:
+  group: pipeline-writes
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  START: "2006-01-01"
+  END: "2026-09-30"
+  CHARTLENS_RUNTIME__LOG_JSON: "true"
+  CHARTLENS_STORAGE__BACKEND: gcs
+  CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Backfill into GCS (resumable)
+        id: backfill
+        timeout-minutes: 320   # stop before the job limit so progress is still published
+        run: |
+          mkdir -p out
+          set +e
+          uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
+            --report-file backfill.json > backfill.txt 2> backfill.log
+          code=$?
+          if [ "$code" = 4 ]; then
+            # Identity inputs changed since the master was built (ADR-0013): the documented
+            # procedure is a full identity rebuild from stored raw bytes, then continue.
+            grep -h "Refusing" backfill.log | tail -1 | tee out/identity-refusal.txt
+            s=$(date +%s)
+            uv run --no-sync chartlens-pipeline identity-rebuild > out/identity-rebuild.json 2> rebuild.log
+            echo "rebuild_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/progress.txt
+            uv run --no-sync chartlens-pipeline backfill --start-date "$START" --end-date "$END" \
+              --report-file backfill.json > backfill.txt 2> backfill.log
+            code=$?
+          fi
+          tail -25 backfill.txt
+          echo "backfill_exit=$code" | tee -a out/progress.txt
+          exit $code
+      - name: Corporate-action feed into GCS
+        if: steps.backfill.outcome == 'success'
+        run: uv run --no-sync chartlens-pipeline corporate-actions fetch 2> ca.log | head -20
+      - name: Progress in the bucket
+        if: always()
+        run: |
+          mkdir -p out
+          uv run --no-sync python - <<'PY' | tee out/progress.json
+          import json
+          from collections import Counter
+          from chartlens_core.config import get_settings
+          from chartlens_pipeline.storage import DataLakeLayout, object_store_from_config
+          store = object_store_from_config(get_settings().storage)
+          keys = store.list(DataLakeLayout.ingestion_manifest_prefix("NSE"))
+          dates = sorted(k.rsplit("/", 1)[-1].removesuffix(".json") for k in keys)
+          status = Counter(json.loads(store.get(k))["status"] for k in keys[-200:])
+          rebuilds = []
+          for k in store.list("metadata/security_master/nse/rebuilds/"):
+              r = json.loads(store.get(k))
+              rebuilds.append({k2: r[k2] for k2 in ("rebuild_id", "status", "securities_before",
+                               "securities_after", "sessions", "old_inputs", "new_inputs")}
+                              | {"aliases": len(r["aliases"]), "errors": len(r["errors"]),
+                                 "merged_into": r["merged_into"],
+                                 "new_security_ids": len(r["new_security_ids"])})
+          state = json.loads(store.get(DataLakeLayout.identity_state_key("NSE")))
+          print(json.dumps({"manifests": len(dates), "oldest": dates[:1], "newest": dates[-1:],
+                            "status_of_newest_200": status, "identity_state": state,
+                            "rebuilds": rebuilds}, indent=2))
+          PY
+          cp backfill.txt out/ 2>/dev/null || true
+          grep -h '"severity": "ERROR"' backfill.log rebuild.log 2>/dev/null | tail -20 > out/errors.jsonl || true
+          echo "backfill_outcome=${{ steps.backfill.outcome }}" >> out/progress.txt
+      - name: Publish progress
+        if: always()
+        run: |
+          cd out
+          git init -q -b probe-results/gcs-bootstrap
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com commit -qm "GCS bootstrap ingest ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/gcs-bootstrap
+    outputs:
+      complete: ${{ steps.backfill.outcome == 'success' }}
+
+  analyse:
+    needs: ingest
+    if: needs.ingest.outputs.complete == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Adjust, data quality, adjust again, report
+        run: |
+          mkdir -p out
+          set +e
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline adjust --report-file out/adjust1.json > /dev/null 2> adjust1.log
+          echo "adjust1_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/exits.txt
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline data-quality --report-file out/dq.json > /dev/null 2> dq.log
+          echo "dq_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/exits.txt
+          s=$(date +%s)
+          uv run --no-sync chartlens-pipeline adjust --report-file out/adjust2.json > /dev/null 2> adjust2.log
+          echo "adjust2_exit=$? seconds=$(( $(date +%s) - s ))" | tee -a out/exits.txt
+          uv run --no-sync chartlens-pipeline corporate-actions summary > out/ca-summary.json
+          uv run --no-sync chartlens-pipeline quarantine-report --start-date "$START" --end-date "$END" \
+            --limit 50 > out/quarantine.json
+          set -e
+          grep -E '"severity": "(WARNING|ERROR)"' adjust1.log dq.log | head -100 > out/analyse-warnings.jsonl || true
+          uv run --no-sync python scripts/verify_m3.py - out out/adjust2.json | tee out/m3-headline.json
+      - name: Publish report
+        if: always()
+        run: |
+          mkdir -p out && cd out
+          git init -q -b probe-results/gcs-bootstrap
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=gcs-bootstrap -c user.email=probe@users.noreply.github.com commit -qm "GCS bootstrap ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/gcs-bootstrap

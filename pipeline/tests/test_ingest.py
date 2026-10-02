@@ -21,7 +21,7 @@ from chartlens_pipeline.daily import (
     daily_bar_schema,
     from_parquet_bytes,
 )
-from chartlens_pipeline.identity import IdentifierType
+from chartlens_pipeline.identity import IdentifierType, IdentityOverrides
 from chartlens_pipeline.ingest import DateAction, DateStatus, IngestionService
 from chartlens_pipeline.providers.nse.bhavcopy import PARSER_VERSION
 from chartlens_pipeline.sources import RawSourceStore
@@ -61,7 +61,11 @@ def lake(tmp_path: Path) -> LocalObjectStore:
 def service(fake: FakeNse, lake: LocalObjectStore, calendar=CAL) -> IngestionService:  # type: ignore[no-untyped-def]
     settings = ChartLensSettings.model_construct()
     return IngestionService(
-        settings, fake_provider(fake, calendar, settings), lake, today=lambda: TODAY
+        settings,
+        fake_provider(fake, calendar, settings),
+        lake,
+        overrides=IdentityOverrides(),  # isolated from the repository's reviewed overrides
+        today=lambda: TODAY,
     )
 
 
@@ -204,7 +208,9 @@ def test_not_published_dates_are_rechecked_only_while_recent(
     assert (
         svc.plan_date(MON, refetch=False, reprocess=False) is DateAction.SKIP
     )  # old: known missing
-    recent = IngestionService(svc.settings, svc.provider, lake, today=lambda: date(2024, 1, 25))
+    recent = IngestionService(
+        svc.settings, svc.provider, lake, overrides=svc.overrides, today=lambda: date(2024, 1, 25)
+    )
     assert recent.plan_date(MON, refetch=False, reprocess=False) is DateAction.DOWNLOAD
 
 
@@ -494,7 +500,9 @@ def test_identity_inputs_ignore_non_identity_methodology(
     serve_week(fake)
     service(fake, lake).backfill(MON, TUE)
     s = ChartLensSettings.model_construct(adjustment=AdjustmentConfig(dividends=True))
-    svc = IngestionService(s, fake_provider(fake, CAL, s), lake, today=lambda: TODAY)
+    svc = IngestionService(
+        s, fake_provider(fake, CAL, s), lake, overrides=IdentityOverrides(), today=lambda: TODAY
+    )
     report = svc.backfill(MON, TUE)  # no IdentityInputsChanged, nothing reprocessed
     assert report.metrics.dates_skipped == 2
 

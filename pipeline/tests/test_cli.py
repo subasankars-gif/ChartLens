@@ -91,3 +91,36 @@ def test_uncovered_calendar_year_fails_loudly() -> None:
 def test_refresh_security_still_dry_run_only() -> None:
     assert runner.invoke(app, ["refresh-security", "RELIANCE", "--dry-run"]).exit_code == 0
     assert runner.invoke(app, ["refresh-security", "RELIANCE"]).exit_code == 3
+
+
+def test_adjust_and_data_quality_commands_run_on_stored_data(tmp_path: Path) -> None:
+    from test_adjust import build_lake
+
+    build_lake(tmp_path)  # same lake root as the CLI's (see _local_lake)
+    result = runner.invoke(app, ["adjust", "--report-file", str(tmp_path / "adj.json")])
+    assert result.exit_code == 0, result.output
+    report = json.loads((tmp_path / "adj.json").read_text())
+    assert report["published"] and report["discontinuity"]["new_gaps_introduced"] == 0
+
+    result = runner.invoke(app, ["data-quality", "--report-file", str(tmp_path / "dq.json")])
+    assert result.exit_code == 0, result.output
+    assert json.loads((tmp_path / "dq.json").read_text())["securities"] == 3
+
+    result = runner.invoke(app, ["adjustment-report", "--symbol", "SPLITCO"])
+    assert result.exit_code == 0, result.output
+    (events,) = json.loads(result.stdout).values()
+    assert events[0]["status"] == "VERIFIED" and events[0]["factor"] == "1/5"
+
+    result = runner.invoke(app, ["security-quality", "--symbol", "DEMERCO"])
+    assert result.exit_code == 0, result.output
+    (entry,) = json.loads(result.stdout).values()
+    assert entry["status"]["usable_from"] > entry["status"]["first_date"]
+
+    result = runner.invoke(app, ["corporate-actions", "summary"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["records"] == 4
+
+
+def test_data_quality_without_a_published_dataset_exits_5() -> None:
+    result = runner.invoke(app, ["data-quality"])
+    assert result.exit_code == 5
