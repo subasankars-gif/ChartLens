@@ -70,3 +70,39 @@ def test_engine_never_reads_the_clock() -> None:
         )
     ]
     assert not offenders, f"engine modules reading the clock: {offenders}"
+
+
+# ----------------------------------------------------------------------------- ADR-0016
+
+API_DIR = "backend/src/chartlens_api"
+API_ALLOWED_PIPELINE = {"chartlens_pipeline.serving", "chartlens_pipeline.storage"}
+API_FORBIDDEN_CORE = {"chartlens_core.adjustment", "chartlens_core.quality"}
+API_ALLOWED_FROM_CORE_WEEKLY = {"WeeklyBar"}
+
+
+def _from_imports(path: Path) -> list[tuple[str, list[str]]]:
+    tree = ast.parse(path.read_text(), filename=str(path))
+    return [
+        (node.module, [a.name for a in node.names])
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0
+    ]
+
+
+def test_api_is_a_read_only_presentation_layer() -> None:
+    """The API never calculates analysis, builds weekly bars, adjusts prices or writes
+    market data: it may read the serving snapshot and the object store, nothing else
+    from the pipeline, and nothing from the engine but its version (ADR-0016)."""
+    violations: list[str] = []
+    for py in (ROOT / API_DIR).rglob("*.py"):
+        rel = str(py.relative_to(ROOT))
+        for module, names in _from_imports(py):
+            if module.startswith("chartlens_pipeline") and module not in API_ALLOWED_PIPELINE:
+                violations.append(f"{rel}: from {module}")
+            if module.startswith("chartlens_engine"):
+                violations.append(f"{rel}: from {module}")
+            if module in API_FORBIDDEN_CORE:
+                violations.append(f"{rel}: from {module}")
+            if module == "chartlens_core.weekly" and set(names) - API_ALLOWED_FROM_CORE_WEEKLY:
+                violations.append(f"{rel}: from {module} import {names}")
+    assert not violations, violations

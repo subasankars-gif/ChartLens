@@ -211,6 +211,7 @@ class DataLakeLayout:
         curated/adjusted/exchange={EX}/{security_id}.parquet (+ _manifest.json)    adjusted daily
         curated/weekly/exchange={EX}/{security_id}.parquet (+ _manifest.json)      weekly bars
         curated/weekly_scan/exchange={EX}/v={version}/part-NNN.parquet (+ _manifest.json)
+        curated/serving/exchange={EX}/v={meta_version}/{name}.parquet (+ _manifest.json)
 
     Raw keys embed the content hash, so if an exchange re-issues a file for the same
     date, both versions are kept side by side instead of one replacing the other.
@@ -380,6 +381,22 @@ class DataLakeLayout:
     @staticmethod
     def weekly_scan_manifest_key(exchange: str) -> str:
         return validate_key(f"curated/weekly_scan/exchange={exchange.upper()}/_manifest.json")
+
+    @staticmethod
+    def serving_prefix(exchange: str) -> str:
+        return f"curated/serving/exchange={exchange.upper()}/"
+
+    @staticmethod
+    def serving_file_key(exchange: str, meta_version: str, name: str) -> str:
+        """Snapshot files live under their version: a published snapshot never changes."""
+        return validate_key(
+            f"curated/serving/exchange={exchange.upper()}/v={meta_version}/{name}.parquet"
+        )
+
+    @staticmethod
+    def serving_manifest_key(exchange: str) -> str:
+        """Points at the current serving snapshot; written last (ADR-0016)."""
+        return validate_key(f"curated/serving/exchange={exchange.upper()}/_manifest.json")
 
     @staticmethod
     def calendar_key(exchange: str) -> str:

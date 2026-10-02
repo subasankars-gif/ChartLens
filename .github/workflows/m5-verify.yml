@@ -1,0 +1,97 @@
+# Milestone 5 verification, without writing to the production lake.
+#
+# Job "real-data": copies the published inputs (adjusted dataset + metadata) from GCS to
+# the runner's disk, runs data-quality, weekly and publish-serving there, then the real
+# API over that snapshot (scripts/verify_m5.py). Job "emulators": the Firebase Auth and
+# Firestore code paths against the emulators. Results → probe-results/m5.
+
+name: M5 verify
+
+on:
+  push:
+    branches: ["probe/m5"]
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CHARTLENS_RUNTIME__LOG_JSON: "true"
+  CHARTLENS_STORAGE__BACKEND: local
+  CHARTLENS_STORAGE__LOCAL_ROOT: ${{ github.workspace }}/lake
+
+jobs:
+  real-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Copy published inputs from GCS (read-only)
+        env:
+          BUCKET: ${{ vars.GCS_BUCKET }}
+        run: |
+          mkdir -p out
+          uv run --no-sync python - <<'PY'
+          import os
+          from concurrent.futures import ThreadPoolExecutor
+          from pathlib import Path
+          from chartlens_pipeline.storage import GcsObjectStore, LocalObjectStore
+          src = GcsObjectStore(os.environ["BUCKET"])
+          dst = LocalObjectStore(Path(os.environ["CHARTLENS_STORAGE__LOCAL_ROOT"]))
+          keys = [k for p in ("curated/adjusted/", "metadata/") for k in src.list(p)]
+          with ThreadPoolExecutor(32) as pool:
+              list(pool.map(lambda k: dst.put(k, src.get(k)), keys))
+          print("copied", len(keys))
+          PY
+      - name: Data quality, weekly, serving snapshot
+        run: |
+          t() { s=$(date +%s); "$@"; c=$?; echo "$4 exit=$c seconds=$(( $(date +%s) - s ))" | tee -a out/timings.txt; return $c; }
+          t uv run --no-sync chartlens-pipeline data-quality > /dev/null 2> dq.log
+          t uv run --no-sync chartlens-pipeline weekly > /dev/null 2> weekly.log
+          t uv run --no-sync chartlens-pipeline publish-serving > out/serving.json 2> serving.log
+          s=$(date +%s); uv run --no-sync chartlens-pipeline publish-serving > out/serving2.json 2>/dev/null
+          echo "publish-serving (again) seconds=$(( $(date +%s) - s ))" | tee -a out/timings.txt
+      - name: API over the real snapshot
+        run: uv run --no-sync python scripts/verify_m5.py lake out | tee out/m5-headline.json
+      - name: Publish
+        if: always()
+        run: |
+          mkdir -p out && cd out
+          git init -q -b probe-results/m5
+          git -c user.name=m5-verify -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=m5-verify -c user.email=probe@users.noreply.github.com commit -qm "M5 verify ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/m5
+
+  emulators:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CHARTLENS_REQUIRE_EMULATORS: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: >
+          npx --yes firebase-tools@13 emulators:exec --only auth,firestore
+          --project demo-chartlens "uv run pytest -m emulator backend/tests -v"

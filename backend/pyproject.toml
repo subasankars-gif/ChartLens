@@ -8,6 +8,8 @@ dependencies = [
     "chartlens-engine",
     "chartlens-pipeline",
     "fastapi>=0.115",
+    "firebase-admin>=6.5",
+    "google-cloud-firestore>=2.19",
     "uvicorn[standard]>=0.32",
 ]
 

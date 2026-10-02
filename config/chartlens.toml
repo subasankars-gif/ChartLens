@@ -29,6 +29,10 @@ local_root = ".data"
 
 [api]
 cors_origins = ["http://localhost:3000"]
+# firebase_project_id and admin_emails come from the deployment environment
+# (CHARTLENS_API__FIREBASE_PROJECT_ID, CHARTLENS_API__ADMIN_EMAILS); see ADR-0016.
+snapshot_refresh_seconds = 60
+weekly_cache_size = 512
 
 [http]                          # outbound requests to market-data sources (bounded retries)
 timeout_seconds = 30

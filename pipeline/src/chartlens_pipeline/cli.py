@@ -602,6 +602,21 @@ def weekly(
     _write_report(report_file, result.summary)
 
 
+@app.command("publish-serving")
+def publish_serving(exchange: Exchange = "NSE") -> None:
+    """Publish the versioned serving snapshot the API reads (ADR-0016)."""
+    from chartlens_pipeline.serving import ServingInputsNotReady, ServingPublisher
+
+    settings = get_settings()
+    configure_logging(settings.runtime)
+    try:
+        summary = ServingPublisher(settings, _provider(settings, exchange), _store(settings)).run()
+    except ServingInputsNotReady as err:
+        typer.echo(f"Refusing to run: {err}", err=True)
+        raise typer.Exit(code=5) from None
+    _emit(summary)
+
+
 @app.command("weekly-bars")
 def weekly_bars(
     symbol: Annotated[str | None, typer.Option(help="Current or past symbol")] = None,

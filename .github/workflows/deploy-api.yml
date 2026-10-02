@@ -1,0 +1,88 @@
+# Deploy the API to Cloud Run (ADR-0016) on every merge to main that touches it.
+#
+# Keyless: GitHub's OIDC token is exchanged for the chartlens-deployer service account
+# (Workload Identity Federation, this repository only). The service runs as chartlens-api,
+# which can only READ the lake and read/write Firestore app state.
+
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - core/**
+      - engine/**
+      - pipeline/**
+      - config/**
+      - docker/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/deploy-api.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  REGION: ${{ vars.GCP_REGION }}   # the bucket's region (ADR-0016); set with the M5 setup
+  SERVICE: chartlens-api
+
+jobs:
+  deploy:
+    # Skipped until the M5 setup (ADR-0016, README → API deployment) has created the
+    # deployer and the repository variables.
+    if: vars.GCP_DEPLOY_SA != '' && vars.GCP_API_SA != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_REGION != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/chartlens/api:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: api
+          push: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+      - name: Deploy to Cloud Run
+        env:
+          ADMIN_EMAILS: ${{ vars.API_ADMIN_EMAILS }}
+          BUCKET: ${{ vars.GCS_BUCKET }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          API_SA: ${{ vars.GCP_API_SA }}
+        run: |
+          set -euo pipefail
+          admins=$(jq -cn --arg s "$ADMIN_EMAILS" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+          # '^@^' makes '@' the separator, so JSON values with commas pass through intact.
+          gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --project "$PROJECT" \
+            --service-account "$API_SA" --allow-unauthenticated \
+            --min-instances 0 --max-instances 3 --cpu 1 --memory 1Gi --concurrency 40 \
+            --set-env-vars "^@^CHARTLENS_RUNTIME__ENVIRONMENT=prod@CHARTLENS_STORAGE__BACKEND=gcs@CHARTLENS_STORAGE__GCS_BUCKET=${BUCKET}@CHARTLENS_API__FIREBASE_PROJECT_ID=${PROJECT}@CHARTLENS_API__ADMIN_EMAILS=${admins}"
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "${{ vars.GCP_PROJECT_ID }}" --format 'value(status.url)')
+          echo "service: $url"
+          curl -fsS "$url/api/v1/health" | tee health.json
+          echo
+          # "serving" is null until the daily chain has published a serving snapshot.
+          python3 -c "import json; s=json.load(open('health.json'))['serving']; print('serving:', s or 'no snapshot yet')"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/v1/system/status")
+          echo "unauthenticated /system/status -> $code (expected 401)"
+          test "$code" = 401

@@ -71,6 +71,15 @@ class FirestoreConfig(_Section):
 
 class ApiConfig(_Section):
     cors_origins: tuple[str, ...] = ("http://localhost:3000",)
+    firebase_project_id: str | None = None
+    """Firebase project whose ID tokens are accepted (ADR-0016). Unset: every protected
+    route answers 503 — the API never runs without authentication."""
+    admin_emails: tuple[str, ...] = ()
+    """Verified Google emails that become admins on first sign-in. Everyone else starts
+    pending until an admin enables them (the allowlist lives in Firestore)."""
+    snapshot_refresh_seconds: float = Field(default=60.0, ge=0)
+    """How often the API checks for a newer serving snapshot."""
+    weekly_cache_size: int = Field(default=512, ge=0)
 
 
 class HttpConfig(_Section):
