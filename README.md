@@ -159,15 +159,23 @@ Every merge to `main` that touches the API then deploys it
 
 ## Web deployment
 
-The site (ADR-0017) is a static export on Firebase Hosting at
-`https://chartlens-lake-13934.web.app`. It holds only public identifiers; the API decides
-every access. One-time setup:
+The site (ADR-0017) is a static export at **`https://chartlenslab.web.app`**: the Firebase
+Hosting site `chartlenslab` in the project `chartlens-lake-13934`. It holds only public
+identifiers; the API decides every access. One-time setup:
 
 1. Firebase console → Project settings → Add app → Web. Tick "Also set up Firebase
    Hosting". Note the `apiKey` and `appId`.
 2. Give `chartlens-deployer` the roles `roles/firebasehosting.admin` and
    `roles/serviceusage.serviceUsageConsumer`.
 3. Add the repository variables `FIREBASE_WEB_API_KEY` and `FIREBASE_WEB_APP_ID`.
+4. Create the Hosting site `chartlenslab`. Add `chartlenslab.web.app` to Authentication →
+   Settings → Authorized domains. Add `https://chartlenslab.web.app/__/auth/handler` to the
+   authorized redirect URIs of the web OAuth client (Google Cloud console → APIs & Services →
+   Credentials), because sign-in runs on the site's own domain.
+
+While the move to `chartlenslab` is being verified, the API also accepts the project's
+default Hosting domains (`chartlens-lake-13934.web.app` and `.firebaseapp.com`). A
+follow-up change removes them from `deploy-api.yml`.
 
 Every merge to `main` that touches the frontend then builds it with the API address read
 from Cloud Run, checks that no test sign-in is in the bundle, and deploys

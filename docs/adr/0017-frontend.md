@@ -24,13 +24,20 @@
 
 | # | Decision |
 |---|---|
-| 1 | **Firebase Hosting**: a static export at `chartlens-lake-13934.web.app`, listed in the API's CORS origins. It deploys keylessly from GitHub, as `chartlens-deployer` |
+| 1 | **Firebase Hosting**: a static export at `https://chartlenslab.web.app` (Hosting site `chartlenslab` in the project `chartlens-lake-13934`), listed in the API's CORS origins. It deploys keylessly from GitHub, as `chartlens-deployer` |
 | 2 | **Google sign-in** (Firebase, popup). A *pending* screen for users not yet approved. An Admin → Users page backed by the admin API |
 | 3 | **TradingView Lightweight Charts**: weekly candles and a volume pane. The chart component is analysis-agnostic |
 | 4 | **The valid segment is shown by default.** "Show earlier history" adds older segments, separated by a break band. No synthetic bridging bar, no connecting line, no implication that the move across a break was a market move |
 | 5 | **Flags:** the forming week (hollow body), `CONTINUITY_BREAK` partial bars, and the special-session type on bars that close on one. Hovering shows the exact decimal text from the API |
 | 6 | **Security page:** identity and its symbol and ISIN history, status, `usable_from`, segments, findings, and the full provenance set (`meta_version`; weekly, data, adjustment, identity, dq and calendar versions; methodology hash; data `as_of`) |
 | 7 | **Watchlists deferred.** The API already supports them |
+
+**Production URL** (amended 2026-10-02). The product URL is `https://chartlenslab.web.app`,
+a dedicated Hosting site in the same project. The project, Cloud Run, GCS and Firestore are
+unchanged. Sign-in uses that domain as its `authDomain`, so the popup runs on the site's own
+origin. During the move, the API also accepts the project's default Hosting domains
+(`chartlens-lake-13934.web.app` and `.firebaseapp.com`). They are removed once the new site
+is verified end to end.
 
 **Routing.** Pages are `/` (sign-in, then search), `/security/?id=…` and
 `/admin/users/`. A static export cannot pre-render 4,061 security pages, so the

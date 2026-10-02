@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "chartlenslab",
     "public": "frontend/out",
     "ignore": ["firebase.json", "**/.*"],
     "trailingSlash": true,

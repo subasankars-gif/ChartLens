@@ -37,7 +37,10 @@ jobs:
       NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.FIREBASE_WEB_API_KEY }}
       NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.FIREBASE_WEB_APP_ID }}
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.GCP_PROJECT_ID }}.web.app
+      # The product URL: Hosting site `chartlenslab` (firebase.json) in project
+      # chartlens-lake-13934. Sign-in runs on the same origin (/__/auth/handler).
+      SITE_URL: https://chartlenslab.web.app
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: chartlenslab.web.app
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -65,14 +68,14 @@ jobs:
       - name: The production bundle carries no test sign-in
         run: |
           if grep -rl "chartlens-e2e-token" out; then echo "::error::test sign-in found in the bundle"; exit 1; fi
-      - name: Deploy to Firebase Hosting
+      - name: Deploy to Firebase Hosting (site from firebase.json)
         working-directory: .
         run: npx --yes firebase-tools@13 deploy --only hosting --project "${{ vars.GCP_PROJECT_ID }}" --non-interactive
       - name: Smoke test
         working-directory: .
         run: |
           set -euo pipefail
-          site="https://${{ vars.GCP_PROJECT_ID }}.web.app"
+          site="$SITE_URL"
           curl -fsS "$site/" | grep -q "ChartLens"
           curl -fsS -o /dev/null "$site/security/"
           echo "site: $site"
