@@ -51,8 +51,9 @@ scans do not belong here; they consume this contract later.
 15. A historical run may use an earlier segment when that segment was the valid one at
     the requested `as_of`.
 16. Weekly OHLCV reconciles exactly to its contributing daily bars.
-17. Weekend sessions (Budget days, Muhurat) are represented explicitly and flagged
-    (`special_sessions`, `closes_on_special_session`), never silently treated as ordinary.
+17. Non-regular sessions (weekend sessions, and weekday Muhurat or shortened days) are
+    represented explicitly and flagged (`special_sessions`, `closes_on_special_session`,
+    `closing_session_type`), never silently treated as ordinary. See ADR-0015.
 
 ## Continuity segments
 

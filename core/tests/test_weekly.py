@@ -147,6 +147,23 @@ def test_weekend_sessions_are_flagged() -> None:
         sat,
     )
     assert (w2.close, w2.closes_on_special_session, w2.trading_days) == (D(120), True, 6)
+    assert w1.closing_session_type == w2.closing_session_type == "OTHER"  # untyped weekend
+
+
+def test_typed_sessions_including_a_weekday_muhurat_close() -> None:
+    """A weekday Muhurat session (e.g. Friday 1 Nov 2024) sets the week's close from an
+    hour of thin trading: flagged and typed, prices kept exactly as traded (ADR-0015)."""
+    fri, dr = date(2024, 11, 1), date(2024, 3, 2)
+    cal = sorted({*weekdays(date(2024, 2, 26), date(2024, 11, 1)), dr})
+    days = [bar(d) for d in weekdays(date(2024, 2, 26), date(2024, 3, 1))] + [bar(dr, "99")]
+    days += [bar(d) for d in weekdays(date(2024, 10, 28), fri)]
+    types = {fri: "MUHURAT", dr: "DR_DRILL"}
+    w1, w2 = build_weekly(days, [seg(days[0].day)], week_last_sessions(cal), fri, types)
+    assert (w1.closing_session_type, w1.close, w1.special_sessions) == ("DR_DRILL", D(99), 1)
+    assert (w2.closing_session_type, w2.closes_on_special_session) == ("MUHURAT", True)
+    assert w2.last_session_date == fri and w2.trading_days == 5
+    regular = build_weekly(days[:5], [seg(days[0].day)], week_last_sessions(cal), date(2024, 3, 1))
+    assert regular[0].closing_session_type is None and not regular[0].closes_on_special_session
 
 
 def test_iso_weeks_cross_the_new_year() -> None:
@@ -174,11 +191,11 @@ def test_bar_frame_of_the_current_segment_satisfies_the_contract() -> None:
     thu = MON + timedelta(3)
     days = [bar(d) for d in weekdays(MON - timedelta(14), MON + timedelta(9))]
     bars = build_weekly(days, [seg(days[0].day), seg(thu, "X")], LAST, as_of=days[-1].day)
-    frame = to_bar_frame(current_segment(bars))
+    frame = to_bar_frame(current_segment(bars), "S")
     validate_bar_frame(frame)
     assert list(frame["is_complete"]) == [True, False]
     with pytest.raises(ValueError, match="continuity segments"):
-        validate_bar_frame(to_bar_frame(bars))
+        validate_bar_frame(to_bar_frame(bars, "S"))
 
 
 # ----------------------------------------------------------------------------- properties
