@@ -1,0 +1,78 @@
+# Deploy the frontend to Firebase Hosting (ADR-0017) on every merge to main that touches it.
+#
+# Keyless, like the API: GitHub's OIDC token → chartlens-deployer. The static site holds
+# only public identifiers (the Firebase web config and the API URL); every access decision
+# is the API's.
+
+name: Deploy web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - frontend/**
+      - firebase.json
+      - docs/api/openapi.json
+      - .github/workflows/deploy-web.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    # Skipped until the M6 setup (README → Web deployment) has added the variables.
+    if: vars.FIREBASE_WEB_API_KEY != '' && vars.FIREBASE_WEB_APP_ID != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_REGION != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_PUBLIC_FIREBASE_API_KEY: ${{ vars.FIREBASE_WEB_API_KEY }}
+      NEXT_PUBLIC_FIREBASE_APP_ID: ${{ vars.FIREBASE_WEB_APP_ID }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ vars.GCP_PROJECT_ID }}.web.app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: The API's address (from Cloud Run itself)
+        run: |
+          url=$(gcloud run services describe chartlens-api --region "${{ vars.GCP_REGION }}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" --format 'value(status.url)')
+          test -n "$url"
+          echo "NEXT_PUBLIC_API_BASE_URL=$url" >> "$GITHUB_ENV"
+          echo "API: $url"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: The production bundle carries no test sign-in
+        run: |
+          if grep -rl "chartlens-e2e-token" out; then echo "::error::test sign-in found in the bundle"; exit 1; fi
+      - name: Deploy to Firebase Hosting
+        working-directory: .
+        run: npx --yes firebase-tools@13 deploy --only hosting --project "${{ vars.GCP_PROJECT_ID }}" --non-interactive
+      - name: Smoke test
+        working-directory: .
+        run: |
+          set -euo pipefail
+          site="https://${{ vars.GCP_PROJECT_ID }}.web.app"
+          curl -fsS "$site/" | grep -q "ChartLens"
+          curl -fsS -o /dev/null "$site/security/"
+          echo "site: $site"

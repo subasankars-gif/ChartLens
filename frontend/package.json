@@ -12,20 +12,28 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "gen:api": "openapi-typescript ../docs/api/openapi.json -o src/lib/api-schema.ts",
+    "e2e": "playwright test",
+    "e2e:build": "NEXT_PUBLIC_AUTH_MODE=e2e CHARTLENS_E2E_BUILD=1 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8081 next build"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "firebase": "^12.19.0",
+    "lightweight-charts": "^5.2.1",
     "next": "16.3.7",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.57.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "22.20.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.7",
+    "openapi-typescript": "^7.13.0",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vitest": "5.0.3"

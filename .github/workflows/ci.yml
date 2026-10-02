@@ -27,6 +27,10 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run poe check
+      - name: The documented API contract is current
+        run: |
+          uv run --no-sync python scripts/export_openapi.py
+          git diff --exit-code docs/api/openapi.json
 
   api-emulators:
     name: API — Firebase Auth + Firestore emulators
@@ -71,10 +75,47 @@ jobs:
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Frontend types match the API contract
+        run: |
+          pnpm gen:api
+          git diff --exit-code src/lib/api-schema.ts
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  e2e:
+    name: Frontend end to end — built site against the real API (test lake)
+    runs-on: ubuntu-latest
+    needs: [python, frontend]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          npx playwright install --with-deps chromium
+          pnpm e2e:build
+          pnpm e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: frontend/test-results/
+          if-no-files-found: ignore
 
   docker:
     name: Docker — build images

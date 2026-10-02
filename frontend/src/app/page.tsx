@@ -1,30 +1,36 @@
-import { SystemStatus } from "@/components/SystemStatus";
+"use client";
+
+import { useEffect, useState } from "react";
+import { SearchBox } from "@/components/SearchBox";
+import { api, type ServingStatus } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { formatDate } from "@/lib/format";
 
 export default function Home() {
+  const { token } = useAuth();
+  const [status, setStatus] = useState<ServingStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .status(token)
+      .then(setStatus)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+  }, [token]);
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-4 py-6 sm:px-6">
-      <header className="flex items-baseline justify-between border-b border-line pb-4">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">ChartLens</h1>
-          <p className="text-sm text-muted">See the structure. Read the trend.</p>
-        </div>
-        <span className="font-mono text-xs text-muted">Phase 1 · Foundation</span>
-      </header>
-
-      <div className="flex flex-col gap-2">
-        <label htmlFor="security-search" className="text-xs font-medium uppercase tracking-wider text-muted">
-          Security
-        </label>
-        <input
-          id="security-search"
-          type="search"
-          disabled
-          placeholder="Search NSE equities — available once the security master is loaded"
-          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm placeholder:text-muted disabled:cursor-not-allowed"
-        />
+    <div className="mx-auto max-w-3xl pt-10">
+      <h1 className="text-2xl font-semibold tracking-tight">Find a security</h1>
+      <p className="mt-1 text-sm text-muted">
+        {status
+          ? `NSE weekly charts, data through ${formatDate(status.data_as_of)}. ${status.counts.analytical ?? 0} equities analysed of ${status.counts.securities ?? 0} securities.`
+          : error
+            ? `Market data is not available right now: ${error}`
+            : "Loading market data status…"}
+      </p>
+      <div className="mt-6">
+        <SearchBox />
       </div>
-
-      <SystemStatus />
     </div>
   );
 }
