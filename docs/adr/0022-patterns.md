@@ -580,6 +580,56 @@ confirmation and the rest of the status machine follow after that review.
   fixed at `known_at`. Confirmation and status (Phase 5b) are recorded only in status
   entries, so a breakout can never reshape the pattern it confirms.
 
+## 10. Phase 5b-A: confirmation and lifecycle (approved 2026-10-06)
+
+- **RECOGNISED_AFTER_BREAKOUT is a status of its own, not a CONFIRMED reason.**
+  - A pattern whose close on its `known_at` bar is already beyond the confirmation
+    level by the buffer is RECOGNISED_AFTER_BREAKOUT, never CONFIRMED.
+  - CONFIRMED means ChartLens knew the pattern before the breakout bar, which therefore
+    lies strictly after `known_at`.
+  - Both are post-breakout states, with the same failure and completion rules.
+  - Historical statistics must keep them apart.
+- **One forward pass, first condition wins.**
+  - Before a breakout, each bar from `known_at` checks the breakout rule, then
+    invalidation, then expiry.
+  - After a breakout, each later bar checks failure and completion. When both happen on
+    one bar, FAILED wins.
+  - Every event is the first bar that objectively satisfies its condition. Events are
+    appended and never edited. At most one breakout event and one terminal event exist,
+    and a terminal event is always last.
+- **Thresholds use ATR_pre.** Breakout and failure buffers are `breakout_atr` × the ATR
+  of the bar *before*. The breakout week's own range never sets its own threshold.
+  Horizontal invalidation levels use no buffer; line invalidations use the buffer.
+- **The common breakout rule is applied strictly.**
+  - A prospective CONFIRMED needs a close beyond the level by the buffer, a body in the
+    breakout direction, and a previous close that was not already beyond the level by
+    its buffer.
+  - So a bar that closes beyond the level with the wrong-coloured body uses up that
+    breakout. The next bar is not "fresh", and the pattern stays FORMING until it expires
+    or is invalidated.
+  - A test pins this. The statistics show how often it happens.
+- **Neutral patterns** (rectangle, symmetrical triangle) confirm on either side.
+  - The breakout event records the direction.
+  - The pattern's own `direction` and geometry are never changed.
+- **Each event record** carries `status`, `effective_date`, `known_at`, `reason`,
+  `measured_values`, `evidence_refs` and `methodology_version`
+  (`patterns-{analyzer}/geometry-{family}`), plus `provisional`.
+  - `effective_date` is the complete bar whose data satisfied the condition.
+  - `known_at` is the first `as_of` that may see the event. The two are equal for weekly
+    bars but are kept separate.
+- **The measured move is frozen on the breakout bar.** It records `target_method`
+  (LEVEL_PLUS_HEIGHT, or FULL_RETRACE for V patterns), `target_inputs` (level, height,
+  direction, ATR_pre, `mm_zone_atr`), `target_low`, `target_high` and
+  `target_calculated_at`. No later price ever recalculates it.
+- **FORMING drives touches and same-formation.** Touches are swings known while the
+  pattern is FORMING. The same-formation rule asks whether the earlier pattern was still
+  FORMING. This replaces the 5a "horizon".
+- **Historical replay is tested.**
+  - A run as of the breakout week reproduces the full run's identity, geometry and
+    breakout event, including its measured move.
+  - A run as of the week before shows no breakout event: either the pattern is still
+    FORMING, or, when it was recognised after the breakout, it does not exist yet.
+
 ## Testing (mandatory)
 
 **Golden fixtures**, small and readable weekly series, one per pattern and direction:

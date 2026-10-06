@@ -66,9 +66,12 @@ class Spec:
     """Swing type → the line it can touch."""
     touch_fine: bool = False
     """Touches come from the fine swings (flags, pennants)."""
-    horizon_end: int = 0
-    """Touches count only when known before this bar (exclusive): the first complete close
-    outside the lines, the apex, or the end of the waiting window."""
+    max_wait: int | None = None
+    """Bars after ``known_index`` a FORMING pattern may wait for confirmation."""
+    deadline_index: int | None = None
+    """An absolute expiry bar from the geometry itself (a triangle's apex, a flag's
+    window), if any."""
+    deadline_reason: str | None = None
 
 
 @dataclass
@@ -167,20 +170,6 @@ class Generator:
         hits = np.flatnonzero((close > up + buf) | (close < lo - buf))
         return start + int(hits[0]) if hits.size else None
 
-    def horizon(
-        self,
-        section: PatternSection,
-        lines: tuple[Line, Line] | None,
-        k: int,
-        last: int,
-    ) -> int:
-        """Exclusive end of the touch horizon: ``last`` capped by the first close outside."""
-        last = min(last, self.cb.n)
-        if lines is None:
-            return last
-        hit = self.first_outside(section, lines[0], lines[1], k + 1, last)
-        return last if hit is None else hit
-
     @staticmethod
     def windows(swings: list[SwingPoint], kinds: tuple[Kind, ...]) -> list[tuple[SwingPoint, ...]]:
         n = len(kinds)
@@ -269,7 +258,7 @@ class Generator:
                             "height_atr": height / atr,
                             "separation_bars": float(sep),
                         },
-                        horizon_end=min(k + cfg.max_wait_bars + 1, self.cb.n),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out
@@ -324,7 +313,7 @@ class Generator:
                             "separation_bars": float(sep),
                             "peak_difference_atr": abs(peaks[0] - peaks[1]) / atr,
                         },
-                        horizon_end=min(k + cfg.max_wait_bars + 1, self.cb.n),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out
@@ -387,7 +376,7 @@ class Generator:
                             "span_bars": float(span),
                             "height_atr": height / atr,
                         },
-                        horizon_end=min(k + cfg.max_wait_bars + 1, self.cb.n),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out
@@ -491,7 +480,7 @@ class Generator:
                             "fit_c": s * a0,
                             "fit_origin_index": float(ra.bar_index),
                         },
-                        horizon_end=min(k + cfg.max_wait_bars + 1, self.cb.n),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out
@@ -532,7 +521,7 @@ class Generator:
                         invalidation_level=lo.price,
                         height=drop,
                         measures={"drop_atr": drop / atr, "drop_bars": float(bars)},
-                        horizon_end=min(k + cfg.max_wait_bars + 1, self.cb.n),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out
@@ -592,7 +581,7 @@ class Generator:
                         },
                         touch_tol_atr=cfg.band_tol_atr,
                         touch_lines={"HIGH": "UPPER", "LOW": "LOWER"},
-                        horizon_end=self.horizon(cfg, (top, bottom), k, k + cfg.max_wait_bars + 1),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out
@@ -708,9 +697,9 @@ class Generator:
             },
             touch_tol_atr=cfg.fit_tol_atr,
             touch_lines={"HIGH": "UPPER", "LOW": "LOWER"},
-            horizon_end=self.horizon(
-                cfg, (upper, lower), k, min(k + cfg.max_wait_bars + 1, apex_bar)
-            ),
+            max_wait=cfg.max_wait_bars,
+            deadline_index=apex_bar,
+            deadline_reason="APEX_REACHED",
         )
 
     # ------------------------------------------------------- 7.10–7.11 flag, pennant
@@ -807,7 +796,8 @@ class Generator:
             touch_tol_atr=cfg.fit_tol_atr,
             touch_lines={"HIGH": "UPPER", "LOW": "LOWER"},
             touch_fine=True,
-            horizon_end=self.horizon(cfg, (top, bottom), k, h1.bar_index + cfg.flag_max_bars + 1),
+            deadline_index=h1.bar_index + cfg.flag_max_bars,
+            deadline_reason="FLAG_WINDOW",
         )
 
     def _no(self, family: str, w: tuple[SwingPoint, ...], rule: str) -> None:
@@ -891,7 +881,7 @@ class Generator:
                             "fit_c": s * a0,
                             "fit_origin_index": float(ra.bar_index),
                         },
-                        horizon_end=min(k + cfg.max_wait_bars + 1, self.cb.n),
+                        max_wait=cfg.max_wait_bars,
                     )
                 )
         return out

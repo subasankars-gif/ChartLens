@@ -7,10 +7,62 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from chartlens_engine.causal import Frozen, StatusEntry, history_as_of
+from chartlens_engine.causal import Frozen
 from chartlens_engine.interfaces import AnalyzerResult
 
 Direction = Literal["BULLISH", "BEARISH", "NEUTRAL"]
+PatternStatus = Literal[
+    "FORMING",
+    "CONFIRMED",
+    "RECOGNISED_AFTER_BREAKOUT",
+    "INVALIDATED",
+    "EXPIRED",
+    "FAILED",
+    "COMPLETED",
+]
+TERMINAL: frozenset[str] = frozenset({"INVALIDATED", "EXPIRED", "FAILED", "COMPLETED"})
+BROKEN_OUT: frozenset[str] = frozenset({"CONFIRMED", "RECOGNISED_AFTER_BREAKOUT"})
+"""The two post-breakout states. RECOGNISED_AFTER_BREAKOUT is never relabelled CONFIRMED:
+historical statistics must tell a breakout ChartLens saw coming from one it recognised
+afterwards."""
+
+
+class MeasuredMove(Frozen):
+    """The measured-move zone, frozen at the breakout bar with everything used to compute
+    it (K8: a definition of COMPLETED, never a forecast)."""
+
+    target_method: Literal["LEVEL_PLUS_HEIGHT", "FULL_RETRACE"]
+    target_inputs: dict[str, float]
+    """level (the confirmation level or line value at the breakout bar), height,
+    direction (+1 up, −1 down), atr_pre, mm_zone_atr."""
+    target_low: float
+    target_high: float
+    target_calculated_at: date
+
+
+class PatternEvent(Frozen):
+    """One immutable lifecycle event. Events are appended, never edited."""
+
+    status: PatternStatus
+    effective_date: date
+    """The complete bar whose data satisfied the condition."""
+    known_at: date
+    """The first ``as_of`` that may see this event. Equal to ``effective_date`` for
+    weekly bars (an event exists once its bar is complete); kept apart so the event
+    model never depends on that coincidence."""
+    reason: str
+    """E.g. PATTERN_KNOWN, BREAKOUT_UP, BREAKOUT_DOWN, ALREADY_BEYOND_LEVEL,
+    CLOSE_BEYOND_INVALIDATION, OPPOSITE_LINE_BROKEN, RETRACE_EXCEEDED, WAIT_WINDOW,
+    APEX_REACHED, FLAG_WINDOW, CLOSE_BACK_THROUGH_LEVEL, MEASURED_MOVE_REACHED."""
+    measured_values: dict[str, float]
+    """The numbers the rule compared: close, open, level, buffer, atr_pre, …"""
+    evidence_refs: tuple[str, ...] = ()
+    methodology_version: str
+    """``patterns-{analyzer version}/geometry-{family geometry version}``."""
+    provisional: bool = False
+    """The bar closed on a non-regular session (ADR-0015)."""
+    measured_move: MeasuredMove | None = None
+    """Only on the breakout event (CONFIRMED or RECOGNISED_AFTER_BREAKOUT)."""
 
 
 class KeyPoint(Frozen):
@@ -99,11 +151,22 @@ class Pattern(Frozen):
     ``known_at``."""
     depends_on: tuple[str, ...]
     """The defining swings."""
-    status_history: list[StatusEntry]
+    status_history: list[PatternEvent]
+    """Append-only; the first is FORMING at ``known_at``. At most one breakout event and
+    one terminal event, each the first condition objectively satisfied."""
 
     @property
     def status(self) -> str:
         return self.status_history[-1].status
+
+    @property
+    def breakout(self) -> PatternEvent | None:
+        return next((e for e in self.status_history if e.status in BROKEN_OUT), None)
+
+    @property
+    def measured_move(self) -> MeasuredMove | None:
+        event = self.breakout
+        return event.measured_move if event else None
 
     def as_of(self, day: date) -> Pattern | None:
         if self.known_at > day:
@@ -111,7 +174,7 @@ class Pattern(Frozen):
         return self.model_copy(
             update={
                 "touches": [t for t in self.touches if t.known_at <= day],
-                "status_history": history_as_of(self.status_history, day),
+                "status_history": [e for e in self.status_history if e.known_at <= day],
             }
         )
 

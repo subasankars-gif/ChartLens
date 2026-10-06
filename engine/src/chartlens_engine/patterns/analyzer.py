@@ -17,10 +17,11 @@ import numpy as np
 import pandas as pd
 
 from chartlens_core.config import PatternsConfig
-from chartlens_engine.causal import CompleteBars, StatusEntry, complete_bars, numeric
+from chartlens_engine.causal import CompleteBars, complete_bars, numeric
 from chartlens_engine.indicators import IndicatorResult
 from chartlens_engine.interfaces import AnalysisContext
 from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Generator, Line, Spec
+from chartlens_engine.patterns.lifecycle import Lifecycle
 from chartlens_engine.patterns.model import (
     CandidateCount,
     Geometry,
@@ -50,7 +51,7 @@ FAMILIES = (
 
 class PatternAnalyzer:
     name = "patterns"
-    version = "1"
+    version = "2"
 
     def __init__(
         self,
@@ -90,16 +91,21 @@ class PatternAnalyzer:
                 sp.pattern_type,
             )
         )
+        atr_pre = np.concatenate(([np.nan], atr[:-1])) if cb.n else atr
+        lifecycle = Lifecycle(self.config, cb, atr_pre, self.version)
         patterns: list[Pattern] = []
-        accepted: list[tuple[Spec, Pattern]] = []
+        accepted: list[tuple[Spec, Pattern, int]] = []
         same: dict[str, int] = {}
         for spec in specs:
-            touches = self._touches(spec, cb, atr, primary, fine, index_of)
-            pattern = self._pattern(spec, cb, touches)
+            events = lifecycle.events(spec)
+            # FORMING lasts until the bar of the first later event (exclusive).
+            forming_end = index_of[events[1].effective_date] if len(events) > 1 else cb.n
             if self._same_formation(spec, accepted, index_of):
                 same[spec.family] = same.get(spec.family, 0) + 1
                 continue
-            accepted.append((spec, pattern))
+            touches = self._touches(spec, atr, primary, fine, index_of, forming_end)
+            pattern = self._pattern(spec, cb, touches).model_copy(update={"status_history": events})
+            accepted.append((spec, pattern, forming_end))
             patterns.append(pattern)
         tally = generator.tally
         valid: dict[str, int] = {}
@@ -130,14 +136,14 @@ class PatternAnalyzer:
     def _touches(
         self,
         spec: Spec,
-        cb: CompleteBars,
         atr: np.ndarray,
         primary: list[SwingPoint],
         fine: list[SwingPoint],
         index_of: dict[date, int],
+        forming_end: int,
     ) -> list[tuple[SwingPoint, str, float]]:
-        """Later swings within the touch tolerance of a line, known before the pattern's
-        horizon ends (its first close outside, its apex or its waiting window)."""
+        """Later swings within the touch tolerance of a line, known while the pattern is
+        still FORMING (before the bar of its first lifecycle event)."""
         if spec.touch_tol_atr is None:
             return []
         lines = {line.label: line for line in spec.lines}
@@ -147,8 +153,8 @@ class PatternAnalyzer:
             if s.bar_index <= last:
                 continue
             assert s.known_at is not None
-            if index_of[s.known_at] >= spec.horizon_end:
-                if s.bar_index >= spec.horizon_end:
+            if index_of[s.known_at] >= forming_end:
+                if s.bar_index >= forming_end:
                     break
                 continue
             label = spec.touch_lines.get(s.type)
@@ -162,21 +168,18 @@ class PatternAnalyzer:
 
     @staticmethod
     def _same_formation(
-        spec: Spec, accepted: list[tuple[Spec, Pattern]], index_of: dict[date, int]
+        spec: Spec, accepted: list[tuple[Spec, Pattern, int]], index_of: dict[date, int]
     ) -> bool:
         """ADR-0022 §2: the same type and direction, the earlier pattern still FORMING
-        (inside its horizon) when this one becomes known, every defining swing of the new
-        candidate a defining swing or touch of it known by then, and at least two shared."""
+        when this one becomes known (or known on the same bar), every defining swing of
+        the new candidate a defining swing or touch of it known by then, and at least two
+        shared."""
         mine = {s.swing_id for s in spec.defining}
         k = spec.known_index
-        for other_spec, other in accepted:
+        for other_spec, other, forming_end in accepted:
             if other.pattern_type != spec.pattern_type or other.direction != spec.direction:
                 continue
-            if (
-                not other_spec.known_index
-                <= k
-                < max(other_spec.horizon_end, other_spec.known_index + 1)
-            ):
+            if not other_spec.known_index <= k < max(forming_end, other_spec.known_index + 1):
                 continue
             defining = {s.swing_id for s in other_spec.defining}
             touched = {t.swing_id for t in other.touches if index_of[t.known_at] <= k}
@@ -252,11 +255,5 @@ class PatternAnalyzer:
                 for s, label, d in touches
             ],
             depends_on=tuple(s.swing_id for s in spec.defining),
-            status_history=[
-                StatusEntry(
-                    status="FORMING",
-                    date=known_at,
-                    provisional=bool(cb.special[spec.known_index]),
-                )
-            ],
+            status_history=[],
         )

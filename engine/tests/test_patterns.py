@@ -47,14 +47,14 @@ DOUBLE = [lo(5, 45.0), hi(10, 49.0), lo(15, 45.3)]
 def test_double_bottom_geometry_identity_and_known_at() -> None:
     (p,) = _of(_run(DOUBLE), "DOUBLE_BOTTOM")
     g = p.geometry
-    assert (p.direction, p.known_at, p.status) == ("BULLISH", week(16), "FORMING")
+    assert (p.direction, p.known_at, p.status_history[0].status) == ("BULLISH", week(16), "FORMING")
     assert p.pattern_id.endswith(f"PAT:DOUBLE_BOTTOM:{week(5)}:{week(10)}:{week(15)}")
     assert [k.label for k in g.key_points] == ["LOW_1", "NECKLINE", "LOW_2"]
     assert (g.confirmation_level, g.invalidation_level, g.atr_d) == (49.0, 45.0, 1.0)
     assert g.height == pytest.approx(4.0)  # neckline − the lower low
     assert g.measures["extreme_difference_atr"] == pytest.approx(0.3)
     assert g.measures["height_atr"] == pytest.approx(3.7)
-    assert p.status_history[0].date == p.known_at
+    assert p.status_history[0].effective_date == p.known_at
     assert p.depends_on == tuple(k.swing_id for k in g.key_points)
 
 

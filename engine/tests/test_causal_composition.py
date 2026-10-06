@@ -237,6 +237,9 @@ def test_special_session_closes_make_phase_4_decisions_provisional() -> None:
     ]
     assert entries
     assert all(e.provisional == on[e.date] for e in entries)
+    pattern_events = [e for p in chain.patterns.patterns for e in p.status_history]
+    assert pattern_events
+    assert all(e.provisional == on[e.effective_date] for e in pattern_events)
     events = [*chain.volume.events, *chain.volatility.events, *chain.candles.events]
     assert any(e.provisional for e in events)
     assert all(e.provisional == on[e.bar_date] for e in events)
