@@ -308,8 +308,12 @@ def _check_invariants(f: DefinitionFit) -> None:
     assert sum(c.actual_weight for c in shape) == pytest.approx(f.shape_weight)
     assert sum(c.nominal_weight for c in shape) == pytest.approx(f.shape_share)
     for c in f.components:
-        if c.aspect == "SHAPE":
-            assert c.status == "APPLICABLE" and c.actual_weight >= c.nominal_weight
+        if c.aspect == "SHAPE" and c.status == "APPLICABLE":
+            assert c.score is not None and 0 <= c.score <= 1
+            assert c.actual_weight >= c.nominal_weight
+        elif c.aspect == "SHAPE":
+            assert (c.status, c.reason) == ("NOT_APPLICABLE", "TOUCHES_AFTER_KNOWN_AT")
+            assert c.score is None and c.actual_weight == 0 == c.nominal_weight
         elif c.status == "APPLICABLE":
             assert c.score is not None and 0 <= c.score <= 1
             assert c.actual_weight == pytest.approx(c.nominal_weight)
@@ -422,6 +426,27 @@ def test_not_in_definition_has_no_weight_at_all() -> None:
         0.0,
         None,
     )
+
+
+@pytest.mark.parametrize("touches", [4, 5, 9])
+def test_boundary_touches_are_recorded_but_never_scored(touches: int) -> None:
+    """Touches arrive after recognition, so at known_at the count cannot be observed:
+    the criterion is NOT_APPLICABLE, carries no weight, and the shape score is the mean
+    of the observable criteria whatever the count (5b-C review)."""
+    m = {"upper_difference_atr": 0.0, "lower_difference_atr": 0.0, "height_atr": 4.0}
+    ctx = make_context(("HIGH_1", "LOW_2", "HIGH_3", "LOW_4"), touches=touches)
+    f = score("rectangle", "RECTANGLE", "NEUTRAL", m, None, ctx, CFG)
+    t = _component(f, "touches")
+    assert (t.status, t.reason, t.score, t.nominal_weight, t.actual_weight) == (
+        "NOT_APPLICABLE",
+        "TOUCHES_AFTER_KNOWN_AT",
+        None,
+        0.0,
+        0.0,
+    )
+    assert t.inputs == {"context.boundary_touches_at_known": touches}
+    assert f.shape_score == pytest.approx(1.0)
+    _check_invariants(f)
 
 
 def test_neutral_patterns_have_no_prior_trend_components() -> None:

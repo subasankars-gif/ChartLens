@@ -255,6 +255,14 @@ def _top_overlap(a: list[float], b: list[float], frac: float) -> float | None:
     return round(len(ta & tb) / n, 4)
 
 
+def _status_totals(comp: dict[str, Counter[str]]) -> dict[str, dict[str, int]]:
+    """Per component, across families: how often it participated or not, and why."""
+    out: dict[str, Counter[str]] = defaultdict(Counter)
+    for key, statuses in comp.items():
+        out[key.split("|")[1]].update(statuses)
+    return {k: dict(v.most_common()) for k, v in sorted(out.items())}
+
+
 def _sensitivity(rows: list[dict[str, Any]]) -> dict[str, Any]:
     base = [r["exact"] for r in rows]
     out: dict[str, Any] = {"n": len(rows)}
@@ -295,6 +303,7 @@ def fit_report(
             }
             for t, rs in sorted(by_type.items(), key=lambda kv: -len(kv[1]))
         },
+        "status_totals": _status_totals(comp),
         "components": {
             k: {
                 "statuses": dict(v.most_common()),

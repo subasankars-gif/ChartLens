@@ -40,7 +40,9 @@ from chartlens_core.config import PatternsConfig, PatternSection
 from chartlens_engine.causal import Frozen
 from chartlens_engine.patterns.context import PatternContext
 
-FIT_VERSION = "1"
+FIT_VERSION = "2"
+"""2: boundary touches are NOT_APPLICABLE at known_at (5b-C review): touches arrive
+after recognition, so the count is not observable when the fit is frozen."""
 
 Status = Literal["APPLICABLE", "NOT_APPLICABLE", "NOT_IN_DEFINITION", "UNAVAILABLE"]
 Aspect = Literal["SHAPE", "PRIOR_TREND", "VOLUME", "CONFLUENCE"]
@@ -251,9 +253,17 @@ def score(
         evidence_components.append(_component(leaf, nominal, actual))
     # Every non-participating leaf's weight returns to shape, never to other evidence.
     shape_weight = 1 - sum(c.actual_weight for c in evidence_components)
-    n = len(shape)
-    shape_score = sum(leaf.score or 0.0 for leaf in shape) / n
-    components = [_component(leaf, g / n, shape_weight / n) for leaf in shape]
+    # Shape is the mean of its observable criteria; a criterion that cannot be observed
+    # at known_at carries no weight (its share stays with the other shape criteria).
+    observed = [leaf for leaf in shape if leaf.status == "APPLICABLE"]
+    n = len(observed)
+    shape_score = sum(leaf.score or 0.0 for leaf in observed) / n
+    components = [
+        _component(leaf, g / n, shape_weight / n)
+        if leaf.status == "APPLICABLE"
+        else _component(leaf, 0.0, 0.0)
+        for leaf in shape
+    ]
     components += evidence_components
 
     used: dict[str, str] = {}
@@ -475,14 +485,18 @@ def _shape(
     else:
         raise ValueError(f"no shape criteria for family {family}")
     if family in BOUNDARY_FAMILIES:
+        # §7.6–7.8 count touches known by known_at, but touches arrive after recognition:
+        # at known_at the count is (almost) always the defining swings, so the criterion
+        # cannot be observed when the fit is frozen (5b-C review). It is recorded, never
+        # scored; touch detection and the touches themselves are unchanged.
         n = context.boundary_touches_at_known
         assert n is not None
         out.append(
             _Leaf(
                 "touches",
                 "SHAPE",
-                "APPLICABLE",
-                score=_clip((n - 3) / 3),
+                "NOT_APPLICABLE",
+                "TOUCHES_AFTER_KNOWN_AT",
                 inputs={"context.boundary_touches_at_known": n},
             )
         )
