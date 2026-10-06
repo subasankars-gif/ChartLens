@@ -836,7 +836,7 @@ with outcomes in this phase.
 **Real-data report (planned):** confidence distributions and component means per family.
 No outcome cross-tabulation.
 
-## 15. 5b-C decisions and the aggregation methodology (approved 2026-10-06)
+## 15. 5b-C decisions and the aggregation methodology (approved 2026-10-06; see §17)
 
 ### 15.1 Decisions (Suba, 2026-10-06)
 
@@ -1132,6 +1132,65 @@ scores: the V drop, the flag and pennant pole, and the rounding bowl.
   agreement" reading (§16 above) is part of this. Raised for review.
 - **Timing.** The pattern stage is about 16 ms per security, up from 11.3 ms (context
   v3 and the fit).
+
+## 17. 5b-C review and closure (Suba, 2026-10-06)
+
+**Decisions:**
+
+- **Boundary touches** are `NOT_APPLICABLE / TOUCHES_AFTER_KNOWN_AT` in the
+  definition fit (fit version 2). This is a temporal-observability problem, not a
+  deficiency in those patterns. The touch count is still recorded in the context and
+  the component's inputs. Touch detection, the touches and the geometry are unchanged.
+  Shape is the mean of its observable criteria.
+- **Wedge saturation** is a finding only, not a definition review: "wedge slope
+  agreement has low variance under the current flat-slope threshold." The threshold is
+  not tuned to the NSE distribution. If later analysis shows that wedges consistently
+  discriminate poorly on geometry, that gets its own geometry-definition review.
+- **The three readings of §7 are accepted:**
+  - the rounding prior move is not applicable (`NOT_APPLICABLE / MOVE_IS_SHAPE`,
+    which does not imply insufficient history);
+  - wedge slope agreement is the shallower line's slope against the flat threshold;
+  - pennant convergence comes from the frozen lines' widths.
+- **Robustness is not correctness.** The sensitivity results show that the ranking is
+  robust to reasonable changes of the declared constant. They do not show that the
+  weighting is correct, and they are never read that way.
+- **Nothing else is added to the definition fit at this stage.** Not Fibonacci depth,
+  not contraction presence, not finer-swing divergence, not outcome-derived statistics.
+  Each would be a separate methodology decision later.
+- **Next phase: relevance**, with the same discipline. Relevance is an annotation
+  explaining why a pattern deserves attention. It never modifies geometry, lifecycle or
+  definition fit.
+
+**Final real-NSE diagnostics (fit v2;** snapshot meta-a89cf1fbcd05; 3,191
+securities; descriptive, no outcomes**):**
+
+- **Unchanged.** 26,289 patterns; candidate counts and every lifecycle path are
+  identical to the 5b-B run.
+- **Definition fit**, p10 / p25 / median / p75 / p90 = 40 / 49 / 59 / 70 / 80.
+- **Statuses:**
+  - prior move: not applicable because it is shape for 8,602 patterns, not in the
+    definition for 3,330 (neutral);
+  - touches: not applicable for 5,391 (all boundary patterns);
+  - divergence: applicable for 10,744, not in the definition for 15,545;
+  - volume: unavailable for 235 (0.9 %);
+  - prior structure and prior move: never unavailable.
+- **Sensitivity** (shape share 0.60 / 0.75 vs 2/3):
+  - Spearman 0.993 / 0.990 overall, and ≥ 0.978 in every family;
+  - top-10 % overlap 93 % / 90 % overall, and 89–97 % by family;
+  - top-10 % overlap among the patterns FORMING now 92 % / 90 %;
+  - values change by at most 6.2 / 7.8 points.
+- **Effect of the touches change** (medians):
+  - rectangle 57 → 64; triangles 59–61 → 69–73; wedges 66–71 → 80–85;
+  - every other family unchanged.
+- **Known limitation (recorded, not changed).** Without the constant, triangle and
+  wedge shape is dominated by criteria that saturate. Triangle convergence averages
+  0.97, wedge convergence 0.96, wedge slope agreement 0.90, and the falling-wedge
+  median shape is 1.0. These families now have the highest fits (the falling wedge
+  has the highest p10, 72). Definition fit is therefore comparable **within** a family.
+  Across families it is not like-for-like, and relevance should not treat it as such.
+- **Timing.** The pattern stage is about 16.8 ms per security.
+
+**Phase 5b-C: CLOSED.**
 
 ## Testing (mandatory)
 
