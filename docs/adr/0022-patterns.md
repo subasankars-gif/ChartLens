@@ -507,18 +507,18 @@ is derived: `flag_max_bars` from the pole's end.
 
 | Field | Rule |
 |---|---|
-| Swing sequence | Rims H_a and H_b: primary swing highs, with every primary high between them below min(rims). Handle low L_h: the first swing low after H_b at `fine_sensitivity` |
+| Swing sequence | **Geometry version 2 (5b-A review).** Left rim H_a: a primary swing high. Cup low L_c: the next primary swing, a low. Right rim H_b: the **first** swing high at `fine_sensitivity` after L_c that returns to the left rim's zone (P(H_b) ≥ P(H_a) − `rim_tol_atr` × ATR at H_b's bar), within `cup_max_bars` of H_a. Every primary high between the rims is below min(rims). Handle low L_h: the first swing low after H_b at `fine_sensitivity` |
 | Candidate geometry | Cup = a quadratic fit of closes between the rims, with a > 0. Handle = the pullback from H_b to L_h |
 | Tolerances | \|P(H_a) − P(H_b)\| ≤ `rim_tol_atr` × ATR_D; R² ≥ `min_r2`; depth ≥ `min_depth_atr` × ATR_D and ≤ `max_depth_ratio` × min(rims); handle depth P(H_b) − P(L_h) ≤ `handle_max_ratio` × cup depth; P(L_h) > cup midpoint |
 | Separation | bars(H_a, H_b) ∈ [`cup_min_bars`, `cup_max_bars`]; bars(H_b, L_h) ∈ [`handle_min_bars`, `handle_max_bars`] |
 | Height | Cup depth (above) |
 | Context | `prior_move` up into H_a (continuation); `trend_context` (bullish continuation); `volume_behaviour` = 1 if the volume SMA at the cup bottom < at H_a; `fib_depth` of the handle |
 | Confirmation | Common breakout above P(H_b) |
-| Invalidation | A complete close < P(L_h), or < the cup midpoint |
+| Invalidation | A complete close < P(L_h). The handle must also be ≤ `handle_max_ratio` of the cup depth and above the cup midpoint to exist at all (geometry) |
 | Expiry | `max_wait_bars` after `known_at` |
 | Measured-move zone | P(H_b) + cup depth ± `mm_zone_atr` × ATR_pre |
-| Identity | CUP_HANDLE + (H_a, H_b, L_h) |
-| `known_at` | max(k(H_b), k(L_h)) |
+| Identity | CUP_HANDLE + (H_a, L_c, H_b, L_h) |
+| `known_at` | The latest of the four, in practice k(L_h): the cup and handle is known once its handle low is |
 | Status transitions | Common |
 | Confidence | Geometry: R² scaled, `closeness(|H_a − H_b|, rim_tol)`, `margin(depth_atr, min_depth)`, `closeness(handle ratio, handle_max_ratio)`. Context: as listed |
 | Overlap | Coexists with the rounding bottom on the same rims. Relevance prefers the cup & handle |
@@ -629,6 +629,46 @@ confirmation and the rest of the status machine follow after that review.
     breakout event, including its measured move.
   - A run as of the week before shows no breakout event: either the pattern is still
     FORMING, or, when it was recognised after the breakout, it does not exist yet.
+
+## 11. 5b-A review amendments (Suba, 2026-10-06)
+
+**Cup and handle, geometry version 2.**
+
+- **Why it changed.** In version 1 the right rim had to be a *primary* swing.
+  - A primary swing is confirmed only after a reversal of about 3 ATR.
+  - The handle can be at most half the cup depth, and its low was the first fine swing.
+  - So by the time the rim was confirmed, price had usually already broken the handle
+    low. On real data 392 of 409 were invalidated, typically on the very bar that made
+    them known.
+- **The rule now.**
+  - The right rim is the first **fine** swing high after the cup low that returns to the
+    left rim's zone.
+  - The left rim and the cup low stay primary.
+  - The handle low is still the first fine swing after the right rim. Invalidation is
+    still a close below it: the stricter rule is kept, not the cup midpoint.
+- **Only this one methodology is implemented.** Regression tests show that:
+  - a cup whose right rim exists only at the fine level is known with its handle and is
+    FORMING then, not invalidated on recognition;
+  - a handle deeper than half the cup is rejected;
+  - a later close below the handle low still invalidates the pattern.
+
+**V patterns.**
+
+- RECOGNISED_AFTER_BREAKOUT is an intrinsic recognition limit, not a defect.
+  - The V low is a primary swing confirmed after a reversal of about 3 ATR.
+  - The V's confirmation level is 0.618 of a drop of at least 4 ATR.
+  - So the V is often already beyond its level when it becomes knowable.
+- A methodology test pins this. Swing confirmation must not be weakened to raise the
+  prospective share.
+
+**Terminal decisions are permanent.** When FAILED and COMPLETED are both true on one
+bar, the pattern is FAILED. A test runs as of that bar, the next bar, and the full
+history in which price later reaches the zone. All three keep the same FAILED event; no
+later bar upgrades FAILED to COMPLETED.
+
+**No success rates yet.** Lifecycle counts are behavioural observations. Success rates
+belong to the later historical-validation layer, where the observation window, the
+outcome definition, censoring and the methodology version can be controlled.
 
 ## Testing (mandatory)
 

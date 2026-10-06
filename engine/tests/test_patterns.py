@@ -239,12 +239,14 @@ def test_flag_pole_must_be_fast() -> None:
 def test_cup_and_handle_and_the_rounding_bottom_on_the_same_rims() -> None:
     cup = [50 + 0.1 * (b - 15) ** 2 for b in range(26)]  # 60 at the rims, 50 at bar 15
     closes = [60.0] * 5 + cup[5:] + [60.3, 59.5, 58.5, 59.0, 59.5, 60.0]
-    result = _run([hi(5, 60.0), hi(25, 60.3), lo(28, 58.0)], closes, n=len(closes))
+    result = _run([hi(5, 60.0), lo(15, 49.5), hi(25, 60.3), lo(28, 58.0)], closes, n=len(closes))
     (c,) = _of(result, "CUP_HANDLE")
     g = c.geometry
     assert (g.confirmation_level, g.invalidation_level) == (60.3, 58.0)
     assert g.measures["r2"] == pytest.approx(1.0)
     assert c.known_at == week(29)  # the handle low is known last
+    assert [k.label for k in g.key_points] == ["RIM_1", "CUP_LOW", "RIM_2", "HANDLE"]
+    assert g.geometry_version == "2"
     assert len(_of(result, "ROUNDING_BOTTOM")) == 1  # coexists: relevance prefers the cup
 
 

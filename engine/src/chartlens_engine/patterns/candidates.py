@@ -94,7 +94,7 @@ GEOMETRY_VERSIONS: dict[str, str] = {
     "wedge": "1",
     "flag": "1",
     "pennant": "1",
-    "cup_handle": "1",
+    "cup_handle": "2",  # 2: right rim at the fine sensitivity; cup low defining (5b-A review)
 }
 """Each family's geometry rules version: bumped whenever a family's geometric definition
 changes, so every stored geometry says which rules made it."""
@@ -806,19 +806,47 @@ class Generator:
     # ------------------------------------------------------------------ 7.12 cup
 
     def cup_handle(self, s: float) -> list[Spec]:
+        """Geometry version 2 (5b-A review): the left rim and the cup low are primary
+        swings; the **right rim** is the first fine swing after the cup low that returns to
+        the left rim's zone; the handle low is the first fine swing after the right rim.
+        A primary right rim needs a ~3-ATR reversal to be confirmed, deeper than most
+        handles, so the pattern was only ever known after its handle had already broken."""
         cfg = self.cfg.cup_handle
-        down: Kind = "LOW" if s > 0 else "HIGH"
+        up: Kind = "HIGH" if s > 0 else "LOW"
+        down = _opposite(up)
         out: list[Spec] = []
-        for ra, rb, ups, _ in self._rims(s, cfg.cup_min_bars, cfg.cup_max_bars):
+        prim = self.primary
+        for i, ra in enumerate(prim):
+            if ra.type != up or i + 1 >= len(prim) or prim[i + 1].type != down:
+                continue
+            cup_low = prim[i + 1]
+            self.generated("cup_handle")
+            qa = s * ra.price
+            rb: SwingPoint | None = None
+            for x in self.fine:
+                if x.type != up or x.bar_index <= cup_low.bar_index:
+                    continue
+                if x.bar_index - ra.bar_index > cfg.cup_max_bars:
+                    break
+                a = self.atr_at(x.bar_index)
+                if not np.isnan(a) and s * x.price >= qa - cfg.rim_tol_atr * a:
+                    rb = x  # price is back at the left rim's level
+                    break
+            if rb is None:
+                self.reject("cup_handle", (ra, cup_low), "right_rim_missing")
+                continue
             handle = next(
                 (x for x in self.fine if x.type == down and x.bar_index > rb.bar_index), None
             )
-            w = (ra, rb) if handle is None else (ra, rb, handle)
-            self.generated("cup_handle")
-            qa, qb = s * ra.price, s * rb.price
+            w = (ra, cup_low, rb) if handle is None else (ra, cup_low, rb, handle)
+            qb = s * rb.price
             rim = min(qa, qb)
-            if any(s * x.price >= rim for x in ups):
+            between = [x for x in prim if ra.bar_index < x.bar_index < rb.bar_index]
+            if any(x.type == up and s * x.price >= rim for x in between):
                 self.reject("cup_handle", w, "interior_above_rims")
+                continue
+            if rb.bar_index - ra.bar_index < cfg.cup_min_bars:
+                self.reject("cup_handle", w, "separation")
                 continue
             if handle is None:
                 self.reject("cup_handle", w, "handle_missing")
@@ -862,7 +890,7 @@ class Generator:
                         direction="BULLISH" if bull else "BEARISH",
                         sensitivity=rb.sensitivity,
                         defining=w,
-                        labels=("RIM_1", "RIM_2", "HANDLE"),
+                        labels=("RIM_1", "CUP_LOW", "RIM_2", "HANDLE"),
                         known_index=k,
                         atr_d=atr,
                         lines=(Line("RIM", ra.bar_index, rb.price, 0.0),),

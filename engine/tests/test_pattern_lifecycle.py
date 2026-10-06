@@ -15,6 +15,7 @@ from analysis_chain import SEG, SID, manual_swings, random_bars, run_chain, week
 from chartlens_core.config import AnalysisConfig, IndicatorConfig
 from chartlens_engine.patterns import Pattern, PatternResult
 from chartlens_engine.patterns.model import BROKEN_OUT, TERMINAL
+from chartlens_engine.swings import SwingResult
 
 HAND = AnalysisConfig(indicators=IndicatorConfig(atr_period=2))
 Row = tuple[float, float, float, float]
@@ -265,3 +266,107 @@ def test_lifecycle_invariants(seed: int) -> None:
         mm = p.measured_move
         if mm is not None:
             assert p.breakout is not None and mm.target_calculated_at == p.breakout.effective_date
+
+
+# ------------------------------------------------ cup & handle: geometry version 2
+
+
+def _two_sensitivities(
+    bars: pd.DataFrame,
+    primary: list[tuple[str, int, int, float]],
+    fine: list[tuple[str, int, int, float]],
+) -> SwingResult:
+    """Primary swings at MICRO and the pattern layer's fine swings at MINOR (configured
+    as ``fine_sensitivity``), so a right rim can exist at the fine level only."""
+    p = manual_swings(bars, primary, sensitivity="MICRO")
+    f = manual_swings(bars, fine, sensitivity="MINOR")
+    return p.model_copy(update={"swings": [*p.swings, *f.swings]})
+
+
+CUP_CFG = HAND.model_copy(
+    update={"patterns": HAND.patterns.model_copy(update={"fine_sensitivity": "MINOR"})}
+)
+BOWL = [60.0] * 5 + [50 + 0.1 * (b - 15) ** 2 for b in range(5, 26)]  # rims 60, low 50
+CUP_PRIMARY = [("HIGH", 5, 6, 60.0), ("LOW", 15, 16, 49.5)]  # left rim and cup low
+
+
+def _cup(
+    tail: list[float], fine: list[tuple[str, int, int, float]]
+) -> tuple[PatternResult, pd.DataFrame]:
+    bars = frame(rows_from_closes(BOWL + tail))
+    swings = _two_sensitivities(bars, CUP_PRIMARY, fine)
+    return run_chain(bars, CUP_CFG, swings).patterns, bars
+
+
+SHALLOW_HANDLE = [("HIGH", 25, 26, 60.3), ("LOW", 28, 29, 58.0)]  # handle 2.3 of a 10 cup
+
+
+def test_a_cup_whose_right_rim_is_only_a_fine_swing_is_known_with_its_handle() -> None:
+    """The handle (2.3) is far shallower than the ~3-ATR reversal a primary right rim
+    would need: with a fine right rim the pattern is known once the handle low is, and it
+    is FORMING then — not invalidated on recognition."""
+    tail = [60.3, 59.5, 58.5, 59.0, 59.5, 60.0, 61.5, 62.5, 63.0, 64.0]
+    result, bars = _cup(tail, SHALLOW_HANDLE)
+    (c,) = [p for p in result.patterns if p.pattern_type == "CUP_HANDLE"]
+    assert c.known_at == week(29)
+    assert c.as_of(week(29)) is not None and c.as_of(week(29)).status == "FORMING"  # type: ignore[union-attr]
+    assert c.geometry.measures["handle_ratio"] < 0.5
+    assert [k.label for k in c.geometry.key_points] == ["RIM_1", "CUP_LOW", "RIM_2", "HANDLE"]
+    # As of the right rim's known date the handle low does not exist: no pattern yet.
+    early = run_chain(
+        bars.iloc[:27].copy(),
+        CUP_CFG,
+        _two_sensitivities(bars.iloc[:27].copy(), CUP_PRIMARY, SHALLOW_HANDLE[:1]),
+    ).patterns
+    assert not [p for p in early.patterns if p.pattern_type == "CUP_HANDLE"]
+    assert c.breakout is not None and c.breakout.status == "CONFIRMED"  # a later, fresh breakout
+
+
+def test_a_handle_deeper_than_half_the_cup_is_rejected() -> None:
+    result, _ = _cup(
+        [60.3, 58.0, 55.0, 54.5, 56.0], [("HIGH", 25, 26, 60.3), ("LOW", 28, 29, 54.0)]
+    )
+    assert not [p for p in result.patterns if p.pattern_type == "CUP_HANDLE"]
+    assert "handle_depth" in {r.rule for r in result.rejections if r.family == "cup_handle"}
+
+
+def test_a_handle_that_breaks_its_low_after_recognition_is_invalidated() -> None:
+    result, _ = _cup([60.3, 59.5, 58.5, 59.0, 57.5], SHALLOW_HANDLE)
+    (c,) = [p for p in result.patterns if p.pattern_type == "CUP_HANDLE"]
+    assert steps(c)[1:] == [("INVALIDATED", week(30), "CLOSE_BEYOND_INVALIDATION")]
+
+
+# --------------------------------------------------- V: an intrinsic recognition limit
+
+
+def test_v_recognition_after_the_breakout_is_methodology_not_a_defect() -> None:
+    """A V low is a primary swing: it is confirmed only after a reversal (3 ATR by
+    default), while the V's confirmation level is 0.618 of a ≥ 4-ATR drop. So a V is
+    often already beyond its level when it becomes knowable, and is then
+    RECOGNISED_AFTER_BREAKOUT. Do not "fix" this by weakening swing confirmation to raise
+    the share of prospective confirmations (Suba, 5b-A review)."""
+    closes = [60.0] * 11 + [56.0, 52.0, 50.0, 50.0, 57.0, 57.5]  # V low known at week 15
+    rows = rows_from_closes(closes)
+    p = one(run(rows, [("HIGH", 10, 11, 60.5), ("LOW", 14, 15, 49.5)]), "V_BOTTOM")
+    level = p.geometry.confirmation_level
+    assert level == pytest.approx(49.5 + 0.618 * 11)  # 56.3; week 15 already closes at 57
+    assert steps(p)[1] == ("RECOGNISED_AFTER_BREAKOUT", week(15), "ALREADY_BEYOND_LEVEL")
+
+
+# -------------------------------------------- a terminal decision never changes later
+
+
+def test_a_same_week_tie_stays_failed_in_every_later_replay() -> None:
+    """FAILED and COMPLETED both true on week 20: FAILED. Runs as of week 20, week 21 and
+    the full history (where price later reaches the zone again) all keep FAILED at week
+    20; no later bar upgrades it."""
+    rows = [*rows_from_closes([*BELOW, 50.0]), (50.0, 60.0, 47.0, 47.5)]
+    rows += rows_from_closes([47.5, 52.0, 55.0, 58.0, 60.0])[1:]
+    bars = frame(rows)
+    terminal = []
+    for end in (21, 22, len(rows)):
+        part = bars.iloc[:end].copy()
+        p = one(run_chain(part, HAND, manual_swings(part, DOUBLE)).patterns)
+        terminal.append((p.status, p.status_history[-1].effective_date, p.status_history[-1]))
+    assert {t[:2] for t in terminal} == {("FAILED", week(20))}
+    assert terminal[0][2] == terminal[1][2] == terminal[2][2]
