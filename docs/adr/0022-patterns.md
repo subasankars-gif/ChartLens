@@ -763,7 +763,7 @@ Tested:
 - **Random series.** Objects built from bars before a pattern's `known_at` but known
   after it do occur, and none is ever cited.
 
-## 14. Phase 5b-C: confidence (proposal for review, not yet accepted)
+## 14. Phase 5b-C: confidence (first proposal; direction approved, aggregation superseded by §15)
 
 > **Confidence is how well the observed formation satisfies the formal pattern
 > definition and the supporting technical evidence. It is not the probability of
@@ -835,6 +835,181 @@ with outcomes in this phase.
 
 **Real-data report (planned):** confidence distributions and component means per family.
 No outcome cross-tabulation.
+
+## 15. 5b-C decisions and the aggregation methodology (proposal for review)
+
+### 15.1 Decisions (Suba, 2026-10-06)
+
+| Question | Decision |
+|---|---|
+| 5b-B amendments | **Fully approved.** PRESENT requires a divergence that is live (FORMING or CONFIRMED) on the pattern's known date. Applicability is decided per pattern, not per family |
+| Neutral patterns | **Shape-only is allowed.** "Confidence measures definition fit, not completeness of available evidence." Never manufacture a large contribution because one component happens to be the only one applicable, and never normalise upward because fewer components apply |
+| Prior-trend reference | **Locked:** the structure state at the first defining swing, recorded as `prior_structure_state` with its as-of date. The recognition-date state is never called the prior trend |
+| Prior-move cap | **Kept at 4 ATR.** It is not tuned to the NSE sample. Saturation, if it shows, is a finding about discriminatory power, not a reason to move the goalposts |
+| Double counting | **Principle:** a measurable fact may contribute to the score through one component only. The same observation never gets independent weight because it has two names. The V drop and the flag or pennant pole are shape, so `prior_move` is N/A for them |
+| Name | **`definition_fit`**, internally and in the API. `confidence` is not exposed. UI: "Definition fit · 87/100", with the tooltip: "Measures how closely the formation matches ChartLens's defined geometry and applicable technical evidence. It is not a probability of breakout or success." |
+| Inputs | **Absolute rule:** the score comes from the frozen geometry and the context snapshot only. Prohibited: breakout outcome, terminal status, measured-move result, future bars, future volume, future divergence, future S/R changes, historical success statistics, similar-pattern outcomes |
+| Audit | Each component exposes component, status, score, inputs, evidence_refs and methodology_version |
+| Before code | The aggregation rule is reviewed first: why each weight exists, how N/A is handled, how double counting is prevented |
+
+### 15.2 Aggregation methodology (proposal)
+
+**Premise.** No weight in this score can be derived from data without using outcomes,
+and outcomes are prohibited. So the weights are declared methodology, and the design
+keeps the number of declared constants to one. Everything else follows from rules:
+
+1. **One declared constant: shape is primary.** Shape carries **2/3** of the score
+   when every component applies: it weighs twice all the evidence together. Shape is
+   the pattern; the hard geometric rules have already decided that it exists, and the
+   graded shape criteria say how cleanly. (This is ADR §5's approved 0.65, made a
+   statable ratio.)
+2. **Equal weights below that, because nothing justifies ranking them.** Without
+   outcomes there is no basis for ranking volume above divergence, or one shape
+   criterion above another. Equal weighting is the assumption-free choice:
+   - **Shape** = the mean of the family's §7 shape criteria (each criterion once;
+     functional forms as §5).
+   - **Evidence** has three aspects of equal weight, **1/9 each**: *Prerequisite*,
+     *Volume* and *Supporting*. Each aspect's leaves share its weight equally.
+
+| Aspect (1/9 each) | Leaf (nominal weight) | Measures |
+|---|---|---|
+| Prerequisite | `prior_structure` (1/18) | The structure state at the first defining swing: regime and persistence |
+| Prerequisite | `prior_move` (1/18) | The size of the move into the first defining swing, min(1, ATR ÷ 4) |
+| Volume | `volume_behaviour` (1/9) | The family's volume characteristic from §7 |
+| Supporting | `divergence` (1/18) | PRESENT 1, ABSENT 0 |
+| Supporting | `level_alignment` (1/18) | 1 if a level known by `known_at`, playing the pattern's role then, is near the base or top |
+
+3. **N/A weight returns to shape, never to other evidence.** This is the answer to
+   "don't normalise upward". An applicable component always carries exactly its
+   nominal weight, however many others are N/A. So:
+   - when nothing but shape applies, `definition_fit` = shape (Suba's rectangle at
+     87);
+   - no evidence component ever gains influence because a neighbour is absent;
+   - there is no renormalisation inside an aspect either. If divergence is N/A,
+     level alignment stays at 1/18, and divergence's 1/18 goes to shape.
+
+   Each component records its nominal and effective weight, so the shift to shape is
+   visible. The effective weights sum to 1 (tested).
+4. **Two kinds of "not applicable", and one "not available".**
+   - **`NOT_APPLICABLE` / `NOT_IN_DEFINITION`:** the family's §7 row does not list
+     the component. **§7 is the formal definition**, and a component outside a
+     family's row never scores for that family. 5b-C adds none. For example, V and
+     cup & handle do not list divergence, so it is N/A for them even though context
+     records it.
+   - **`NOT_APPLICABLE` / `NOT_OBSERVABLE`:** the definition lists it, but the
+     methodology cannot see it for this pattern. Examples: divergence for fine-swing
+     geometry (§13); `prior_move` where the move is shape (V drop, flag and pennant
+     pole); prerequisite components for neutral patterns.
+   - **`UNAVAILABLE`:** it applies and could be observed, but the history is
+     insufficient (no structure state yet at the first swing because of warm-up; no
+     bars before the first swing). It **scores 0 and keeps its weight**. A required
+     criterion that cannot be shown is not met; dropping it would raise the score of
+     patterns with less history, which is normalising upward by the back door. (This
+     is the M3 principle: never turn an unobserved fact into an assumed one.)
+5. **Double counting is prevented by construction and by test.**
+   - Each leaf declares the facts it reads (for example
+     `context.prior_move.decline_into_atr`, `geometry.measures.drop_atr`). A test
+     asserts that no fact key feeds two scored leaves of one pattern.
+   - The prior-move window ends before the first defining swing, and shape
+     measurements start at it. The bar ranges are disjoint.
+   - `prior_structure` and `prior_move` read the same price history but measure
+     different properties: regime and persistence versus magnitude. They are
+     correlated but not the same observation. So they are kept as two leaves inside
+     **one** aspect, and together they weigh what one aspect weighs.
+   - Removed for the same reason: `fib_depth` (retracement depth is shape for flags
+     and handles); `prior_move` where it is shape; contraction presence (§13, not
+     discriminating).
+6. **`prior_structure` is ordinal, so it is scored by evenly spaced ranks.** The
+   score encodes only the order. It replaces §5's table (0.25 for the opposite trend
+   becomes 0; RANGE 0.5 becomes 1/3).
+
+| Bullish reversal (needs a prior downtrend) | Score |
+|---|---|
+| STRONG_DOWNTREND, WEAKENING_DOWNTREND | 1 |
+| TRANSITION in a DOWN regime (pending UP: the downtrend is being challenged) | 2/3 |
+| RANGE; TRANSITION in an UP regime | 1/3 |
+| STRONG_UPTREND, WEAKENING_UPTREND | 0 |
+| No state yet | `UNAVAILABLE` (0) |
+
+   Bearish reversals mirror the table. Continuations use it with the trend directions
+   swapped: a bullish continuation needs a prior uptrend.
+7. **Global constants only.** The 2/3, the three aspects and the leaf split are the
+   same for every family. Per-pattern weight overrides are removed from §5, so that
+   per-family tuning cannot creep in. Which leaves apply varies by family (§7) and by
+   instance (observability); the weights do not.
+
+**Formula.** `definition_fit = round(100 × Σ effective_weight_i × score_i)`, where:
+
+- shape's effective weight = 2/3 + Σ nominal weights of the N/A leaves;
+- each applicable or `UNAVAILABLE` leaf has its nominal weight.
+
+**Worked examples.**
+
+- *Rectangle*, shape 0.87. The prerequisite leaves are N/A (neutral), and divergence
+  and level alignment are N/A (not in its definition).
+  - Volume N/A: fit = 87.
+  - Volume applicable: shape weighs 8/9, so fit = 77 when volume scores 0 and 88 when
+    it scores 1.
+  - Volume can move a rectangle by at most 11 points, not 35.
+- *Double bottom*, shape 0.80, with prior structure STRONG_DOWNTREND (1), prior move
+  3.6 ATR (0.9), volume lower at L2 (1), divergence ABSENT (0) and a level near the
+  lows (1):
+  `2/3·0.80 + 1/18·1 + 1/18·0.9 + 1/9·1 + 1/18·0 + 1/18·1` = 0.806, so **81**.
+- *Bull flag*, shape 0.70, prior structure uptrend (1), volume not drying up (0).
+  Prior move (pole), divergence (fine swings) and level (not in its definition) are
+  N/A, so shape weighs 5/6:
+  `5/6·0.70 + 1/18·1 + 1/9·0` = 0.639, so **64**.
+
+**Component record:**
+
+- `component`, `aspect` (SHAPE / PREREQUISITE / VOLUME / SUPPORTING);
+- `status` (APPLICABLE / NOT_APPLICABLE / UNAVAILABLE) and `reason`;
+- `score` (`null` unless APPLICABLE; 0 when UNAVAILABLE);
+- `nominal_weight` and `effective_weight`;
+- `inputs` (fact key → value) and `evidence_refs`;
+- `methodology_version`.
+
+`DefinitionFit` holds `value` (0–100), `fit_version`, `shape_score` and the
+components.
+
+**Context v3 facts needed** (all known by `known_at`):
+
+- `prior_structure_state`, `prior_structure_regime` and `prior_structure_pending`,
+  as of the first defining swing's bar, plus that as-of date and the state's `since`;
+- the volume SMA at **every** defining swing (H&S compares L2 and L3; rounding uses
+  the vertex), and RVOL at the V low.
+
+**Enforcement:**
+
+- `score(geometry, context, config)` is a pure function. Its module may not import the
+  lifecycle or read `status_history`, and it receives no bars or layers (a boundary
+  test, like the layer-boundary tests).
+- Replay: equal to a run as of `known_at`.
+- Outcome independence: equal when later bars flip the outcome (COMPLETED ↔ FAILED).
+- The effective weights sum to 1, and N/A never changes another component's
+  weight.
+- No fact key feeds two leaves.
+- Hand-computed golden values: one pattern per family, plus the worked examples above.
+
+**Real-data report** (planned, with no outcome cross-tabulation):
+
+- the distribution per family;
+- how often fit is shape-only, and the mean effective shape weight;
+- how often each leaf is UNAVAILABLE;
+- a robustness check: the rank correlation of fits when the shape share is 0.6 or 0.75
+  instead of 2/3. This is reported to show the ranking does not hinge on the constant;
+  it is not used to choose the constant.
+
+**Questions for review:**
+
+1. **Rectangle and symmetrical-triangle volume.** §7 lists diminishing volume for
+   them, and classical definitions of consolidations include it. Under rule 3 it
+   moves the fit by at most 11 points. Keep it applicable, or make neutral patterns
+   strictly shape-only?
+2. **`UNAVAILABLE` scores 0.** Agree, or would you rather show these patterns without
+   a fit value?
+3. **Three equal aspects**, and the 2/3 shape share as the single declared constant.
+   Agree?
 
 ## Testing (mandatory)
 
