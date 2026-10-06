@@ -836,7 +836,7 @@ with outcomes in this phase.
 **Real-data report (planned):** confidence distributions and component means per family.
 No outcome cross-tabulation.
 
-## 15. 5b-C decisions and the aggregation methodology (proposal for review)
+## 15. 5b-C decisions and the aggregation methodology (approved 2026-10-06)
 
 ### 15.1 Decisions (Suba, 2026-10-06)
 
@@ -1010,6 +1010,128 @@ components.
    a fit value?
 3. **Three equal aspects**, and the 2/3 shape share as the single declared constant.
    Agree?
+
+### 15.3 Approval (Suba, 2026-10-06)
+
+**Approved for implementation** with these answers to §15.2's questions:
+
+1. Rectangle and symmetrical-triangle volume stays applicable. It is part of the
+   approved definition, and it now moves the fit by at most 11 points. "Does this
+   formation satisfy the ChartLens definition as specified?", not "is volume
+   predictive?".
+2. `UNAVAILABLE` scores 0 and keeps its weight, so a young pattern never scores
+   higher because it had fewer chances to fail a test. The three states are explicit
+   in the API:
+   - `NOT_IN_DEFINITION`: nominal 0, actual 0;
+   - `NOT_APPLICABLE`: nominal w, actual 0, score `null`;
+   - `UNAVAILABLE`: nominal w, actual w, score 0.
+3. Shape 2/3 and the equal-weight hierarchy are approved. The aspects are fit aspects,
+   not prerequisites: the pattern engine has already established the pattern.
+
+**Locked:**
+
+- shape = 2/3;
+- the rest follows the declared equal-weight hierarchy;
+- N/A weight returns to shape and is never redistributed to evidence;
+- UNAVAILABLE scores 0 and keeps its weight;
+- NOT_IN_DEFINITION and NOT_OBSERVABLE do not participate;
+- no component double counts a fact;
+- no per-family weight tuning;
+- no outcome data anywhere in the scorer or in the choice of weights;
+- the canonical name is `definition_fit`;
+- definition fit is not a probability of success;
+- the sensitivity analysis is diagnostic, never optimisation. If 0.60, 2/3 and 0.75
+  rank materially differently, that is reported as a finding.
+
+## 16. Phase 5b-C implementation (2026-10-06)
+
+**Context v3** (`context_version` 3). All of these are known by `known_at`:
+
+- `prior_structure`: structure's state, regime, pending direction and `since`, as of
+  the first defining swing's bar (`as_of`). That swing is not confirmed yet on that
+  day, so the state comes only from swings known before the formation began.
+- `volume_at`: the volume SMA and RVOL at every key point, plus `VERTEX` for rounding
+  patterns.
+- `levels_near_base`: levels near the pattern's base, with their role that day.
+- `boundary_touches_at_known`: the defining swings plus the touches known by
+  `known_at`, for rectangles, triangles and wedges. It is counted with its own
+  `known_at` cut-off, never from the lifecycle's FORMING window, so a breakout on the
+  recognition bar cannot change it.
+- A rounding pattern's base is now its fitted extreme (the bowl's vertex), where §7
+  places its level alignment and volume. Before v3 it was its invalidation level.
+
+**Scorer** (`patterns/fit.py`, `fit_version` 1):
+
+- `score(family, pattern_type, direction, geometry_measures, geometry_widths,
+  context, config)` reads no bars, no layers and no status.
+- The analyzer computes the fit before it attaches any lifecycle event.
+- A test pins the module's imports and the function's signature.
+
+**Fact registry.** Every input key is registered with the underlying fact it measures,
+and aliases share one fact (for example, the V drop and the bowl depth are both
+`move.inside_pattern`). An unregistered input is an error. Every score checks that no
+fact feeds two participating components. `prior_move` is `NOT_APPLICABLE /
+MOVE_IS_SHAPE` exactly when the move §7 names for it is a fact the shape already
+scores: the V drop, the flag and pennant pole, and the rounding bowl.
+
+**Readings of §7 made in implementation** (flagged for review):
+
+- **Rounding `prior_move`.** §7.4 defines it as the "decline into the vertex region,
+  from H_a". That is the bowl's depth, which is a shape criterion, so it is
+  `NOT_APPLICABLE / MOVE_IS_SHAPE` by the double-counting rule.
+- **Wedge "slope agreement".** §7.8 does not define it. It is implemented as the §5
+  margin of the shallower line's slope against the flat threshold: how clearly both
+  lines slope the wedge's way.
+- **Boundary "touches".** §7.6–7.8 count touches known by `known_at`. Implemented as
+  written: min(1, (n − 3) ÷ 3), with n = defining swings + touches known by
+  `known_at`. Touches arrive after recognition, so n is almost always 4 and the
+  criterion is almost always 1/3. See the review report.
+- **Pennant convergence.** Read from the frozen lines' widths at the pole end and the
+  last flag swing (the geometry stores no width measures for pennants).
+
+**Statuses and reasons** in use:
+
+| Status | Reasons |
+|---|---|
+| `NOT_IN_DEFINITION` | `NEUTRAL_PATTERN`, `NOT_IN_FAMILY_DEFINITION` |
+| `NOT_APPLICABLE` | `MOVE_IS_SHAPE`, `FINE_SWING_GEOMETRY`, `NEUTRAL_DIRECTION`, `NO_DEFINING_SWING_OF_TYPE` |
+| `UNAVAILABLE` | `INSUFFICIENT_HISTORY` |
+
+**Config.**
+
+- `[analysis.patterns] shape_share = 2/3` replaces `geometry_weight`.
+- Per-pattern weight overrides no longer exist.
+- `[analysis.patterns.v] capitulation_rvol = 1.5` is §7.5's RVOL threshold.
+- `PatternAnalyzer` is now version 4.
+
+**Real-NSE diagnostics** (snapshot meta-a89cf1fbcd05; 3,191 analytical securities;
+26,289 patterns; descriptive only, with no outcome used):
+
+- **Lifecycle unchanged.** Every lifecycle path is identical to the 5b-B run.
+- **Distribution.** Definition fit p10 / median / p90 = 40 / 58 / 75. Family medians
+  range from 44 (V bottom) to 71 (falling wedge).
+- **Sensitivity** of the ranking to a shape share of 0.60 or 0.75 instead of 2/3:
+  - Spearman 0.988–0.991 overall, and ≥ 0.977 in every family;
+  - top-10 % overlap 87–90 % overall, and 88–97 % by family;
+  - value changes of at most 6–8 points.
+
+  The ranking does not hinge on the constant. This was not used to choose it.
+- **`UNAVAILABLE`.** Volume only, 0–2 % of a family. Prior structure and prior move
+  never.
+- **The binary leaves discriminate.** Volume behaviour, divergence and level alignment
+  are each about 40–55 % true.
+- **The prior move saturates as expected.** Half to two thirds of reversals reach the
+  4-ATR cap. Kept, per §15.1.
+- **Finding, the boundary "touches" criterion is a constant.** It is exactly 1/3 for
+  100 % of rectangles, triangles and wedges, because touches arrive after recognition.
+  It measures nothing, and it lowers those families' fit by about 7–16 points (median),
+  which distorts comparison across families. Within a family the ranking is unaffected.
+  Raised for review.
+- **Finding, wedge shape saturates.** Without touches, a wedge's convergence and slope
+  agreement are 1.0 for most wedges, so its fit is driven by evidence. The "slope
+  agreement" reading (§16 above) is part of this. Raised for review.
+- **Timing.** The pattern stage is about 16 ms per security, up from 11.3 ms (context
+  v3 and the fit).
 
 ## Testing (mandatory)
 
