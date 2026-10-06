@@ -11,7 +11,7 @@ from __future__ import annotations
 import statistics
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date
 
 import numpy as np
@@ -29,6 +29,7 @@ from chartlens_engine.fibonacci import FibonacciAnalyzer
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
 from chartlens_engine.levels import LevelsAnalyzer
+from chartlens_engine.patterns import PatternAnalyzer
 from chartlens_engine.structure import StructureAnalyzer
 from chartlens_engine.swings import SwingAnalyzer
 
@@ -38,6 +39,8 @@ lengths = np.clip(rng.exponential(440, securities).astype(int), 1, 1083)
 cfg = AnalysisConfig()
 timings: dict[str, list[float]] = defaultdict(list)
 counts: dict[str, int] = defaultdict(int)
+candidates: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0])
+pattern_types: Counter[str] = Counter()
 
 
 class Clock:
@@ -83,6 +86,13 @@ for i, n in enumerate(lengths.tolist()):
     clock.lap("volatility")
     cdl = run_analyzer(CandleAnalyzer(cfg.candles, ind, st), bars, ctx)
     clock.lap("candles")
+    pat = run_analyzer(PatternAnalyzer(cfg.patterns, ind, sw), bars, ctx)
+    clock.lap("patterns")
+    for family, c in pat.candidates.items():
+        candidates[family][0] += c.generated
+        candidates[family][1] += c.valid
+        candidates[family][2] += c.same_formation
+    pattern_types.update(p.pattern_type for p in pat.patterns)
     counts["swings"] += len(sw.swings)
     counts["structure events"] += len(st.events)
     counts["fibonacci structures"] += len(fib.structures)
@@ -105,3 +115,7 @@ for layer, seconds in timings.items():
     )
 print(f"{'all':<11} total {total:7.1f} s")
 print(", ".join(f"{k}: {v:,}" for k, v in counts.items()))
+print("candidates (generated / valid / same formation):")
+for family, (g, v, same) in candidates.items():
+    print(f"  {family:<15} {g:>9,} {v:>7,} {same:>5,}")
+print("patterns:", ", ".join(f"{t} {n:,}" for t, n in pattern_types.most_common()))

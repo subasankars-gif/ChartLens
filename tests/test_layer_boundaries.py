@@ -146,7 +146,7 @@ def test_structure_consumes_swings_and_never_finds_pivots() -> None:
             assert forbidden not in text, f"{py.name}: {forbidden}"
 
 
-LATER_LAYERS = ("fibonacci", "levels", "evidence")
+LATER_LAYERS = ("fibonacci", "levels", "evidence", "patterns")
 METHOD_NAMES = ('"ATR"', '"FRACTAL"', '"PERCENT"', '"ZIGZAG"', '"INTERMEDIATE"', '"MAJOR"')
 
 

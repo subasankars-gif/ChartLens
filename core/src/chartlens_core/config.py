@@ -442,6 +442,161 @@ class CandleConfig(_Section):
     star_middle_body: float = Field(default=0.3, gt=0, lt=1)
 
 
+class PatternSection(_Section):
+    """Per-pattern parameters (ADR-0022 §5). Any common ``[analysis.patterns]`` default
+    may be overridden here; ``None`` inherits it."""
+
+    breakout_atr: float | None = Field(default=None, gt=0)
+    fail_window: int | None = Field(default=None, ge=1)
+    completion_window: int | None = Field(default=None, ge=1)
+    mm_zone_atr: float | None = Field(default=None, ge=0)
+    context_lookback: int | None = Field(default=None, ge=1)
+    context_move_atr: float | None = Field(default=None, gt=0)
+    level_tol_atr: float | None = Field(default=None, gt=0)
+    geometry_weight: float | None = Field(default=None, ge=0.6, le=1)
+
+
+class DoublePatternConfig(PatternSection):
+    eq_tol_atr: float = Field(default=0.5, gt=0)
+    min_sep: int = Field(default=4, ge=1)
+    max_sep: int = Field(default=60, ge=2)
+    min_height_atr: float = Field(default=2.0, gt=0)
+    max_wait_bars: int = Field(default=26, ge=1)
+
+
+class TriplePatternConfig(PatternSection):
+    eq_tol_atr: float = Field(default=0.5, gt=0)
+    min_sep: int = Field(default=8, ge=1)
+    max_sep: int = Field(default=90, ge=2)
+    min_height_atr: float = Field(default=2.0, gt=0)
+    max_wait_bars: int = Field(default=26, ge=1)
+
+
+class HeadShouldersConfig(PatternSection):
+    head_prominence_atr: float = Field(default=1.0, gt=0)
+    shoulder_tol_atr: float = Field(default=1.5, gt=0)
+    time_balance_min: float = Field(default=0.4, gt=0)
+    time_balance_max: float = Field(default=2.5, gt=1)
+    neckline_max_slope_atr: float = Field(default=0.25, ge=0)
+    min_height_atr: float = Field(default=2.0, gt=0)
+    max_span: int = Field(default=104, ge=4)
+    max_wait_bars: int = Field(default=26, ge=1)
+
+
+class RoundingConfig(PatternSection):
+    rim_tol_atr: float = Field(default=2.0, gt=0)
+    min_span: int = Field(default=20, ge=3)
+    max_span: int = Field(default=156, ge=4)
+    min_r2: float = Field(default=0.6, ge=0, le=1)
+    vertex_min: float = Field(default=0.25, ge=0, lt=1)
+    vertex_max: float = Field(default=0.75, gt=0, le=1)
+    min_depth_atr: float = Field(default=3.0, gt=0)
+    low_tol_atr: float = Field(default=0.5, ge=0)
+    max_wait_bars: int = Field(default=26, ge=1)
+
+
+class VPatternConfig(PatternSection):
+    v_move_atr: float = Field(default=4.0, gt=0)
+    max_drop_bars: int = Field(default=8, ge=1)
+    recovery_ratio: float = Field(default=0.618, gt=0, lt=1)
+    max_wait_bars: int = Field(default=8, ge=1)
+
+
+class RectangleConfig(PatternSection):
+    band_tol_atr: float = Field(default=0.75, gt=0)
+    min_height_atr: float = Field(default=2.0, gt=0)
+    min_span: int = Field(default=8, ge=3)
+    max_span: int = Field(default=104, ge=4)
+    max_wait_bars: int = Field(default=52, ge=1)
+
+
+class TriangleConfig(PatternSection):
+    flat_slope_atr: float = Field(default=0.02, ge=0)
+    symmetry_ratio: float = Field(default=3.0, ge=1)
+    converge_ratio: float = Field(default=0.75, gt=0, lt=1)
+    apex_max_bars: int = Field(default=52, ge=1)
+    fit_tol_atr: float = Field(default=0.5, gt=0)
+    min_height_atr: float = Field(default=2.0, gt=0)
+    min_span: int = Field(default=8, ge=3)
+    max_span: int = Field(default=104, ge=4)
+    max_wait_bars: int = Field(default=52, ge=1)
+
+
+class WedgeConfig(PatternSection):
+    flat_slope_atr: float = Field(default=0.02, ge=0)
+    converge_ratio: float = Field(default=0.75, gt=0, lt=1)
+    apex_max_bars: int = Field(default=52, ge=1)
+    fit_tol_atr: float = Field(default=0.5, gt=0)
+    min_height_atr: float = Field(default=2.0, gt=0)
+    min_span: int = Field(default=8, ge=3)
+    max_span: int = Field(default=104, ge=4)
+    max_wait_bars: int = Field(default=52, ge=1)
+
+
+class FlagConfig(PatternSection):
+    pole_atr: float = Field(default=3.0, gt=0)
+    pole_max_bars: int = Field(default=6, ge=1)
+    flag_min_bars: int = Field(default=3, ge=1)
+    flag_max_bars: int = Field(default=12, ge=2)
+    parallel_tol_atr: float = Field(default=0.05, ge=0)
+    max_retrace: float = Field(default=0.5, gt=0, lt=1)
+    flat_slope_atr: float = Field(default=0.02, ge=0)
+    fit_tol_atr: float = Field(default=0.5, gt=0)
+
+
+class PennantConfig(FlagConfig):
+    converge_ratio: float = Field(default=0.75, gt=0, lt=1)
+
+
+class CupHandleConfig(PatternSection):
+    rim_tol_atr: float = Field(default=2.0, gt=0)
+    cup_min_bars: int = Field(default=7, ge=3)
+    cup_max_bars: int = Field(default=65, ge=4)
+    min_depth_atr: float = Field(default=3.0, gt=0)
+    max_depth_ratio: float = Field(default=0.5, gt=0, le=1)
+    min_r2: float = Field(default=0.5, ge=0, le=1)
+    handle_min_bars: int = Field(default=1, ge=1)
+    handle_max_bars: int = Field(default=10, ge=1)
+    handle_max_ratio: float = Field(default=0.5, gt=0, lt=1)
+    max_wait_bars: int = Field(default=13, ge=1)
+
+
+class PatternsConfig(_Section):
+    """Classical patterns (ADR-0022). Common defaults here; each pattern's own section
+    holds its parameters and may override these."""
+
+    fine_sensitivity: Sensitivity = "MICRO"
+    """Swings (of the primary method) for flags, pennants and cup handles."""
+    breakout_atr: float = Field(default=0.25, gt=0)
+    """Confirmation: a complete close beyond the level by this × the ATR of the bar before."""
+    fail_window: int = Field(default=8, ge=1)
+    completion_window: int = Field(default=52, ge=1)
+    mm_zone_atr: float = Field(default=0.5, ge=0)
+    context_lookback: int = Field(default=26, ge=1)
+    context_move_atr: float = Field(default=2.0, gt=0)
+    level_tol_atr: float = Field(default=0.5, gt=0)
+    geometry_weight: float = Field(default=0.65, ge=0.6, le=1)
+    max_forming_per_type: int = Field(default=2, ge=1)
+    report_window_bars: int = Field(default=52, ge=1)
+    double: DoublePatternConfig = DoublePatternConfig()
+    triple: TriplePatternConfig = TriplePatternConfig()
+    head_shoulders: HeadShouldersConfig = HeadShouldersConfig()
+    rounding: RoundingConfig = RoundingConfig()
+    v: VPatternConfig = VPatternConfig()
+    rectangle: RectangleConfig = RectangleConfig()
+    triangle: TriangleConfig = TriangleConfig()
+    wedge: WedgeConfig = WedgeConfig()
+    flag: FlagConfig = FlagConfig()
+    pennant: PennantConfig = PennantConfig()
+    cup_handle: CupHandleConfig = CupHandleConfig()
+
+    def common(self, section: PatternSection, name: str) -> float:
+        """A common parameter as it applies to one pattern: its override, else the default."""
+        own = getattr(section, name)
+        value: float = getattr(self, name) if own is None else own
+        return value
+
+
 class AnalysisConfig(_Section):
     """Everything that can change a technical-analysis result (ADR-0019)."""
 
@@ -454,6 +609,7 @@ class AnalysisConfig(_Section):
     volume: VolumeEvidenceConfig = VolumeEvidenceConfig()
     volatility: VolatilityConfig = VolatilityConfig()
     candles: CandleConfig = CandleConfig()
+    patterns: PatternsConfig = PatternsConfig()
 
 
 class ChartLensSettings(BaseSettings):

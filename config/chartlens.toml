@@ -200,3 +200,118 @@ shadow_body = 2.0
 opposite_shadow = 0.25
 star_first_body = 0.6
 star_middle_body = 0.3
+
+[analysis.patterns]             # ADR-0022 — common defaults; each [analysis.patterns.<type>] may override
+fine_sensitivity = "MICRO"      # swings for flags, pennants and cup handles (primary method)
+breakout_atr = 0.25             # close beyond the level by 0.25 x ATR of the bar before
+fail_window = 8
+completion_window = 52
+mm_zone_atr = 0.5
+context_lookback = 26
+context_move_atr = 2.0
+level_tol_atr = 0.5
+geometry_weight = 0.65          # >= 0.6
+max_forming_per_type = 2        # relevance only
+report_window_bars = 52         # relevance only
+
+[analysis.patterns.double]
+eq_tol_atr = 0.5
+min_sep = 4
+max_sep = 60
+min_height_atr = 2.0
+max_wait_bars = 26
+
+[analysis.patterns.triple]
+eq_tol_atr = 0.5
+min_sep = 8
+max_sep = 90
+min_height_atr = 2.0
+max_wait_bars = 26
+
+[analysis.patterns.head_shoulders]
+head_prominence_atr = 1.0
+shoulder_tol_atr = 1.5
+time_balance_min = 0.4
+time_balance_max = 2.5
+neckline_max_slope_atr = 0.25
+min_height_atr = 2.0
+max_span = 104
+max_wait_bars = 26
+
+[analysis.patterns.rounding]
+rim_tol_atr = 2.0
+min_span = 20
+max_span = 156
+min_r2 = 0.6
+vertex_min = 0.25
+vertex_max = 0.75
+min_depth_atr = 3.0
+low_tol_atr = 0.5
+max_wait_bars = 26
+
+[analysis.patterns.v]
+v_move_atr = 4.0
+max_drop_bars = 8
+recovery_ratio = 0.618
+max_wait_bars = 8
+
+[analysis.patterns.rectangle]
+band_tol_atr = 0.75
+min_height_atr = 2.0
+min_span = 8
+max_span = 104
+max_wait_bars = 52
+
+[analysis.patterns.triangle]
+flat_slope_atr = 0.02
+symmetry_ratio = 3.0
+converge_ratio = 0.75
+apex_max_bars = 52
+fit_tol_atr = 0.5
+min_height_atr = 2.0
+min_span = 8
+max_span = 104
+max_wait_bars = 52
+
+[analysis.patterns.wedge]
+flat_slope_atr = 0.02
+converge_ratio = 0.75
+apex_max_bars = 52
+fit_tol_atr = 0.5
+min_height_atr = 2.0
+min_span = 8
+max_span = 104
+max_wait_bars = 52
+
+[analysis.patterns.flag]        # max_wait derived: flag_max_bars from the pole's end
+pole_atr = 3.0
+pole_max_bars = 6
+flag_min_bars = 3
+flag_max_bars = 12
+parallel_tol_atr = 0.05
+max_retrace = 0.5
+flat_slope_atr = 0.02
+fit_tol_atr = 0.5
+
+[analysis.patterns.pennant]
+pole_atr = 3.0
+pole_max_bars = 6
+flag_min_bars = 3
+flag_max_bars = 12
+parallel_tol_atr = 0.05
+max_retrace = 0.5
+flat_slope_atr = 0.02
+fit_tol_atr = 0.5
+converge_ratio = 0.75
+
+[analysis.patterns.cup_handle]
+rim_tol_atr = 2.0
+cup_min_bars = 7
+cup_max_bars = 65
+min_depth_atr = 3.0
+max_depth_ratio = 0.5
+min_r2 = 0.5
+handle_min_bars = 1
+handle_max_bars = 10
+handle_max_ratio = 0.5
+max_wait_bars = 13

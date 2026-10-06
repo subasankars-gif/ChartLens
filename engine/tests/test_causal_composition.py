@@ -132,6 +132,7 @@ def _project(full: Chain, end: date) -> dict[str, object]:
         "volume": [e for e in full.volume.events if e.known_at <= end],
         "volatility": [e for e in full.volatility.events if e.known_at <= end],
         "candles": [e for e in full.candles.events if e.known_at <= end],
+        "patterns": [x for p in full.patterns.patterns if (x := p.as_of(end))],
     }
 
 
@@ -144,6 +145,7 @@ def _events(part: Chain) -> dict[str, object]:
         "volume": part.volume.events,
         "volatility": part.volatility.events,
         "candles": part.candles.events,
+        "patterns": part.patterns.patterns,
     }
 
 
@@ -192,7 +194,15 @@ def test_the_forming_week_changes_nothing_in_layers_d_to_f(seed: int) -> None:
     with_forming = pd.concat([bars.assign(is_complete=True), forming_bar.assign(is_complete=False)])
     forming = run_chain(with_forming.reset_index(drop=True))
     skip = {"context"}
-    for name in ("fibonacci", "levels", "divergence", "volume", "volatility", "candles"):
+    for name in (
+        "fibonacci",
+        "levels",
+        "divergence",
+        "volume",
+        "volatility",
+        "candles",
+        "patterns",
+    ):
         a = getattr(complete, name).model_dump(exclude=skip)
         b = getattr(forming, name).model_dump(exclude=skip)
         assert a == b, name
@@ -201,7 +211,15 @@ def test_the_forming_week_changes_nothing_in_layers_d_to_f(seed: int) -> None:
 def test_deterministic() -> None:
     bars = random_bars(500, seed=21)
     a, b = run_chain(bars), run_chain(bars)
-    for name in ("fibonacci", "levels", "divergence", "volume", "volatility", "candles"):
+    for name in (
+        "fibonacci",
+        "levels",
+        "divergence",
+        "volume",
+        "volatility",
+        "candles",
+        "patterns",
+    ):
         assert getattr(a, name).model_dump_json() == getattr(b, name).model_dump_json()
 
 

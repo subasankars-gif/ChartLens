@@ -25,6 +25,7 @@ from chartlens_engine.fibonacci import FibonacciAnalyzer, FibonacciResult
 from chartlens_engine.indicators import IndicatorAnalyzer, IndicatorResult
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
 from chartlens_engine.levels import LevelsAnalyzer, LevelsResult
+from chartlens_engine.patterns import PatternAnalyzer, PatternResult
 from chartlens_engine.structure import StructureAnalyzer, StructureResult
 from chartlens_engine.swings import SwingAnalyzer, SwingPoint, SwingResult
 
@@ -43,6 +44,7 @@ class Chain:
     volume: VolumeResult
     volatility: VolatilityResult
     candles: CandleResult
+    patterns: PatternResult
 
 
 def context(bars: pd.DataFrame, sid: str = SID, seg: str = SEG) -> AnalysisContext:
@@ -79,7 +81,8 @@ def run_chain(
     vol = run_analyzer(VolumeAnalyzer(cfg.volume, ind, sw, st, lv), bars, ctx)
     vty = run_analyzer(VolatilityAnalyzer(cfg.volatility, ind), bars, ctx)
     cdl = run_analyzer(CandleAnalyzer(cfg.candles, ind, st), bars, ctx)
-    return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl)
+    pat = run_analyzer(PatternAnalyzer(cfg.patterns, ind, sw, diagnostics=True), bars, ctx)
+    return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl, pat)
 
 
 def known_at_of(chain: Chain) -> dict[str, date]:
@@ -99,6 +102,7 @@ def known_at_of(chain: Chain) -> dict[str, date]:
     out |= {e.event_id: e.known_at for e in chain.volume.events}
     out |= {e.event_id: e.known_at for e in chain.volatility.events}
     out |= {e.event_id: e.known_at for e in chain.candles.events}
+    out |= {p.pattern_id: p.known_at for p in chain.patterns.patterns}
     return out
 
 
@@ -113,6 +117,7 @@ def derived(chain: Chain) -> list[tuple[str, date, tuple[str, ...]]]:
     rows += [(e.event_id, e.known_at, e.depends_on) for e in chain.volume.events]
     rows += [(e.event_id, e.known_at, e.depends_on) for e in chain.volatility.events]
     rows += [(e.event_id, e.known_at, e.depends_on) for e in chain.candles.events]
+    rows += [(p.pattern_id, p.known_at, p.depends_on) for p in chain.patterns.patterns]
     return rows
 
 

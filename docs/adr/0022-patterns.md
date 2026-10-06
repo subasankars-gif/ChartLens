@@ -309,7 +309,7 @@ below). Each pattern lists its parameters and defaults.
 ### 7.3 Inverse head and shoulders / head and shoulders
 
 `[analysis.patterns.head_shoulders]`: `head_prominence_atr` 1.0, `shoulder_tol_atr` 1.5,
-`time_balance` [0.4, 2.5], `neckline_max_slope_atr` 0.25, `min_height_atr` 2.0,
+`time_balance_min` 0.4, `time_balance_max` 2.5, `neckline_max_slope_atr` 0.25, `min_height_atr` 2.0,
 `max_span` 104, `max_wait_bars` 26.
 
 | Field | Rule |
@@ -317,7 +317,7 @@ below). Each pattern lists its parameters and defaults.
 | Swing sequence | Five consecutive primary swings: L1 (left shoulder), H1, L2 (head), H2, L3 (right shoulder) |
 | Candidate geometry | Head below both shoulders; neckline through H1 and H2 |
 | Tolerances | P(L2) ≤ min(P(L1), P(L3)) − `head_prominence_atr` × ATR_D; \|P(L1) − P(L3)\| ≤ `shoulder_tol_atr` × ATR_D; \|neckline slope\| ≤ `neckline_max_slope_atr` × ATR_D per bar |
-| Separation | bars(L1, L2) / bars(L2, L3) ∈ `time_balance`; bars(L1, L3) ≤ `max_span` |
+| Separation | bars(L1, L2) / bars(L2, L3) ∈ [`time_balance_min`, `time_balance_max`]; bars(L1, L3) ≤ `max_span` |
 | Height | Neckline at b(L2) − P(L2) ≥ `min_height_atr` × ATR_D |
 | Context | `prior_move` (decline into L1); `trend_context` (bullish reversal); `level_alignment` at the head; `volume_behaviour` = 1 if the volume SMA at L3 < at L2; `divergence` on L2 or L3 |
 | Confirmation | Common breakout above the neckline's value at the bar |
@@ -327,20 +327,20 @@ below). Each pattern lists its parameters and defaults.
 | Identity | INVERSE_HEAD_SHOULDERS + (L1, H1, L2, H2, L3) |
 | `known_at` | k(L3) |
 | Status transitions | Common |
-| Confidence | Geometry: `margin(prominence_atr, head_prominence)`, `closeness(|L1 − L3|, shoulder_tol)`, `balance(time ratio, time_balance)`, `closeness(|slope|, max_slope)`. Context: the five above |
+| Confidence | Geometry: `margin(prominence_atr, head_prominence)`, `closeness(|L1 − L3|, shoulder_tol)`, `balance(time ratio, [time_balance_min, time_balance_max])`, `closeness(|slope|, max_slope)`. Context: the five above |
 | Overlap | Shares its five swings with a triple-bottom window only when the head is within `eq_tol`, and the head-prominence rule makes that impossible. Coexists with the double bottoms inside it; relevance prefers the H&S |
 
 ### 7.4 Rounding bottom / rounding top
 
 `[analysis.patterns.rounding]`: `rim_tol_atr` 2.0, `min_span` 20, `max_span` 156,
-`min_r2` 0.6, `vertex_window` [0.25, 0.75], `min_depth_atr` 3.0, `low_tol_atr` 0.5,
+`min_r2` 0.6, `vertex_min` 0.25, `vertex_max` 0.75, `min_depth_atr` 3.0, `low_tol_atr` 0.5,
 `max_wait_bars` 26.
 
 | Field | Rule |
 |---|---|
 | Swing sequence | Two primary swing highs H_a and H_b (rims), not necessarily consecutive. Every primary swing high between them is below min(P(H_a), P(H_b)) |
 | Candidate geometry | Closes over b(H_a)…b(H_b) fitted by least squares to c = a·x² + b·x + c₀, with a > 0 |
-| Tolerances | \|P(H_a) − P(H_b)\| ≤ `rim_tol_atr` × ATR_D; R² ≥ `min_r2`; the vertex lies in `vertex_window` of the span; no primary swing low between the rims is below the fitted minimum by more than `low_tol_atr` × ATR_D |
+| Tolerances | \|P(H_a) − P(H_b)\| ≤ `rim_tol_atr` × ATR_D; R² ≥ `min_r2`; the vertex lies in [`vertex_min`, `vertex_max`] of the span; no primary swing low between the rims is below the fitted minimum by more than `low_tol_atr` × ATR_D |
 | Separation | bars(H_a, H_b) ∈ [`min_span`, `max_span`] |
 | Height | Depth = min(rims) − fitted minimum ≥ `min_depth_atr` × ATR_D |
 | Context | `prior_move` (decline into the vertex region, from H_a); `trend_context` (bullish reversal); `level_alignment` at the fitted minimum; `volume_behaviour` = 1 if the volume SMA at the vertex bar < at both rims; `volatility_contraction` |
@@ -351,7 +351,7 @@ below). Each pattern lists its parameters and defaults.
 | Identity | ROUNDING_BOTTOM + (H_a, H_b) |
 | `known_at` | k(H_b) (the fit uses only closes up to b(H_b), and b(H_b) ≤ k(H_b)) |
 | Status transitions | Common |
-| Confidence | Geometry: R² scaled from `min_r2` to 1 → [0, 1]; `closeness(|H_a − H_b|, rim_tol)`; `balance(vertex position ÷ 0.5, vertex_window)`; `margin(depth_atr, min_depth)`. Context: as listed |
+| Confidence | Geometry: R² scaled from `min_r2` to 1 → [0, 1]; `closeness(|H_a − H_b|, rim_tol)`; `balance(vertex position ÷ 0.5, [vertex_min, vertex_max] ÷ 0.5)`; `margin(depth_atr, min_depth)`. Context: as listed |
 | Overlap | Pairs sharing H_a with a later H_b are different formations. Relevance keeps the latest-known one per H_a. A cup & handle with the same rims coexists; relevance prefers the cup & handle |
 
 The candidate count is O(highs × highs within `max_span`): about 10–30 pairs per
@@ -405,8 +405,8 @@ security.
 ### 7.7 Triangles: ascending, descending, symmetrical
 
 `[analysis.patterns.triangle]`: `flat_slope_atr` 0.02, `symmetry_ratio` 3.0,
-`converge_ratio` 0.75, `apex_max_bars` 52, `fit_tol_atr` 0.5, `min_span` 8,
-`max_span` 104, `max_wait_bars` 52.
+`converge_ratio` 0.75, `apex_max_bars` 52, `fit_tol_atr` 0.5, `min_height_atr` 2.0,
+`min_span` 8, `max_span` 104, `max_wait_bars` 52.
 
 | Field | Rule |
 |---|---|
@@ -414,7 +414,7 @@ security.
 | Candidate geometry | Upper line through the two highs; lower line through the two lows (exact two-point lines) |
 | Tolerances | Slopes s_u and s_l per bar; "flat" means \|s\| ≤ `flat_slope_atr` × ATR_D. **Ascending:** upper flat, lower rising. **Descending:** lower flat, upper falling. **Symmetrical:** upper falling, lower rising, with \|s_u\| / \|s_l\| ∈ [1/`symmetry_ratio`, `symmetry_ratio`]. **Converging:** width at the last defining bar ≤ `converge_ratio` × width at the first, and the apex is within `apex_max_bars` after the last defining bar. No complete close outside either line by ≥ `breakout_atr` × ATR_pre inside the span |
 | Separation | span ∈ [`min_span`, `max_span`] |
-| Height | Width at the first defining bar ≥ 2 × ATR_D |
+| Height | Width at the first defining bar ≥ `min_height_atr` × ATR_D |
 | Context | Ascending: `prior_move` up into it (continuation), `trend_context` (bullish continuation). Descending: mirrored. Symmetrical: `prior_move` in its own direction, reported; `trend_context` = 0.5. All three: `volume_behaviour` (lower volume SMA at the last defining swing than at the first), `volatility_contraction` |
 | Confirmation | Ascending: common breakout above the upper line's value. Descending: below the lower line. Symmetrical: either side, and the direction is set at confirmation |
 | Invalidation | Ascending: a complete close below the lower line by ≥ `breakout_atr` × ATR_pre (also recorded as a BREAKDOWN event). Descending: mirrored. Symmetrical: none (either side confirms) |
@@ -429,7 +429,9 @@ security.
 ### 7.8 Rising wedge / falling wedge
 
 `[analysis.patterns.wedge]`: as the triangle (`flat_slope_atr`, `converge_ratio`,
-`apex_max_bars`, `fit_tol_atr`, `min_span`, `max_span`), `max_wait_bars` 52.
+`apex_max_bars`, `fit_tol_atr`, `min_height_atr`, `min_span`, `max_span`; no symmetry
+ratio), `max_wait_bars` 52. Triangles and wedges are evaluated independently on the same
+four-swing windows.
 
 | Field | Rule |
 |---|---|
@@ -437,7 +439,7 @@ security.
 | Candidate geometry | Both lines slope the same way, both non-flat, converging (as for triangles) |
 | Tolerances | As for triangles. Rising wedge: s_u > 0, s_l > 0, s_l > s_u (converging). Falling wedge: mirrored |
 | Separation | span ∈ [`min_span`, `max_span`] |
-| Height | Width at the first defining bar ≥ 2 × ATR_D |
+| Height | Width at the first defining bar ≥ `min_height_atr` × ATR_D |
 | Context | A rising wedge is a bearish pattern: `prior_move` up into it, `trend_context` (bearish reversal), `volume_behaviour` (lower volume SMA at the end), `divergence` on the last high. Falling wedge: mirrored |
 | Confirmation | Rising: common breakout below the lower line. Falling: above the upper line |
 | Invalidation | A complete close beyond the opposite line by ≥ `breakout_atr` × ATR_pre |
@@ -541,6 +543,35 @@ is derived: `flag_max_bars` from the pole's end.
 geometric validation, identity, same-formation handling and FORMING patterns, with
 candidate counts, overlap behaviour, identity stability and timings reported. Context,
 confirmation and the rest of the status machine follow after that review.
+
+## 9. Phase 5a implementation notes
+
+- **Windows.** Candidates are windows of consecutive swings in bar order.
+  - Rectangles, triangles and wedges each evaluate every four-swing window on their
+    own.
+  - Flags and pennants each evaluate every five-swing window at the fine sensitivity.
+  - Rounding bottoms and cups evaluate every pair of up-swings within their span.
+- **Diagnostics.** Each family reports how many candidates were generated, how many
+  were valid, how many were same-formation duplicates, and the rejections counted by
+  the first rule that failed. The full list of rejected candidates is kept only when the
+  analyzer runs with `diagnostics` on (tests and reviews), and it never changes which
+  patterns exist.
+- **Touch horizon.** A later swing is a touch when it lies within the tolerance and is
+  known before the horizon ends. The horizon ends at the earliest of:
+  - the first complete close outside the lines by the breakout buffer;
+  - the apex (triangles and wedges);
+  - the waiting window (for flags and pennants: `flag_max_bars` after the pole's end).
+- **"Still FORMING" in 5a.** For the same-formation rule this means "inside that
+  horizon". Phase 5b replaces it with the status machine.
+- **Finding for review: the rounding bottom's low rule (§7.4) never passes.**
+  - The rule compares primary swing lows, which are bar lows, with the minimum of a
+    quadratic fitted to closes. A bar's low sits below its close by about half its
+    range, so a real bowl almost always fails.
+  - On 60 synthetic 800-bar series (3,592 candidates), the rule as written gave **0**
+    valid rounding bottoms.
+  - Comparing each swing bar's close with the fitted curve at that bar (one price
+    basis) gave 52. Without the rule there would be 408.
+  - Code keeps the rule as written until Suba decides.
 
 ## Testing (mandatory)
 
