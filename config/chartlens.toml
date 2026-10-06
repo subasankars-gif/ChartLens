@@ -210,7 +210,7 @@ mm_zone_atr = 0.5
 context_lookback = 26
 context_move_atr = 2.0
 level_tol_atr = 0.5
-geometry_weight = 0.65          # >= 0.6
+shape_share = 0.6666666666666666  # definition fit: shape weighs 2/3 (ADR-0022 §15); never tuned
 max_forming_per_type = 2        # relevance only
 report_window_bars = 52         # relevance only
 
@@ -253,6 +253,7 @@ max_wait_bars = 26
 v_move_atr = 4.0
 max_drop_bars = 8
 recovery_ratio = 0.618
+capitulation_rvol = 1.5
 max_wait_bars = 8
 
 [analysis.patterns.rectangle]

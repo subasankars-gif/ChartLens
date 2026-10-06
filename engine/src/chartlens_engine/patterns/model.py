@@ -10,6 +10,7 @@ from typing import Literal
 from chartlens_engine.causal import Frozen
 from chartlens_engine.interfaces import AnalyzerResult
 from chartlens_engine.patterns.context import PatternContext
+from chartlens_engine.patterns.fit import DefinitionFit
 
 Direction = Literal["BULLISH", "BEARISH", "NEUTRAL"]
 PatternStatus = Literal[
@@ -155,6 +156,10 @@ class Pattern(Frozen):
     context: PatternContext | None = None
     """A snapshot of the facts available at ``known_at`` (5b-B); None only when the
     analyzer runs without the other layers (unit tests of geometry alone)."""
+    definition_fit: DefinitionFit | None = None
+    """How closely the formation satisfies the definition (5b-C, ADR-0022 §15), from the
+    frozen geometry and the ``known_at`` context only. Not a probability of breakout or
+    success. None exactly when ``context`` is None."""
     status_history: list[PatternEvent]
     """Append-only; the first is FORMING at ``known_at``. At most one breakout event and
     one terminal event, each the first condition objectively satisfied."""

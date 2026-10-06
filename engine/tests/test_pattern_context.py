@@ -90,6 +90,13 @@ def test_context_facts_by_hand() -> None:
     own = set(p.depends_on)
     assert not [lv for lv in ctx.levels_near if lv.level_id.split(":LEVEL")[0] in own]
     assert ctx.divergence.presence == "ABSENT" and ctx.divergence.divergences == []
+    # the structure before the pattern: as of the first low's bar (week 30), from swings
+    # known before the formation began
+    assert ctx.prior_structure.as_of == week(30)
+    assert [v.key_point for v in ctx.volume_at] == ["LOW_1", "NECKLINE", "LOW_2"]
+    assert ("BASE", "SUPPORT", 45.1) in [
+        (lv.key_point, lv.role, round(lv.price, 2)) for lv in ctx.levels_near_base
+    ]
     # the trend state is the structure layer's as of known_at, never relabelled
     assert ctx.structure.since is None or ctx.structure.since <= p.known_at
 
@@ -186,6 +193,27 @@ def test_context_cites_only_what_was_known(seed: int) -> None:
             cited += 1
         for f in ctx.fibonacci:
             assert f.fib_known_at <= p.known_at
+        # v3: the structure before the pattern is read at its first defining bar
+        ps = ctx.prior_structure
+        assert ps.as_of == p.start_date <= p.known_at
+        assert ps.since is None or ps.since <= ps.as_of
+        assert all(v.bar_date <= p.known_at for v in ctx.volume_at)
+        assert len([v for v in ctx.volume_at if v.key_point != "VERTEX"]) == len(
+            p.geometry.key_points
+        )
+        if ctx.boundary_touches_at_known is not None:
+            # Counted with a known_at cut-off, independent of the lifecycle: equal to the
+            # pattern's touches known by then unless an event on the recognition bar
+            # ended FORMING at once (then the context can only count more).
+            known_touches = [t for t in p.touches if t.known_at <= p.known_at]
+            counted = len(p.depends_on) + len(known_touches)
+            ends_at_once = len(p.status_history) > 1 and (
+                p.status_history[1].effective_date == p.known_at
+            )
+            if ends_at_once:
+                assert ctx.boundary_touches_at_known >= counted
+            else:
+                assert ctx.boundary_touches_at_known == counted
         prior = ctx.prior_move
         if prior.window_end is not None:
             assert prior.window_end < p.start_date

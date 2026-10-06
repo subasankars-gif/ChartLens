@@ -444,7 +444,8 @@ class CandleConfig(_Section):
 
 class PatternSection(_Section):
     """Per-pattern parameters (ADR-0022 §5). Any common ``[analysis.patterns]`` default
-    may be overridden here; ``None`` inherits it."""
+    may be overridden here; ``None`` inherits it. Definition-fit weights are global and
+    never overridden per pattern (ADR-0022 §15)."""
 
     breakout_atr: float | None = Field(default=None, gt=0)
     fail_window: int | None = Field(default=None, ge=1)
@@ -499,6 +500,9 @@ class VPatternConfig(PatternSection):
     v_move_atr: float = Field(default=4.0, gt=0)
     max_drop_bars: int = Field(default=8, ge=1)
     recovery_ratio: float = Field(default=0.618, gt=0, lt=1)
+    capitulation_rvol: float = Field(default=1.5, gt=0)
+    """§7.5 volume behaviour: RVOL at the V's extreme ≥ this (the indicators' default
+    ``rvol_expansion``)."""
     max_wait_bars: int = Field(default=8, ge=1)
 
 
@@ -575,7 +579,9 @@ class PatternsConfig(_Section):
     context_lookback: int = Field(default=26, ge=1)
     context_move_atr: float = Field(default=2.0, gt=0)
     level_tol_atr: float = Field(default=0.5, gt=0)
-    geometry_weight: float = Field(default=0.65, ge=0.6, le=1)
+    shape_share: float = Field(default=2 / 3, ge=0.5, lt=1)
+    """Definition fit (ADR-0022 §15): shape's share when every component applies — shape
+    weighs twice all the evidence together. The one declared constant; never tuned."""
     max_forming_per_type: int = Field(default=2, ge=1)
     report_window_bars: int = Field(default=52, ge=1)
     double: DoublePatternConfig = DoublePatternConfig()

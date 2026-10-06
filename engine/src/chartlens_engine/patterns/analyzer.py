@@ -23,8 +23,10 @@ from chartlens_engine.fibonacci import FibonacciResult
 from chartlens_engine.indicators import IndicatorResult
 from chartlens_engine.interfaces import AnalysisContext
 from chartlens_engine.levels import LevelsResult
+from chartlens_engine.patterns import fit
 from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Generator, Line, Spec
 from chartlens_engine.patterns.context import ContextBuilder
+from chartlens_engine.patterns.fit import DefinitionFit
 from chartlens_engine.patterns.lifecycle import Lifecycle
 from chartlens_engine.patterns.model import (
     CandidateCount,
@@ -38,6 +40,37 @@ from chartlens_engine.patterns.model import (
 )
 from chartlens_engine.structure import StructureResult
 from chartlens_engine.swings import SwingPoint, SwingResult
+
+
+def definition_fit(
+    pattern: Pattern, config: PatternsConfig, shape_share: float | None = None
+) -> DefinitionFit:
+    """A pattern's definition fit from its frozen geometry and its known_at context only
+    (ADR-0022 §15); never its touches, events or status. ``shape_share`` is for the
+    diagnostic sensitivity report only."""
+    ctx = pattern.context
+    if ctx is None:
+        raise ValueError("definition fit needs the known_at context")
+    geo = pattern.geometry
+    widths: tuple[float, float] | None = None
+    if pattern.family == "pennant":
+        a, b = geo.key_points[1].bar_index, geo.key_points[-1].bar_index
+        upper, lower = geo.lines[0], geo.lines[1]
+        widths = (
+            abs(upper.value_at(a) - lower.value_at(a)),
+            abs(upper.value_at(b) - lower.value_at(b)),
+        )
+    return fit.score(
+        pattern.family,
+        pattern.pattern_type,
+        pattern.direction,
+        dict(geo.measures),
+        widths,
+        ctx,
+        config,
+        shape_share,
+    )
+
 
 FAMILIES = (
     "double",
@@ -56,7 +89,7 @@ FAMILIES = (
 
 class PatternAnalyzer:
     name = "patterns"
-    version = "3"
+    version = "4"
 
     def __init__(
         self,
@@ -121,12 +154,14 @@ class PatternAnalyzer:
                 same[spec.family] = same.get(spec.family, 0) + 1
                 continue
             touches = self._touches(spec, atr, primary, fine, index_of, forming_end)
-            pattern = self._pattern(spec, cb, touches).model_copy(
-                update={
-                    "status_history": events,
-                    "context": None if builder is None else builder.build(spec),
-                }
-            )
+            pattern = self._pattern(spec, cb, touches)
+            if builder is not None:
+                # Touches known by known_at, cut off there, never by the lifecycle.
+                at_known = self._touches(spec, atr, primary, fine, index_of, spec.known_index + 1)
+                ctx = builder.build(spec, len(at_known))
+                pattern = pattern.model_copy(update={"context": ctx})
+                pattern = pattern.model_copy(update={"definition_fit": self._fit(pattern)})
+            pattern = pattern.model_copy(update={"status_history": events})
             accepted.append((spec, pattern, forming_end))
             patterns.append(pattern)
         tally = generator.tally
@@ -178,6 +213,11 @@ class PatternAnalyzer:
             volatility,
             (self.swings.primary_method, self.swings.primary_sensitivity),
         )
+
+    # ------------------------------------------------------------------ fit
+
+    def _fit(self, pattern: Pattern) -> DefinitionFit:
+        return definition_fit(pattern, self.config)
 
     # ------------------------------------------------------------------ touches
 

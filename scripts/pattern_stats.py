@@ -1,4 +1,9 @@
-"""Pattern counts and lifecycle statistics for review (ADR-0022, Phase 5b-A).
+"""Pattern counts, lifecycle statistics and definition-fit diagnostics for review
+(ADR-0022, Phases 5b-A to 5b-C).
+
+The definition-fit section is descriptive only: distributions, component statuses and a
+sensitivity check of the ranking to the shape share. It never relates a fit to an
+outcome, and the sensitivity check is never used to choose the constant.
 
     uv run python scripts/pattern_stats.py synthetic [SECURITIES]
     uv run python scripts/pattern_stats.py serving BUCKET [--all]   # the published snapshot
@@ -30,7 +35,7 @@ from chartlens_engine.fibonacci import FibonacciAnalyzer
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
 from chartlens_engine.levels import LevelsAnalyzer
-from chartlens_engine.patterns import FAMILIES, PatternAnalyzer
+from chartlens_engine.patterns import FAMILIES, PatternAnalyzer, definition_fit
 from chartlens_engine.structure import StructureAnalyzer
 from chartlens_engine.swings import SwingAnalyzer
 
@@ -86,6 +91,9 @@ def main() -> None:
     trend: dict[str, Counter[str]] = defaultdict(Counter)
     decline: dict[str, list[float]] = defaultdict(list)
     rise: dict[str, list[float]] = defaultdict(list)
+    fit_rows: list[dict[str, Any]] = []
+    comp: dict[str, Counter[str]] = defaultdict(Counter)
+    comp_scores: dict[str, list[float]] = defaultdict(list)
     securities = bars_total = 0
     seconds = 0.0
     for sid, frame in source:
@@ -151,6 +159,26 @@ def main() -> None:
                     decline[t].append(c.prior_move.decline_into_atr)
                 if c.prior_move.rise_into_atr is not None:
                     rise[t].append(c.prior_move.rise_into_atr)
+            f = p.definition_fit
+            if f is not None:
+                row: dict[str, Any] = {
+                    "type": t,
+                    "family": p.family,
+                    "forming": h[-1].status == "FORMING",
+                    "value": f.value,
+                    "exact": f.exact,
+                    "shape": f.shape_score,
+                    "shape_weight": f.shape_weight,
+                    "shape_only": f.shape_weight > 1 - 1e-9,
+                }
+                for g in SHARES:
+                    row[f"exact_{g}"] = definition_fit(p, cfg.patterns, g).exact
+                fit_rows.append(row)
+                for c in f.components:
+                    key = f"{p.family}|{c.component}"
+                    comp[key][c.status if not c.reason else f"{c.status}:{c.reason}"] += 1
+                    if c.status == "APPLICABLE" and c.score is not None:
+                        comp_scores[key].append(c.score)
             if h[-1].status == "INVALIDATED":
                 to_invalidation[t].append(index[h[-1].effective_date] - k)
             if p.breakout is not None:
@@ -190,7 +218,99 @@ def main() -> None:
             for t in sorted(final, key=lambda t: -sum(final[t].values()))
         },
     }
+    out["definition_fit"] = fit_report(fit_rows, comp, comp_scores)
     print(json.dumps(out, indent=1))
+
+
+SHARES = (0.6, 0.75)
+
+
+def _q(xs: list[float]) -> dict[str, float]:
+    a = np.asarray(xs, dtype=float)
+    return {
+        "n": len(a),
+        "mean": round(float(a.mean()), 3),
+        **{f"p{q}": round(float(np.percentile(a, q)), 3) for q in (5, 10, 25, 50, 75, 90, 95)},
+    }
+
+
+def _spearman(a: list[float], b: list[float]) -> float | None:
+    if len(a) < 3:
+        return None
+    ra = pd.Series(a).rank().to_numpy()
+    rb = pd.Series(b).rank().to_numpy()
+    if ra.std() == 0 or rb.std() == 0:
+        return None
+    return round(float(np.corrcoef(ra, rb)[0, 1]), 4)
+
+
+def _top_overlap(a: list[float], b: list[float], frac: float) -> float | None:
+    """Share of the top ``frac`` by ``a`` that is also in the top ``frac`` by ``b``
+    (ties broken by position, deterministically)."""
+    n = max(1, round(len(a) * frac))
+    if len(a) < 10:
+        return None
+    ta = set(sorted(range(len(a)), key=lambda i: (-a[i], i))[:n])
+    tb = set(sorted(range(len(b)), key=lambda i: (-b[i], i))[:n])
+    return round(len(ta & tb) / n, 4)
+
+
+def _sensitivity(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    base = [r["exact"] for r in rows]
+    out: dict[str, Any] = {"n": len(rows)}
+    for g in SHARES:
+        alt = [r[f"exact_{g}"] for r in rows]
+        out[f"shape_share_{g}"] = {
+            "spearman": _spearman(base, alt),
+            "top_10pct_overlap": _top_overlap(base, alt, 0.10),
+            "top_25pct_overlap": _top_overlap(base, alt, 0.25),
+            "max_abs_value_change": round(
+                max((abs(x - y) for x, y in zip(base, alt, strict=True)), default=0.0) * 100, 2
+            ),
+        }
+    return out
+
+
+def fit_report(
+    rows: list[dict[str, Any]],
+    comp: dict[str, Counter[str]],
+    comp_scores: dict[str, list[float]],
+) -> dict[str, Any]:
+    by_type: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    by_family: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        by_type[r["type"]].append(r)
+        by_family[r["family"]].append(r)
+    forming = [r for r in rows if r["forming"]]
+    return {
+        "note": "Descriptive only. No outcome is used; sensitivity is diagnostic, never "
+        "used to choose the shape share.",
+        "all": {"value": _q([r["value"] for r in rows]), "shape": _q([r["shape"] for r in rows])},
+        "by_type": {
+            t: {
+                "value": _q([r["value"] for r in rs]),
+                "shape_score": _q([r["shape"] for r in rs]),
+                "mean_shape_weight": round(statistics.mean(r["shape_weight"] for r in rs), 4),
+                "shape_only_share": round(sum(r["shape_only"] for r in rs) / len(rs), 4),
+            }
+            for t, rs in sorted(by_type.items(), key=lambda kv: -len(kv[1]))
+        },
+        "components": {
+            k: {
+                "statuses": dict(v.most_common()),
+                "mean_score_when_applicable": round(statistics.mean(comp_scores[k]), 4)
+                if comp_scores[k]
+                else None,
+                "score_values": dict(Counter(round(x, 3) for x in comp_scores[k]).most_common(6)),
+            }
+            for k, v in sorted(comp.items())
+        },
+        "sensitivity": {
+            "all": _sensitivity(rows),
+            "forming_now": _sensitivity(forming),
+            "by_family": {f: _sensitivity(rs) for f, rs in sorted(by_family.items())},
+        },
+    }
 
 
 if __name__ == "__main__":

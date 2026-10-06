@@ -38,9 +38,12 @@ from chartlens_engine.swings import SwingPoint
 if TYPE_CHECKING:  # candidates imports model, which imports this module
     from chartlens_engine.patterns.candidates import Spec
 
-CONTEXT_VERSION = "2"
+CONTEXT_VERSION = "3"
 """2: divergence PRESENT / ABSENT / NOT_APPLICABLE with statuses as of ``known_at``;
-Fibonacci structures carry their swings and ``known_at`` (5b-B review)."""
+Fibonacci structures carry their swings and ``known_at`` (5b-B review).
+3: the structure before the pattern (at the first defining swing's bar), volume at every
+key point, levels near the pattern's base, boundary touches known by ``known_at``, and a
+rounding pattern's base at its fitted extreme (5b-C, ADR-0022 §15)."""
 
 
 def _known(object_known_at: date | None, day: date) -> bool:
@@ -82,6 +85,29 @@ class StructureContext(Frozen):
     last_event_id: str | None
     events_in_span: tuple[str, ...]
     """BOS/CHoCH events between the first defining bar and ``known_at``."""
+
+
+class PriorStructure(Frozen):
+    """Market structure **before the pattern**: the structure layer's state as of the
+    first defining swing's bar. That swing is not yet confirmed then, so the state comes
+    only from swings known before the formation began (ADR-0022 §15.1). Its own
+    ``as_of`` is ≤ the pattern's ``known_at``."""
+
+    as_of: date
+    """The first defining swing's bar date."""
+    state: str | None
+    """None when the structure layer had no state yet (warm-up)."""
+    regime: str | None
+    pending: str | None
+    since: date | None
+
+
+class KeyPointVolume(Frozen):
+    key_point: str
+    """A defining swing's label, or VERTEX for a rounding pattern's fitted extreme."""
+    bar_date: date
+    volume_sma: float | None
+    relative_volume: float | None
 
 
 class LevelNearby(Frozen):
@@ -178,7 +204,17 @@ class PatternContext(Frozen):
     levels_near: list[LevelNearby]
     """Levels known by ``known_at`` within ``level_tol_atr`` × ATR_D of a key point,
     excluding levels built from the pattern's own defining swings."""
+    levels_near_base: list[LevelNearby]
+    """Levels known by ``known_at`` within ``level_tol_atr`` × ATR_D of the pattern's base
+    (``key_point`` = BASE), with their role as of ``known_at``; own swings excluded."""
+    base_price: float
+    prior_structure: PriorStructure
     volume: VolumeContext
+    volume_at: list[KeyPointVolume]
+    """Volume SMA and RVOL at every key point's bar (all ≤ ``known_at``)."""
+    boundary_touches_at_known: int | None
+    """Boundary patterns: defining swings plus touches known by ``known_at``; None
+    otherwise."""
     volatility: VolatilityContext
     divergence: DivergenceContext
     fibonacci: list[FibonacciContext]
@@ -186,19 +222,25 @@ class PatternContext(Frozen):
     """Every object id this context cites."""
 
 
-def _base(spec: Spec) -> float:
-    """The pattern's base: its lowest defining low (bullish) or highest defining high
-    (bearish); its invalidation level when no defining swing is of that type (a rounding
-    pattern's rims); its last defining swing when neutral."""
+def _base(spec: Spec) -> tuple[float, int]:
+    """The pattern's base and its bar: its lowest defining low (bullish) or highest
+    defining high (bearish); a rounding pattern's fitted extreme (the bowl's vertex, where
+    §7 places its level alignment and volume); its last defining swing when neutral."""
     if spec.direction == "NEUTRAL":
-        return spec.defining[-1].price
+        return spec.defining[-1].price, spec.defining[-1].bar_index
+    if spec.family == "rounding":
+        m = spec.measures
+        a, b, c = m["fit_a"], m["fit_b"], m["fit_c"]  # price space (s · q-space)
+        return c - b * b / (4 * a), round(m["fit_origin_index"] - b / (2 * a))
     kind = "LOW" if spec.direction == "BULLISH" else "HIGH"
-    prices = [s.price for s in spec.defining if s.type == kind]
-    if prices:
-        return min(prices) if kind == "LOW" else max(prices)
+    swings = [s for s in spec.defining if s.type == kind]
+    if swings:
+        pick = min if kind == "LOW" else max
+        best = pick(swings, key=lambda s: (s.price, s.bar_index))
+        return best.price, best.bar_index
     if spec.invalidation_level is not None:
-        return spec.invalidation_level
-    return spec.defining[-1].price
+        return spec.invalidation_level, spec.defining[-1].bar_index
+    return spec.defining[-1].price, spec.defining[-1].bar_index
 
 
 def _value(x: Array, i: int) -> float | None:
@@ -248,7 +290,9 @@ class ContextBuilder:
         self.volume_trend = indicators.get("volume_trend").data[:n]
         self.level_swing = {e.event_id: e.level_swing_id for e in structure.events}
 
-    def build(self, spec: Spec) -> PatternContext:
+    def build(self, spec: Spec, boundary_touches: int | None = None) -> PatternContext:
+        """``boundary_touches``: touches of a boundary pattern known by ``known_at``
+        (counted by the analyzer with that cut-off, never from the lifecycle)."""
         cb = self.cb
         k = spec.known_index
         day = cb.dates[k]
@@ -262,6 +306,25 @@ class ContextBuilder:
             refs.append(structure.last_event_id)
         levels = self._levels(spec, day)
         refs += [lv.level_id for lv in levels]
+        base_price, base_bar = _base(spec)
+        near_base = self._levels_near(spec, day, "BASE", base_price)
+        refs += [lv.level_id for lv in near_base]
+        prior_structure = self._prior_structure(spec)
+        points = [
+            (label, sw.bar_index) for label, sw in zip(spec.labels, spec.defining, strict=True)
+        ]
+        if spec.family == "rounding":
+            points.append(("VERTEX", base_bar))
+        volume_at = [
+            KeyPointVolume(
+                key_point=label,
+                bar_date=cb.dates[b],
+                volume_sma=_value(self.vsma, b),
+                relative_volume=_value(self.rvol, b),
+            )
+            for label, b in points
+            if 0 <= b <= k
+        ]
         span = max(1, last.bar_index - first.bar_index)
         o1, o2 = _value(self.obv, first.bar_index), _value(self.obv, last.bar_index)
         v_last = _value(self.vsma, last.bar_index)
@@ -299,7 +362,14 @@ class ContextBuilder:
             prior_move=prior,
             structure=structure,
             levels_near=levels,
+            levels_near_base=near_base,
+            base_price=base_price,
+            prior_structure=prior_structure,
             volume=volume,
+            volume_at=volume_at,
+            boundary_touches_at_known=None
+            if spec.touch_tol_atr is None
+            else len(spec.defining) + (boundary_touches or 0),
             volatility=volatility,
             divergence=divergence,
             fibonacci=fibonacci,
@@ -362,6 +432,16 @@ class ContextBuilder:
         )
 
     def _levels(self, spec: Spec, day: date) -> list[LevelNearby]:
+        out: list[LevelNearby] = []
+        for label, s in zip(spec.labels, spec.defining, strict=True):
+            out += self._levels_near(spec, day, label, s.price)
+        out.sort(key=lambda x: (x.key_point, x.distance_atr, x.level_id))
+        return out
+
+    def _levels_near(self, spec: Spec, day: date, label: str, price: float) -> list[LevelNearby]:
+        """Levels known by ``day`` (``as_of``: the object-level contract) within
+        ``level_tol_atr`` × ATR_D of ``price``, with their role that day. Levels built from
+        the pattern's own defining swings are never counted."""
         tol = self.config.common(self.config_section(spec), "level_tol_atr") * spec.atr_d
         own = {s.swing_id for s in spec.defining}
         out: list[LevelNearby] = []
@@ -369,21 +449,31 @@ class ContextBuilder:
             snap = lv.as_of(day)
             if snap is None or lv.ref_id in own or self.level_swing.get(lv.ref_id) in own:
                 continue
-            for label, s in zip(spec.labels, spec.defining, strict=True):
-                d = abs(s.price - lv.price)
-                if d <= tol:
-                    out.append(
-                        LevelNearby(
-                            key_point=label,
-                            level_id=lv.level_id,
-                            source_type=lv.source_type,
-                            role=snap.role,
-                            price=lv.price,
-                            distance_atr=d / spec.atr_d,
-                        )
+            d = abs(price - lv.price)
+            if d <= tol:
+                out.append(
+                    LevelNearby(
+                        key_point=label,
+                        level_id=lv.level_id,
+                        source_type=lv.source_type,
+                        role=snap.role,
+                        price=lv.price,
+                        distance_atr=d / spec.atr_d,
                     )
-        out.sort(key=lambda x: (x.key_point, x.distance_atr, x.level_id))
+                )
+        out.sort(key=lambda x: (x.distance_atr, x.level_id))
         return out
+
+    def _prior_structure(self, spec: Spec) -> PriorStructure:
+        first = spec.defining[0].bar_date
+        state = self.structure.state_as_of(first)
+        return PriorStructure(
+            as_of=first,
+            state=state.state if state else None,
+            regime=state.regime if state else None,
+            pending=state.pending if state else None,
+            since=state.since if state else None,
+        )
 
     def _divergence(self, spec: Spec, day: date) -> DivergenceContext:
         reason = self._divergence_not_applicable(spec)
@@ -426,7 +516,7 @@ class ContextBuilder:
         return None
 
     def _fibonacci(self, spec: Spec, day: date) -> list[FibonacciContext]:
-        base = _base(spec)
+        base, _ = _base(spec)
         out: list[FibonacciContext] = []
         for fib in self.fibonacci.current(day):  # as_of(day) projections, known_at ≤ day
             leg = fib.counter_price - fib.anchor_price
