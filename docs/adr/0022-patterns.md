@@ -1192,6 +1192,157 @@ securities; descriptive, no outcomes**):**
 
 **Phase 5b-C: CLOSED.**
 
+## 18. Definition fit across families; relevance (proposal for review, not yet accepted)
+
+### 18.1 Product and API rule (Suba, 2026-10-06)
+
+> **`definition_fit` is an ordinal measure of conformity to the definition within a
+> pattern family. It is not a universal quality score across pattern families.**
+
+Each family has its own shape criteria, so a 1.0 on wedge convergence is not
+equivalent to a 1.0 on double-bottom low equality. A falling wedge at 85 and a double
+bottom at 67 do not mean the wedge is better.
+
+- **Within a family**, `definition_fit` may be sorted and compared.
+- **Across families**, it is displayed but never used to rank. No scanner view offers
+  "highest definition fit" across families. The API documents the rule and offers no
+  cross-family sort on it (ADR-0023 is amended when serving is built).
+- **Relevance** never turns it into a hidden universal ranking.
+
+### 18.2 What relevance is
+
+Relevance answers one question: **why should this pattern appear in the user's
+attention view?** It never answers "how likely is this pattern to work?". It replaces
+§4's relevance rules once accepted. §4's existence rules are unchanged.
+
+```text
+Pattern (unchanged by relevance)        PatternRelevance (a separate annotation)
+  geometry, lifecycle, context,           pattern_id, pattern_known_at
+  definition_fit                          history: append-only entries
+                                            effective_date (= relevance_known_at)
+                                            included, reason, contained_by
+                                            tags, evidence_refs, provisional
+```
+
+**Principles:**
+
+1. **An annotation.** It never modifies pattern identity, geometry, lifecycle,
+   confirmation, context or definition fit. It lives in its own list. A run with or
+   without relevance produces identical `Pattern` objects (tested).
+2. **Rules with explicit reasons, never a score.** Inclusion is decided by the
+   lifecycle stage, recency, containment and a cap, each a named rule. There is no
+   relevance number, no weighted sum, and no count of tags.
+3. **No definition fit.** The relevance module does not read `definition_fit` (an
+   import/name test, like the scorer's). It is shown next to a pattern, never used to
+   select one. Ranking within a category is deferred to its own design, as you asked.
+4. **Known at the evaluation date, then appended, never rewritten.** At each complete
+   bar t, relevance is evaluated from `as_of(t)` projections only:
+   - the lifecycle events known by t;
+   - the context (a `known_at` snapshot);
+   - structure events and levels known by t;
+   - the close at t.
+
+   An entry is appended only when (included, reason, contained_by) changes. Each entry
+   is dated by the bar that caused it, and `relevance_known_at` is that bar. A pattern
+   cannot become relevant in retrospect: a later breakout produces a later entry and
+   never edits an earlier one. The forming week never creates an entry. An entry
+   caused by a non-regular-session close is `provisional` (ADR-0015).
+
+**Evaluation at bar t** (for patterns with `known_at` ≤ t, in this order):
+
+1. **Stage** (from the lifecycle as of t), giving a candidate reason:
+
+| Lifecycle as of t | Included | Reason |
+|---|---|---|
+| FORMING, close at t within `approach_atr` × ATR_pre(t) of the confirmation level or line, on the pattern's side (either boundary for a neutral pattern) | yes | `APPROACHING_CONFIRMATION` |
+| FORMING, t − `known_at` < `new_pattern_bars` | yes | `NEWLY_RECOGNISED` |
+| FORMING | yes | `FORMING` |
+| CONFIRMED (or RECOGNISED_AFTER_BREAKOUT), breakout ≤ `recent_event_bars` ago | yes | `BREAKOUT_CONFIRMED` (or `RECOGNISED_AFTER_BREAKOUT`) |
+| CONFIRMED, within its `completion_window` | yes | `BREAKOUT_OPEN` |
+| CONFIRMED, past its `completion_window` | no | `AGED_OUT` |
+| COMPLETED / FAILED / INVALIDATED / EXPIRED | no | that status |
+
+   Rows are checked top to bottom, and the first match wins.
+2. **Containment.** An included pattern whose defining swings are all defining swings
+   of an included, more complex pattern (more defining swings) of the same direction is
+   excluded with reason `CONTAINED` and `contained_by` set to the outermost container.
+   Both patterns must be known by t. If the container stops being included, the
+   contained pattern is judged on its own from that bar.
+3. **Cap.** At most `max_forming_per_type` (2) included FORMING patterns per type. The
+   most recently known come first, with ties broken by `pattern_id`. The rest are
+   excluded with reason `CAPPED`. **Recency, not fit** (question 2).
+
+**Tags** explain why a pattern may deserve attention. They never affect inclusion or
+order, and they are never counted. Each tag is a named fact with its evidence, known
+by the entry's date:
+
+| Tag | Fact | Evidence |
+|---|---|---|
+| `AT_SUPPORT` / `AT_RESISTANCE` | The context has a level with that role near the base (`levels_near_base`) | level ids |
+| `STRUCTURE_SHIFT` | A CHoCH in the pattern's direction, known by t, at or after the first defining bar | structure event id |
+| `AGAINST_PRIOR_TREND` | Reversal family, and the prior structure is the trend it reverses | prior structure (context) |
+| `DIVERGENCE` | The context's divergence is PRESENT | divergence ids |
+| `BREAKOUT_VOLUME` | The CONFIRMED event's RVOL classification is confirmation | the status entry |
+
+A test checks that stripping every tag never changes an inclusion or a reason.
+
+**Record.** `PatternRelevance(pattern_id, pattern_known_at, history)`. Each entry
+holds:
+
+- `effective_date` (= `relevance_known_at`);
+- `included`, `reason`, `contained_by`;
+- `tags`, each with its `evidence_refs`;
+- `evidence_refs` for the reason: the pattern, the confirmation level or line value
+  and the close for APPROACHING; the status entry for lifecycle reasons; the container
+  for CONTAINED; the patterns kept for CAPPED;
+- `provisional`, `methodology_version`.
+
+`as_of(day)` gives the entry in force on that day. `PatternResult.relevance` holds one
+`PatternRelevance` per pattern. Pattern objects are never touched.
+
+**Configuration** (`[analysis.patterns.relevance]`, hashed):
+
+- `new_pattern_bars` = 4;
+- `recent_event_bars` = 4;
+- `approach_atr` = 1.0 (ATR_pre, as for every event threshold);
+- `max_forming_per_type` = 2 (moved from `[analysis.patterns]`);
+- `report_window_bars` retired (question 1).
+
+**Tests:**
+
+- replay: the entry in force at T from the full run equals the current entry of a run
+  truncated at T;
+- the history from a run to T is a prefix of the full history (append-only, never
+  rewritten);
+- `Pattern` objects are identical with and without relevance;
+- the module never reads `definition_fit` or outcome-only fields;
+- tags never change inclusion;
+- a fixture for every reason: containment (double inside triple), cap order, the
+  forming week, a provisional special-session entry, and a pattern that is FORMING,
+  then APPROACHING, then BREAKOUT_CONFIRMED, then BREAKOUT_OPEN, then COMPLETED, with
+  each entry dated by its own bar.
+
+**Real-data report** (descriptive):
+
+- current reasons per family;
+- included patterns per security now;
+- entries per pattern, and the transitions between reasons;
+- timings.
+
+**Questions for review:**
+
+1. **Terminal patterns** leave the attention view on the terminal bar. They stay in
+   the full list and the chart's history layer. I propose this rather than §4's 52-bar
+   window. A failed breakout is attention-worthy, but it belongs to the breakout-event
+   phase (FALSE_BREAKOUT, FAILED_RETEST), not to pattern relevance. So
+   `report_window_bars` is retired.
+2. **The cap orders by recency only.** Within a type, definition fit would be a
+   legitimate tie-break (same family). But you deferred prioritisation within a
+   category, so v1 keeps relevance completely free of fit.
+3. **Defaults:** `new_pattern_bars` 4, `recent_event_bars` 4, `approach_atr` 1.0.
+   These are declared and would not be tuned to data.
+4. **Tags in v1:** the five above, or none until the scanner exists?
+
 ## Testing (mandatory)
 
 **Golden fixtures**, small and readable weekly series, one per pattern and direction:
