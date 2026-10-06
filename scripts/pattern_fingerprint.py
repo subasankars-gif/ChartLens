@@ -127,6 +127,7 @@ def main() -> None:
                 "securities": len(per),
                 "patterns": patterns,
                 "breakouts": breakouts,
+                "breakout_bar_volume_classes": classes,
                 "per_security": per,
             }
         )

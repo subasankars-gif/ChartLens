@@ -110,7 +110,9 @@ FORMING ────┤               ├── COMPLETED   (within completion_w
   The CONFIRMED entry also carries:
   - the breakout bar's RVOL, classified by the volume layer's thresholds as
     confirmation or contradiction;
-  - the measured-move zone (§5).
+  - the measured-move zone (§5);
+  - the breakout bar's frozen volume evidence, `breakout_bar_volume` (added by the
+    5b-A amendment in §18.4).
 
 ## 4. Overlap and relevance
 
@@ -1453,6 +1455,84 @@ descriptive**):**
   neckline). Recorded, not changed. Hysteresis would be a methodology change.
 - **Timing.** The relevance stage takes about 5.2 ms per security; the pattern stage
   about 16.5 ms.
+
+### 18.4 Review decisions after 5b-D (Suba, 2026-10-06)
+
+**1. The approaching-confirmation flicker: accepted; hysteresis deferred.**
+
+- The 1-ATR rule and the append-only history stay unchanged. The flicker is real but
+  is not a correctness defect: each entry is the rule evaluated with the information
+  available at that weekly close.
+- It is not tuned on transition counts. A wider exit band would add a new stateful
+  rule and parameter.
+- The flicker, and the 41 % of patterns already approaching at recognition, are
+  recorded as diagnostics (§18.3).
+- When the scanner is designed, assess whether the changes are a real user-experience
+  problem. If hysteresis is warranted, propose it as an explicit methodology change,
+  with deterministic replay tests.
+- **Presentation never rewrites analysis.** The relevance history stays exact even if
+  the scanner later shows state changes less prominently.
+
+**2. Breakout-bar volume: amend 5b-A now (an evidence-contract change only).**
+
+ADR §3 said the breakout event carries the breakout bar's RVOL and classification, but
+5b-A did not record it. The breakout event (CONFIRMED or RECOGNISED_AFTER_BREAKOUT) now
+carries `breakout_bar_volume`:
+
+- `bar_date`, `volume`;
+- `baseline_bars`, `baseline_mean_volume` (the bars before the breakout bar; the bar
+  is not in its own baseline);
+- `rvol`;
+- `classification` (EXPANSION / NORMAL / CONTRACTION) and the
+  `expansion_threshold` / `contraction_threshold` it used;
+- `evidence_refs` (the indicator series at that bar);
+- `measurement_version`.
+
+The rules:
+
+- **The name is deliberate.** It is the breakout bar's frozen measurement and never
+  shares a field name with any later or current volume classification.
+- **Data through the breakout bar only.** It reads the indicator layer's
+  `relative_volume` and `volume_state` at that bar and never reclassifies. In warm-up,
+  `rvol`, the baseline mean and the classification are `None`.
+- **Evidence, never a condition.** No lifecycle transition reads it. Breakout dates,
+  transitions, terminal behaviour, measured moves and definition fit are unchanged.
+- **Relevance consumes the record.** The `BREAKOUT_VOLUME` tag reads the event's
+  recorded classification. The relevance module no longer touches volume indicators,
+  and the tag stays explanation only.
+- **Versioning and backfill.** `PatternAnalyzer` is version 5, because the event record
+  contract changed; the events' `methodology_version` stamp says patterns-5. There is
+  no backfill. No pattern event has ever been persisted: the engine exists only on the
+  M8 branch, and neither production nor the API runs it. Every event, including this
+  field, is recomputed from the point-in-time weekly bars and reproduced exactly by a
+  run as of its date (tested). If events are ever persisted, a stored event will
+  carry its own `methodology_version` and `measurement_version`, and older records
+  will never be filled in with later calculations.
+
+**Regression checks:**
+
+- **Tests:**
+  - every breakout event, and only those, carries the record, consistent with the
+    indicator series and its parameters;
+  - replacing every later bar, volumes included, leaves each earlier breakout event
+    identical;
+  - replay at the breakout bar reproduces the whole event;
+  - nonsense evidence changes no status, date, reason, measured value, measured move,
+    context or fit;
+  - the relevance tag follows the recorded classification;
+  - warm-up gives `None`.
+- **Fingerprint** (`scripts/pattern_fingerprint.py`). It hashes every pattern (id,
+  geometry, touches, context, definition fit, every event) and every relevance history,
+  excluding only the new field, the version stamp and tag evidence refs. Old commit
+  (4e08c75) vs new:
+  - on synthetic data (300 securities, 2,266 patterns, 1,406 breakouts): **identical**;
+  - on the published snapshot meta-a89cf1fbcd05 (3,191 securities, 26,289 patterns,
+    15,719 breakout events): **identical**. Every hash matches, so pattern ids,
+    geometry, touches, context, definition fit, every lifecycle event (dates,
+    reasons, measured values, measured moves) and every relevance history are
+    unchanged.
+  - 7,240 of the 15,719 breakouts (46 %) were on an EXPANSION bar. That is the
+    same classification relevance used before, now read from the record.
 
 ## Testing (mandatory)
 
