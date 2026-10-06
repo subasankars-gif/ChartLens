@@ -1192,7 +1192,7 @@ securities; descriptive, no outcomes**):**
 
 **Phase 5b-C: CLOSED.**
 
-## 18. Definition fit across families; relevance (proposal for review, not yet accepted)
+## 18. Definition fit across families; relevance (approved with amendments in §18.3)
 
 ### 18.1 Product and API rule (Suba, 2026-10-06)
 
@@ -1342,6 +1342,117 @@ holds:
 3. **Defaults:** `new_pattern_bars` 4, `recent_event_bars` 4, `approach_atr` 1.0.
    These are declared and would not be tuned to data.
 4. **Tags in v1:** the five above, or none until the scanner exists?
+
+### 18.3 Approval and the exact semantics (Suba, 2026-10-06)
+
+**Central invariant.** Changing relevance rules never changes pattern identity,
+geometry, lifecycle, definition fit, or the underlying analytical objects. This is the
+basis of the replay and regression tests. Relevance runs as its own stage, after the
+pattern analyzer, over its finished result.
+
+| Question | Decision |
+|---|---|
+| Retire the 52-bar window | **Yes** |
+| A terminal pattern stays in the attention view on its terminal bar | **No.** Relevance ends when the pattern reaches a terminal lifecycle state, including on that bar. The terminal event stays visible in the history, chart and event views |
+| Failed breakouts handled here | **No.** They belong to the future breakout-event layer |
+| Cap by recency only | **Yes.** Order by the immutable `known_at`, then `pattern_id`, never processing order. No cross-family `relevance_score` or `fit_rank` in the API |
+| `definition_fit` in relevance | **No** |
+| 4-bar new window, 4-bar breakout window, 1-ATR approach | **Yes**, as declared methodology with frozen semantics (below) |
+| Tags now | **Yes**, as inert explanation |
+| Cross-family ranking | **No** |
+
+**Rule hierarchy (locked).** At each complete weekly bar T, with segment bar indices:
+
+1. Determine the lifecycle state known at T (events with `known_at` ≤ T).
+2. If terminal: **not included**, reason `TERMINAL_<STATUS>` (`TERMINAL_COMPLETED`,
+   `_FAILED`, `_INVALIDATED`, `_EXPIRED`). This is permanent.
+3. Else, if a breakout is known and b ≤ T < b + `recent_breakout_bars`: included,
+   `BREAKOUT_CONFIRMED` (or `RECOGNISED_AFTER_BREAKOUT`).
+4. Else, if a breakout is known and T − b ≤ the pattern's `completion_window`:
+   included, `BREAKOUT_OPEN`. Past that window: not included, `AGED_OUT`, permanent.
+   (The CONFIRMED status stays as a historical fact; nothing is tracked after the
+   window.)
+5. Else (FORMING), if |close_T − level_T| ≤ `approaching_confirmation_atr` × ATR_T:
+   included, `APPROACHING_CONFIRMATION`.
+   - ATR_T is the ATR at the current complete bar, computed from data through T.
+   - level_T is the confirmation level, or the confirmation line's value at T.
+   - A neutral pattern uses the nearer of its two boundaries.
+   - The close, level, ATR and distance are recorded.
+6. Else, if k ≤ T < k + `new_pattern_bars` (k = the pattern's `known_at` bar):
+   included, `NEWLY_RECOGNISED`.
+7. Else: included, `FORMING`.
+8. **Containment.** An included pattern contained by an included, more complex pattern
+   of the same direction is **not included**, reason `CONTAINED`, with
+   `container_pattern_id` (the outermost container; ties broken by `pattern_id`).
+9. **Cap.** Among included FORMING-stage patterns (rules 5–7) of one type, keep the
+   `max_forming_per_type` most recently known (`known_at` descending, then
+   `pattern_id`). The rest are **not included**, reason `FORMING_CAP`, with
+   `kept_pattern_ids`.
+10. Attach the inert tags.
+
+**Precedence is intentional.** A pattern may satisfy several predicates; only the first
+matching reason is emitted. For example, a newly recognised pattern within 1 ATR of
+confirmation is `APPROACHING_CONFIRMATION`, the more useful current fact. This is
+tested.
+
+**Thresholds.** All relevance thresholds are evaluated with information available at
+the relevance bar, and none is tuned from historical outcomes:
+
+- `new_pattern_bars` = 4;
+- `recent_breakout_bars` = 4;
+- `approaching_confirmation_atr` = 1.0;
+- `max_forming_per_type` = 2.
+
+Windows count weekly bars of the segment, not calendar days.
+
+**Entries.** An entry is appended when the inclusion, the reason, the container, the
+kept ids or the tag set changes. Tags are recorded as of the entry, so `as_of(day)`
+reproduces exactly what was shown that day. A tag change alone appends an entry but can
+never change an inclusion or a reason (tested).
+
+**Implementation notes (5b-D):**
+
+- `StructureResult.character_changes()` was added, so relevance never names
+  structure's event kinds (the layer-boundary test).
+- `BREAKOUT_VOLUME` reads the volume layer's own classification (`volume_state` =
+  EXPANSION) at the breakout bar. **Gap found:** §3 says the CONFIRMED entry carries the
+  breakout bar's RVOL classification, but 5b-A did not record it. It is raised for
+  review and left unchanged here.
+- **Edge case recorded:** containment runs before the cap. A contained pattern stays
+  `CONTAINED` even on a bar where its container is itself excluded by the cap. The
+  container is still FORMING and visible in the full list.
+
+**Real-NSE diagnostics (5b-D;** snapshot meta-a89cf1fbcd05; 3,191 securities;
+descriptive**):**
+
+- **The central invariant holds on real data.** Patterns, candidates, every lifecycle
+  path and every definition fit are identical to the 5b-C close.
+- **The attention view now** holds 1,027 included patterns in 743 securities (23 %).
+  The median security has none; p90 has 1 and p95 has 2. By reason:
+  - `BREAKOUT_OPEN` 438;
+  - `FORMING` 256;
+  - `APPROACHING_CONFIRMATION` 158;
+  - `NEWLY_RECOGNISED` 85;
+  - `BREAKOUT_CONFIRMED` 73;
+  - `RECOGNISED_AFTER_BREAKOUT` 17.
+
+  Excluded now: `CONTAINED` 45; `AGED_OUT` 2,416; terminal 22,801.
+- **History.** 3.95 entries per pattern on average (median 3, p95 8).
+- **Cap.** `FORMING_CAP` occurred 8 times in total and never binds now: at 2 per type
+  the cap is rarely reached. `CONTAINED` occurred 3,060 times, 1,929 of them from
+  recognition.
+- **Observation: `APPROACHING_CONFIRMATION` flickers.** It is an instantaneous
+  1-ATR band, so a close oscillating near the level alternates it with
+  FORMING / NEWLY_RECOGNISED:
+  - APPROACHING → FORMING 7,388 times;
+  - FORMING → APPROACHING 8,432 times;
+  - APPROACHING → NEWLY_RECOGNISED 3,851 times.
+
+  Each entry is correct and dated. 41 % of patterns are already within 1 ATR of
+  confirmation when recognised (the last swing's ~3-ATR reversal often ends near the
+  neckline). Recorded, not changed. Hysteresis would be a methodology change.
+- **Timing.** The relevance stage takes about 5.2 ms per security; the pattern stage
+  about 16.5 ms.
 
 ## Testing (mandatory)
 
