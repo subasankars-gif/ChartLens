@@ -1194,7 +1194,7 @@ securities; descriptive, no outcomes**):**
 
 **Phase 5b-C: CLOSED.**
 
-## 18. Definition fit across families; relevance (approved with amendments in §18.3)
+## 18. Definition fit across families; relevance (approved §18.3; closed §18.5)
 
 ### 18.1 Product and API rule (Suba, 2026-10-06)
 
@@ -1533,6 +1533,136 @@ The rules:
     unchanged.
   - 7,240 of the 15,719 breakouts (46 %) were on an EXPANSION bar. That is the
     same classification relevance used before, now read from the record.
+
+### 18.5 Closure (Suba, 2026-10-06)
+
+**Phase 5b-D (relevance): CLOSED.**
+
+- Relevance is a separate, point-in-time, replayable, append-only annotation layer.
+  Patterns, geometry, lifecycle and definition fit are untouched.
+- Terminal patterns leave attention permanently.
+- Containment and the forming cap are explicit exclusions.
+- Definition fit is entirely outside relevance, and tags are inert.
+- The 1-ATR flicker is documented rather than tuned away. Relevance is not reopened
+  for it unless scanner design shows an actual presentation problem.
+
+**The 5b-A amendment is approved as an evidence-contract amendment.**
+
+> **Invariant: an event records what the engine knew at the event bar; downstream
+> layers consume the recorded evidence rather than recomputing it.**
+
+**The 46 % high-volume finding is descriptive only.** It does not say that high-volume
+breakouts are better, more reliable or more relevant. Any such question is outcome
+analysis, and it belongs to later statistics work.
+
+**Tooling note.** The first real-data comparison (probe run 37496732930) failed because
+a diagnostic formatting change had dropped the volume-classification keys from the
+fingerprint output. Both fingerprint jobs had completed successfully. A direct
+comparison of the published fingerprints (probe run 37498737083) then confirmed they
+were equal, and the diagnostic script was corrected. This did not affect analytical
+outputs.
+
+## 19. Breakout events (proposal for review, not yet accepted)
+
+§5 sketched breakout events. Since then the evidence invariant (§18.5), the
+lifecycle's own FAILED rule and the size of the level layer change some of its
+details. This section replaces §5's breakout-event table once accepted.
+
+**Purpose.** For every break of a level and every pattern breakout, record facts about
+what followed within a fixed short window: a retest, a false breakout, a failed retest.
+
+- Facts only: no success rates, no scores, no relevance (attention for events is a
+  later, separate design).
+- Breakout events never modify levels, patterns, pattern relevance or definition fit.
+  The §18.4 fingerprint on patterns and relevance must stay identical.
+
+**Sources: judged once, by their own layer.**
+
+| Source | Breakout event created from | Direction |
+|---|---|---|
+| `PATTERN` | The pattern's breakout event (CONFIRMED or RECOGNISED_AFTER_BREAKOUT, ATR_pre rule) | Its breakout direction: `BREAKOUT` up, `BREAKDOWN` down |
+| `LEVEL` | Each non-original role change of a Level (ADR-0021 rule: close beyond price ± `level_break_atr` × ATR, unchanged) | RESISTANCE → SUPPORT is `BREAKOUT`; SUPPORT → RESISTANCE is `BREAKDOWN` |
+
+The two sources keep their own approved rules. The event layer never re-judges a
+break, and it never harmonises the thresholds. A pattern breakout through a neckline
+and the role change of the level at the same price are two events from two sources.
+Grouping them is presentation, not analysis.
+
+**Evidence: recorded at the source (the §18.5 invariant).**
+
+- A pattern breakout already carries its evidence (close, level, buffer, ATR_pre and
+  `breakout_bar_volume`).
+- **Phase 4 evidence amendment (proposed).** A Level's non-original `RoleChange` would
+  also record what the levels layer knew on that bar: `change_bar` (close, open,
+  level, ATR, buffer, threshold) and `change_bar_volume`, the same frozen measurement
+  as `breakout_bar_volume`, under its own name.
+  - The shared model is renamed `BarVolumeEvidence`. The field names stay distinct.
+  - It is evidence only. No role change would move. Prefix stability and the levels
+    fingerprint would be checked as in §18.4.
+- The breakout event copies its source's recorded evidence with a reference to it. It
+  never reads indicators to rebuild it.
+
+**Object.** `BreakoutEvent`:
+
+- `event_id = {source_id}:{BREAKOUT|BREAKDOWN}:{bar_date}`;
+- `source_type`, `source_id`, `source_event_ref`;
+- `direction`, `bar_date`, `known_at` (= `bar_date`);
+- `level_at_break`, `evidence` (copied), `provisional`;
+- `history`: append-only follow-ups, each dated by the complete bar that caused it,
+  with its own measured values and `known_at`.
+
+**Follow-ups.** b is the break bar. The level is constant for a LEVEL; for a PATTERN it
+is the confirmation level, or the line's value at t.
+
+| Follow-up | Rule | Judged by |
+|---|---|---|
+| `RETEST` (non-terminal) | The first complete bar t in (b, b + `retest_window`], before any reversal, whose low (BREAKOUT) or high (BREAKDOWN) comes within `retest_tol_atr` × ATR_pre(t) of the level, or pierces it, and whose close is on the breakout side | The event layer: a new, named rule. Its measured values (low/high, close, level, tolerance) are recorded |
+| `FALSE_BREAKOUT` (terminal) | The source reverses before any RETEST, within the source's reversal window. PATTERN: the pattern's own FAILED event (its `fail_window`). LEVEL: the level's next role change back, within `false_window` | The source. The event layer only reads the dated fact |
+| `FAILED_RETEST` (terminal) | The source reverses after a RETEST, within `retest_window` | The source |
+| `WINDOW_ENDED` (terminal) | None of the above by b + the observation window (the longer of the reversal and retest windows) | A date, not a judgement: "nothing further is tracked" |
+
+- **A reversal after the window** is not a follow-up of this event. For a level it is
+  a new role change, and so a new breakout event in the other direction.
+- **The forming week** never creates a follow-up.
+- **A non-regular-session bar** makes the follow-up `provisional`.
+
+**Configuration** (`[analysis.breakouts]`, hashed and declared, never tuned from
+outcomes):
+
+- `retest_window` = 10;
+- `retest_tol_atr` = 0.5;
+- `false_window` = 3 (levels only).
+
+**Tests:**
+
+- replay (a run as of T gives the same events and histories up to T);
+- prefix stability;
+- the events never change levels, patterns, relevance or fit (fingerprint);
+- the evidence equals the source's record (and is never recomputed);
+- fixtures for each follow-up and for the window ending;
+- a pattern breakout whose pattern FAILED after a retest becomes `FAILED_RETEST`;
+- a level that flips back on the next bar becomes `FALSE_BREAKOUT`;
+- special-session and forming-week cases.
+
+**Scale.** On synthetic data (700 weekly bars) there are about 290 level role changes
+per security, against about 9 pattern breakouts. Levels flip whenever a close crosses
+them by 0.10 ATR, and every swing level stays in existence. Real NSE counts are the
+first thing the build measures. Existence keeps them all; attention is the later
+event-relevance design.
+
+**Questions for review:**
+
+1. **Level breakouts in scope now**, as events for every role change (existence,
+   complete; about 290 per security on synthetic data)? Or pattern breakouts only in
+   this phase, with level breakouts after real counts? I recommend both now: the role
+   changes already exist as facts, and an event is a view over them plus follow-ups.
+2. **Reversal windows.** PATTERN: the pattern's own FAILED (its `fail_window` 8), with
+   no second window. LEVEL: `false_window` 3, as in §5. Keep them source-specific (my
+   recommendation: never judged twice), or set one event-layer window for both?
+3. **`WINDOW_ENDED`** as an explicit terminal record, or leave the event open with no
+   further entries?
+4. **The Phase 4 evidence amendment** (`RoleChange.change_bar` and `change_bar_volume`,
+   evidence only): approve it as part of this phase?
 
 ## Testing (mandatory)
 
