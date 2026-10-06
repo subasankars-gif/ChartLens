@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 from chartlens_core.config import LevelsConfig
+from chartlens_engine.bar_evidence import BarVolumeEvidence, VolumeSource, bar_volume_evidence
 from chartlens_engine.causal import (
     Array,
     CompleteBars,
@@ -54,6 +55,31 @@ SourceType = Literal["SWING", "STRUCTURE", "DYNAMIC", "FIBONACCI"]
 Side = Literal["SUPPORT", "RESISTANCE"]
 
 
+CHANGE_BAR_VERSION = "1"
+
+
+class ChangeBarEvidence(Frozen):
+    """What the levels layer knew on the bar that changed a level's role, frozen in the
+    role change (Phase 4 evidence amendment, ADR-0022 §19). Downstream layers consume it
+    rather than recomputing it."""
+
+    bar_date: date
+    direction: Literal["BREAKOUT", "BREAKDOWN"]
+    """RESISTANCE → SUPPORT is a breakout; SUPPORT → RESISTANCE a breakdown."""
+    open: float
+    close: float
+    level: float
+    atr: float | None
+    """ATR at the change bar (the approved Phase 4 rule); None during warm-up."""
+    level_break_atr: float
+    buffer: float
+    """``level_break_atr`` × ATR (0 during warm-up)."""
+    threshold: float
+    """The close that had to be crossed: level ± buffer."""
+    evidence_refs: tuple[str, ...]
+    measurement_version: str
+
+
 class RoleChange(Frozen):
     role: Side
     date: date
@@ -61,6 +87,10 @@ class RoleChange(Frozen):
     threshold: float | None
     """The close that had to be crossed (level ± buffer); None for the original role."""
     provisional: bool = False
+    change_bar: ChangeBarEvidence | None = None
+    """None for the original role."""
+    change_bar_volume: BarVolumeEvidence | None = None
+    """The change bar's frozen volume evidence; None for the original role."""
 
 
 class Level(Frozen):
@@ -218,7 +248,8 @@ class LevelsResult(AnalyzerResult):
 
 class LevelsAnalyzer:
     name = "levels"
-    version = "1"
+    version = "2"
+    """2: role changes record their change-bar evidence (ADR-0022 §19)."""
 
     def __init__(
         self,
@@ -303,6 +334,7 @@ class LevelsAnalyzer:
                     ("STRUCTURE", e.event_id, e.level, e.bar_date, e.known_at, role, False)
                 )
         buffer = np.nan_to_num(atr * self.config.level_break_atr, nan=0.0)
+        volume = VolumeSource.from_indicators(self.indicators, cb.n)
         levels: list[Level] = []
         for source_type, ref, price, bar_date, known_at, role, high_volume in origins:
             k = index_of[known_at]
@@ -317,12 +349,28 @@ class LevelsAnalyzer:
                 t += int(hits[0])
                 current = "RESISTANCE" if current == "SUPPORT" else "SUPPORT"
                 sign = -1.0 if current == "RESISTANCE" else 1.0
+                a = float(atr[t])
+                threshold = price + sign * float(buffer[t])
                 history.append(
                     RoleChange(
                         role=current,
                         date=cb.dates[t],
-                        threshold=price + sign * float(buffer[t]),
+                        threshold=threshold,
                         provisional=bool(cb.special[t]),
+                        change_bar=ChangeBarEvidence(
+                            bar_date=cb.dates[t],
+                            direction="BREAKOUT" if current == "SUPPORT" else "BREAKDOWN",
+                            open=float(cb.open[t]),
+                            close=float(cb.close[t]),
+                            level=price,
+                            atr=None if np.isnan(a) else a,
+                            level_break_atr=self.config.level_break_atr,
+                            buffer=float(buffer[t]),
+                            threshold=threshold,
+                            evidence_refs=(f"bars:{cb.dates[t]}", f"indicators:atr@{cb.dates[t]}"),
+                            measurement_version=CHANGE_BAR_VERSION,
+                        ),
+                        change_bar_volume=bar_volume_evidence(cb, volume, t),
                     )
                 )
                 t += 1

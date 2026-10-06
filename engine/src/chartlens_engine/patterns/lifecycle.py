@@ -25,13 +25,12 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
 
 from chartlens_core.config import PatternsConfig, PatternSection
+from chartlens_engine.bar_evidence import BarVolumeEvidence, VolumeSource, bar_volume_evidence
 from chartlens_engine.causal import Array, CompleteBars
 from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Line, Spec
 from chartlens_engine.patterns.model import (
-    BreakoutBarVolume,
     MeasuredMove,
     PatternEvent,
     PatternStatus,
@@ -43,21 +42,6 @@ Level = Callable[[int], float]
 def section(config: PatternsConfig, family: str) -> PatternSection:
     section_: PatternSection = getattr(config, family)
     return section_
-
-
-BREAKOUT_VOLUME_VERSION = "1"
-
-
-@dataclass(frozen=True)
-class VolumeSource:
-    """The indicator layer's relative volume and volume state, read at the breakout bar
-    only (never recomputed or reclassified here)."""
-
-    rvol: Array
-    state: list[object]
-    baseline: int
-    expansion: float
-    contraction: float
 
 
 class Lifecycle:
@@ -75,26 +59,9 @@ class Lifecycle:
         self.analyzer_version = analyzer_version
         self.volume = volume
 
-    def breakout_bar_volume(self, t: int) -> BreakoutBarVolume:
+    def breakout_bar_volume(self, t: int) -> BarVolumeEvidence:
         """The breakout bar's volume evidence from data through bar t only."""
-        cb, v = self.cb, self.volume
-        n = v.baseline
-        base = float(cb.volume[t - n : t].mean()) if t >= n else None
-        r = float(v.rvol[t])
-        state = v.state[t]
-        day = cb.dates[t]
-        return BreakoutBarVolume(
-            bar_date=day,
-            volume=float(cb.volume[t]),
-            baseline_bars=n,
-            baseline_mean_volume=base,
-            rvol=None if math.isnan(r) else r,
-            classification=None if state is None else str(state),  # type: ignore[arg-type]
-            expansion_threshold=v.expansion,
-            contraction_threshold=v.contraction,
-            evidence_refs=(f"indicators:relative_volume@{day}", f"indicators:volume_state@{day}"),
-            measurement_version=BREAKOUT_VOLUME_VERSION,
-        )
+        return bar_volume_evidence(self.cb, self.volume, t)
 
     def events(self, spec: Spec) -> list[PatternEvent]:
         cb = self.cb

@@ -141,14 +141,7 @@ class PatternAnalyzer:
             )
         )
         atr_pre = np.concatenate(([np.nan], atr[:-1])) if cb.n else atr
-        vs = self.indicators.get("volume_state")
-        volume = VolumeSource(
-            rvol=numeric(self.indicators, "relative_volume", cb.n),
-            state=list(vs.data[: cb.n]),
-            baseline=int(vs.params["baseline"]),
-            expansion=float(vs.params["expansion"]),
-            contraction=float(vs.params["contraction"]),
-        )
+        volume = VolumeSource.from_indicators(self.indicators, cb.n)
         lifecycle = Lifecycle(self.config, cb, atr_pre, self.version, volume)
         builder = self._context_builder(cb, context)
         patterns: list[Pattern] = []

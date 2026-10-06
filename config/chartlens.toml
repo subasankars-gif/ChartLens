@@ -320,3 +320,8 @@ new_pattern_bars = 4              # k <= t < k + 4 weekly bars
 recent_breakout_bars = 4          # b <= t < b + 4 weekly bars
 approaching_confirmation_atr = 1.0  # |close_t - level_t| <= 1.0 x ATR_t
 max_forming_per_type = 2          # most recently known first, ties by pattern_id
+
+[analysis.breakouts]              # ADR-0022 §19: declared observation settings, never tuned
+retest_window = 10                # RETEST looked for in (b, b + 10] weekly bars
+retest_tol_atr = 0.5              # band = 0.5 x the breakout's frozen reference ATR
+level_false_window = 3            # a level's reversal within 3 bars, before a retest

@@ -11,6 +11,7 @@ import pandas as pd
 from chartlens_core.config import AnalysisConfig
 from chartlens_core.domain import Timeframe
 from chartlens_core.testing import make_bars
+from chartlens_engine.breakouts import BreakoutEventAnalyzer, BreakoutResult
 from chartlens_engine.evidence import (
     CandleAnalyzer,
     CandleResult,
@@ -51,6 +52,7 @@ class Chain:
     candles: CandleResult
     patterns: PatternResult
     relevance: RelevanceResult
+    breakouts: BreakoutResult
 
 
 def context(bars: pd.DataFrame, sid: str = SID, seg: str = SEG) -> AnalysisContext:
@@ -103,7 +105,8 @@ def run_chain(
         ctx,
     )
     rel = run_analyzer(RelevanceAnalyzer(cfg.patterns, ind, pat, st), bars, ctx)
-    return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl, pat, rel)
+    bo = run_analyzer(BreakoutEventAnalyzer(cfg, ind, lv, pat), bars, ctx)
+    return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl, pat, rel, bo)
 
 
 def known_at_of(chain: Chain) -> dict[str, date]:

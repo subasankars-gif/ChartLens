@@ -620,6 +620,20 @@ class PatternsConfig(_Section):
         return value
 
 
+class BreakoutsConfig(_Section):
+    """Breakout events (ADR-0022 §19): what followed a pattern breakout or a level role
+    change. The sources stay authoritative for their own breaks and reversals; these are
+    the event layer's declared observation settings, never tuned from outcomes."""
+
+    retest_window: int = Field(default=10, ge=1)
+    """RETEST is looked for in (b, b + this] weekly bars, before any reversal."""
+    retest_tol_atr: float = Field(default=0.5, gt=0)
+    """The retest band = this × the breakout's own frozen reference ATR."""
+    level_false_window: int = Field(default=3, ge=1)
+    """A level's reversal (its next role change) within this many bars, before any
+    retest, is a FALSE_BREAKOUT. Patterns use their own ``fail_window``."""
+
+
 class AnalysisConfig(_Section):
     """Everything that can change a technical-analysis result (ADR-0019)."""
 
@@ -633,6 +647,7 @@ class AnalysisConfig(_Section):
     volatility: VolatilityConfig = VolatilityConfig()
     candles: CandleConfig = CandleConfig()
     patterns: PatternsConfig = PatternsConfig()
+    breakouts: BreakoutsConfig = BreakoutsConfig()
 
 
 class ChartLensSettings(BaseSettings):

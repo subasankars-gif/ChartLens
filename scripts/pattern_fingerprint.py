@@ -34,6 +34,28 @@ sys.path.insert(0, "scripts")
 from pattern_stats import serving, synthetic
 
 EVENT_EXCLUDE = {"breakout_bar_volume", "methodology_version"}
+EVIDENCE_KEYS = {"breakout_bar_volume", "change_bar", "change_bar_volume"}
+"""Evidence-only fields added by amendments (5b-A, Phase 4): excluded wherever they sit."""
+
+try:  # the breakout-event layer exists only on newer commits
+    from chartlens_engine.breakouts import BreakoutEventAnalyzer
+except ImportError:  # pragma: no cover
+    BreakoutEventAnalyzer = None  # type: ignore[assignment,misc]
+
+
+def strip(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: strip(v) for k, v in obj.items() if k not in EVIDENCE_KEYS}
+    if isinstance(obj, list):
+        return [strip(v) for v in obj]
+    return obj
+
+
+def canonical_levels(levels: Any) -> str:
+    d = levels.model_dump(
+        mode="json", include={"levels", "zones", "trendlines", "active_trendlines"}
+    )
+    return json.dumps(strip(d), sort_keys=True)
 
 
 def canonical(patterns: list[Any], relevance: list[Any]) -> str:
@@ -73,6 +95,18 @@ def main() -> None:
     per: dict[str, str] = {}
     patterns = breakouts = 0
     classes: dict[str, int] = {}
+    level_hash: dict[str, str] = {}
+    scale: dict[str, Any] = {
+        "level_events": [],
+        "pattern_events": [],
+        "level_bytes": 0,
+        "pattern_bytes": 0,
+        "seconds": 0.0,
+        "level_follow": {},
+        "pattern_follow": {},
+        "level_status": {},
+        "pattern_status": {},
+    }
     for sid, frame in source:
         if frame.empty:
             continue
@@ -118,8 +152,39 @@ def main() -> None:
                 if v is not None:
                     key = str(v.classification)
                     classes[key] = classes.get(key, 0) + 1
+        level_hash[sid] = hashlib.sha256(canonical_levels(lv).encode()).hexdigest()
+        if BreakoutEventAnalyzer is not None:
+            import time
+
+            t0 = time.perf_counter()
+            bo = run_analyzer(BreakoutEventAnalyzer(cfg, ind, lv, pat), frame, ctx)
+            scale["seconds"] += time.perf_counter() - t0
+            scale["level_events"].append(len(bo.level_events))
+            scale["pattern_events"].append(len(bo.pattern_events))
+            for key, events in (("level", bo.level_events), ("pattern", bo.pattern_events)):
+                for ev in events:
+                    scale[f"{key}_bytes"] += len(ev.model_dump_json())
+                    seq = " > ".join(f.kind for f in ev.history) or "(open)"
+                    scale[f"{key}_follow"][seq] = scale[f"{key}_follow"].get(seq, 0) + 1
+                    scale[f"{key}_status"][ev.status] = scale[f"{key}_status"].get(ev.status, 0) + 1
         per[sid] = hashlib.sha256(canonical(pat.patterns, rel.relevance).encode()).hexdigest()
     overall = hashlib.sha256(json.dumps(sorted(per.items())).encode()).hexdigest()
+    levels_overall = hashlib.sha256(json.dumps(sorted(level_hash.items())).encode()).hexdigest()
+    if scale["level_events"]:
+        import statistics
+
+        for key in ("level_events", "pattern_events"):
+            xs = sorted(scale[key])
+            scale[key] = {
+                "total": sum(xs),
+                "mean_per_security": round(statistics.mean(xs), 1),
+                "median": xs[len(xs) // 2],
+                "p90": xs[int(len(xs) * 0.9)],
+                "max": xs[-1],
+            }
+        scale["ms_per_security"] = round(1000 * scale.pop("seconds") / max(len(per), 1), 2)
+    else:
+        scale = {}
     print(
         json.dumps(
             {
@@ -128,6 +193,9 @@ def main() -> None:
                 "patterns": patterns,
                 "breakouts": breakouts,
                 "breakout_bar_volume_classes": classes,
+                "levels_overall": levels_overall,
+                "per_security_levels": level_hash,
+                "breakout_scale": scale,
                 "per_security": per,
             }
         )
