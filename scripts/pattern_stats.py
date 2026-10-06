@@ -141,7 +141,9 @@ def main() -> None:
             c = p.context
             if c is not None:
                 context[t]["levels_near"] += bool(c.levels_near)
-                context[t]["divergence"] += bool(c.divergence_ids)
+                context[t][f"divergence_{c.divergence.presence}"] += 1
+                if c.divergence.not_applicable_reason:
+                    context[t][f"divergence_na_{c.divergence.not_applicable_reason}"] += 1
                 context[t]["contraction"] += bool(c.volatility.contraction_event_ids)
                 context[t]["fibonacci"] += bool(c.fibonacci)
                 trend[t][c.structure.state or "NONE"] += 1

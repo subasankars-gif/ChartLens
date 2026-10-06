@@ -8,13 +8,21 @@ produces exactly the same context as the full run (a replay test pins this).
 Context records measured facts only. Mapping them to [0, 1] components and a confidence
 is a separate, later step (5b-C), so a change to scoring can never be mistaken for a
 change to what was observed. Context never creates, deletes or reshapes a pattern.
+
+**Object-level known_at contract (5b-B review).** An object is eligible for a pattern's
+context only if the object's *own* ``known_at`` is on or before the pattern's
+``known_at``. Old observations are not enough: a swing, level, divergence, Fibonacci
+structure, contraction episode or structure event whose bars all precede ``known_at`` but
+which only became knowable later is excluded. Bar-indexed facts (indicators, volume and
+volatility readings) are read at bars ≤ ``known_at`` only. Every lookup below goes through
+``_known`` or an ``as_of(day)`` projection, never through bar dates alone.
 """
 
 from __future__ import annotations
 
 import math
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -25,11 +33,19 @@ from chartlens_engine.fibonacci import FibonacciResult
 from chartlens_engine.indicators import IndicatorResult
 from chartlens_engine.levels import LevelsResult
 from chartlens_engine.structure import StructureResult
+from chartlens_engine.swings import SwingPoint
 
 if TYPE_CHECKING:  # candidates imports model, which imports this module
     from chartlens_engine.patterns.candidates import Spec
 
-CONTEXT_VERSION = "1"
+CONTEXT_VERSION = "2"
+"""2: divergence PRESENT / ABSENT / NOT_APPLICABLE with statuses as of ``known_at``;
+Fibonacci structures carry their swings and ``known_at`` (5b-B review)."""
+
+
+def _known(object_known_at: date | None, day: date) -> bool:
+    """The object-level contract: the object itself was knowable by ``day``."""
+    return object_known_at is not None and object_known_at <= day
 
 
 class PriorMove(Frozen):
@@ -53,6 +69,12 @@ class PriorMove(Frozen):
 
 
 class StructureContext(Frozen):
+    """Market structure **as of ``known_at``**: what the structure layer said on the day
+    the pattern became known. This is not the trend that preceded the pattern: by
+    ``known_at`` the pattern's own defining move may already have changed the state (the
+    swing that completes a double bottom can itself be a CHoCH). For the move into the
+    pattern use ``PriorMove``."""
+
     state: str | None
     regime: str | None
     pending: str | None
@@ -94,8 +116,16 @@ class VolatilityContext(Frozen):
 
 
 class FibonacciContext(Frozen):
+    """Where the pattern's base sits in a Fibonacci structure current at ``known_at``.
+    The structure's identity is kept so later analysis can judge whether that
+    retracement is relevant to the pattern; its mere existence carries no information."""
+
     fib_id: str
     sensitivity: str
+    anchor_swing_id: str
+    counter_swing_id: str
+    fib_known_at: date
+    """The structure's own ``known_at`` (≤ the pattern's)."""
     status: str
     """As of ``known_at``."""
     leg_direction: str
@@ -105,6 +135,38 @@ class FibonacciContext(Frozen):
     """Where the base sits in the leg: 0 = at the counter swing, 1 = at the anchor."""
     nearest_ratio: float
     nearest_distance_atr: float
+
+
+DivergencePresence = Literal["PRESENT", "ABSENT", "NOT_APPLICABLE"]
+
+
+class DivergenceRef(Frozen):
+    divergence_id: str
+    type: str
+    indicator: str
+    status: str
+    """As of ``known_at``."""
+
+
+class DivergenceContext(Frozen):
+    """Divergence ending at one of the pattern's defining swings, in its direction.
+
+    Divergence is computed on the primary swings only. ``NOT_APPLICABLE`` says the
+    methodology cannot observe it here, which is different from ``ABSENT``:
+
+    - ``NEUTRAL_DIRECTION``: the pattern has no direction to agree with;
+    - ``FINE_SWING_GEOMETRY``: the defining swings of the needed type (lows for a bullish
+      pattern, highs for a bearish one) are all fine swings (flags, pennants);
+    - ``NO_DEFINING_SWING_OF_TYPE``: no defining swing of that type at all (a rounding
+      bottom's bowl is a curve, not a swing).
+
+    ``PRESENT``: at least one such divergence known by ``known_at`` is FORMING or
+    CONFIRMED as of that day. ``ABSENT``: none is (any listed are INVALIDATED or EXPIRED
+    by then)."""
+
+    presence: DivergencePresence
+    not_applicable_reason: str | None
+    divergences: list[DivergenceRef]
 
 
 class PatternContext(Frozen):
@@ -118,9 +180,7 @@ class PatternContext(Frozen):
     excluding levels built from the pattern's own defining swings."""
     volume: VolumeContext
     volatility: VolatilityContext
-    divergence_ids: tuple[str, ...]
-    """Divergences in the pattern's direction, known by ``known_at``, whose second swing
-    is a defining swing (empty for neutral patterns)."""
+    divergence: DivergenceContext
     fibonacci: list[FibonacciContext]
     evidence_refs: tuple[str, ...]
     """Every object id this context cites."""
@@ -159,8 +219,12 @@ class ContextBuilder:
         fibonacci: FibonacciResult,
         divergence: DivergenceResult,
         volatility: VolatilityResult,
+        primary: tuple[str, str],
     ) -> None:
+        """``primary``: the (method, sensitivity) of the primary swings, on which
+        divergence is computed."""
         self.config = config
+        self.primary = primary
         self.cb = cb
         self.structure = structure
         self.levels = levels
@@ -215,7 +279,7 @@ class ContextBuilder:
             e.event_id
             for e in self.volatility.events
             if e.kind != "EXPANSION_AFTER_CONTRACTION"
-            and e.known_at <= day
+            and _known(e.known_at, day)
             and first.bar_date <= e.bar_date <= last.bar_date
         )
         refs += list(contractions)
@@ -225,8 +289,8 @@ class ContextBuilder:
             atr_percent_known=_value(self.atr_pct, k),
             contraction_event_ids=contractions,
         )
-        divergences = self._divergences(spec, day)
-        refs += list(divergences)
+        divergence = self._divergence(spec, day)
+        refs += [d.divergence_id for d in divergence.divergences]
         fibonacci = self._fibonacci(spec, day)
         refs += [f.fib_id for f in fibonacci]
         return PatternContext(
@@ -237,7 +301,7 @@ class ContextBuilder:
             levels_near=levels,
             volume=volume,
             volatility=volatility,
-            divergence_ids=divergences,
+            divergence=divergence,
             fibonacci=fibonacci,
             evidence_refs=tuple(dict.fromkeys(refs)),
         )
@@ -286,7 +350,7 @@ class ContextBuilder:
 
     def _structure(self, spec: Spec, day: date) -> StructureContext:
         state = self.structure.state_as_of(day)
-        known = [e for e in self.structure.events if e.known_at <= day]
+        known = [e for e in self.structure.events if _known(e.known_at, day)]
         first = spec.defining[0].bar_date
         return StructureContext(
             state=state.state if state else None,
@@ -321,21 +385,50 @@ class ContextBuilder:
         out.sort(key=lambda x: (x.key_point, x.distance_atr, x.level_id))
         return out
 
-    def _divergences(self, spec: Spec, day: date) -> tuple[str, ...]:
-        if spec.direction == "NEUTRAL":
-            return ()
+    def _divergence(self, spec: Spec, day: date) -> DivergenceContext:
+        reason = self._divergence_not_applicable(spec)
+        if reason is not None:
+            return DivergenceContext(
+                presence="NOT_APPLICABLE", not_applicable_reason=reason, divergences=[]
+            )
         want = "BULLISH" if spec.direction == "BULLISH" else "BEARISH"
         own = {s.swing_id for s in spec.defining}
-        return tuple(
-            d.divergence_id
-            for d in self.divergence.divergences
-            if d.known_at <= day and d.type.endswith(want) and d.price_swing_2 in own
+        refs: list[DivergenceRef] = []
+        for d in self.divergence.divergences:
+            if not (_known(d.known_at, day) and d.type.endswith(want) and d.price_swing_2 in own):
+                continue
+            snap = d.as_of(day)
+            assert snap is not None
+            refs.append(
+                DivergenceRef(
+                    divergence_id=d.divergence_id,
+                    type=d.type,
+                    indicator=d.indicator,
+                    status=snap.status,
+                )
+            )
+        active = any(r.status in ("FORMING", "CONFIRMED") for r in refs)
+        return DivergenceContext(
+            presence="PRESENT" if active else "ABSENT",
+            not_applicable_reason=None,
+            divergences=refs,
         )
+
+    def _divergence_not_applicable(self, spec: Spec) -> str | None:
+        if spec.direction == "NEUTRAL":
+            return "NEUTRAL_DIRECTION"
+        kind = "LOW" if spec.direction == "BULLISH" else "HIGH"
+        of_type: list[SwingPoint] = [s for s in spec.defining if s.type == kind]
+        if not of_type:
+            return "NO_DEFINING_SWING_OF_TYPE"
+        if not any((s.method, s.sensitivity) == self.primary for s in of_type):
+            return "FINE_SWING_GEOMETRY"
+        return None
 
     def _fibonacci(self, spec: Spec, day: date) -> list[FibonacciContext]:
         base = _base(spec)
         out: list[FibonacciContext] = []
-        for fib in self.fibonacci.current(day):
+        for fib in self.fibonacci.current(day):  # as_of(day) projections, known_at ≤ day
             leg = fib.counter_price - fib.anchor_price
             if leg == 0:
                 continue
@@ -344,6 +437,9 @@ class ContextBuilder:
                 FibonacciContext(
                     fib_id=fib.fib_id,
                     sensitivity=fib.sensitivity,
+                    anchor_swing_id=fib.anchor_swing_id,
+                    counter_swing_id=fib.counter_swing_id,
+                    fib_known_at=fib.known_at,
                     status=fib.status,
                     leg_direction=fib.direction,
                     base_price=base,

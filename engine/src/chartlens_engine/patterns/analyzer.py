@@ -168,7 +168,15 @@ class PatternAnalyzer:
             if layer.context != ctx:
                 raise ValueError(f"{layer.analyzer} was computed for another context")
         return ContextBuilder(
-            self.config, cb, self.indicators, structure, levels, fibonacci, divergence, volatility
+            self.config,
+            cb,
+            self.indicators,
+            structure,
+            levels,
+            fibonacci,
+            divergence,
+            volatility,
+            (self.swings.primary_method, self.swings.primary_sensitivity),
         )
 
     # ------------------------------------------------------------------ touches

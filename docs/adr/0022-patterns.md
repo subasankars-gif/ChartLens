@@ -691,7 +691,7 @@ intentional property of structural confirmation.
   components of §5 and to a confidence is a later step (5b-C), so a change to scoring
   can never be mistaken for a change in what was observed. Context never creates,
   deletes or reshapes a pattern, and never writes geometry or status.
-- **What is recorded** (`PatternContext`, `context_version` 1):
+- **What is recorded** (`PatternContext`; `context_version` 2 after the review, §13):
 
 | Part | Facts |
 |---|---|
@@ -700,13 +700,141 @@ intentional property of structural confirmation.
 | Levels | Levels known by `known_at` within `level_tol_atr` × ATR_D of any key point, with their role as of `known_at` and their distance. Levels built from the pattern's own defining swings are excluded |
 | Volume | Volume SMA at the first and last defining bars; RVOL at the last; volume state and trend at `known_at`; OBV change across the span relative to volume |
 | Volatility | ATR% at the first and last defining bars and at `known_at`; contraction episodes starting inside the span and known by `known_at` |
-| Divergence | Divergences in the pattern's direction, known by `known_at`, whose second swing is a defining swing (none for neutral patterns) |
-| Fibonacci | For each current structure as of `known_at`: its status then, where the pattern's base sits in the leg (0 = counter swing, 1 = anchor), and the nearest Fibonacci ratio and its distance in ATR |
+| Divergence | `PRESENT`, `ABSENT` or `NOT_APPLICABLE` (with a reason), and each divergence in the pattern's direction, known by `known_at`, whose second swing is a defining swing, with its status as of `known_at` (§13) |
+| Fibonacci | For each current structure as of `known_at`: its identity (id, anchor and counter swings, its own `known_at`), its status then, where the pattern's base sits in the leg (0 = counter swing, 1 = anchor), and the nearest Fibonacci ratio and its distance in ATR |
 
 - **The pattern's base** is its lowest defining low (bullish) or highest defining high
   (bearish). When it has no defining swing of that type (rounding rims), the base is its
   invalidation level. For neutral patterns it is the last defining swing.
 - `evidence_refs` lists every object id the context cites.
+
+## 13. 5b-B review decisions (Suba, 2026-10-06)
+
+Phase 5b-B is **approved as built**. These decisions are recorded before 5b-C:
+
+| Context element | Confidence treatment |
+|---|---|
+| Contraction presence | **No.** Present in 61–100% of patterns, so it barely discriminates. Kept as context evidence only |
+| Contraction magnitude and duration | Possible later, as part of a confidence methodology design, not now |
+| Finer-swing divergence | **Not now.** A second divergence system (its own sensitivity, pivot matching, separation, qualification, availability) is a methodology layer of its own |
+| Divergence for patterns that divergence cannot observe | **`NOT_APPLICABLE`, never `ABSENT`** |
+| Trend state at `known_at` | Context only. It is never called the prior trend: the pattern's own move may already have changed it |
+| Prior trend | To be derived from the pre-pattern state when confidence needs it |
+| Fibonacci existence | **No.** A current structure exists for about 100% of patterns |
+| Fibonacci position | A candidate for later confidence, without arbitrary weights now. The structure's identity is kept so its relevance to the pattern can be judged later |
+
+**Implemented (`context_version` 2):**
+
+- **Divergence presence.** `PRESENT` / `ABSENT` / `NOT_APPLICABLE`. Divergence is
+  computed on the primary swings only, so it is not applicable when:
+  - the pattern is neutral (`NEUTRAL_DIRECTION`);
+  - its defining swings of the needed type (lows for bullish, highs for bearish) are all
+    fine swings (`FINE_SWING_GEOMETRY`: flags, pennants);
+  - it has no defining swing of that type at all (`NO_DEFINING_SWING_OF_TYPE`: a
+    rounding pattern's bowl is a curve, not a swing).
+
+  The rule is per pattern, from its swings, not per family. A cup and handle is
+  applicable, because its cup low is a primary swing. `PRESENT` means at least one
+  qualifying divergence is FORMING or CONFIRMED as of `known_at`. Each divergence is
+  listed with its status on that day.
+- **Fibonacci identity.** Each Fibonacci entry carries its anchor and counter swing
+  ids and its own `known_at`.
+- **Trend wording.** `StructureContext` states that it is the structure as of
+  `known_at`, not the prior trend.
+
+**Object-level `known_at` contract.** An object is eligible for a pattern's context
+only if **the object's own `known_at` ≤ the pattern's `known_at`**. Old observations are
+not enough. An object whose bars all precede `known_at`, but which only became knowable
+later, is excluded. The contract applies to:
+
+- swings, levels, divergences and Fibonacci structures;
+- contraction episodes and structure events and states;
+- volume conditions.
+
+Bar-indexed readings are taken at bars ≤ `known_at`. In code every lookup goes through
+the object's own `known_at` or an `as_of(day)` projection, never through bar dates
+alone.
+
+Tested:
+
+- **Hand fixture.** A swing low from week 22, near both lows, confirmed only at week
+  44. The pattern is known at week 41. The context does not cite the resulting level,
+  and equals the context of a run without that swing.
+- **Random series.** Objects built from bars before a pattern's `known_at` but known
+  after it do occur, and none is ever cited.
+
+## 14. Phase 5b-C: confidence (proposal for review, not yet accepted)
+
+> **Confidence is how well the observed formation satisfies the formal pattern
+> definition and the supporting technical evidence. It is not the probability of
+> success.**
+
+It never reads an outcome. It is never tuned to outcomes. It is never cross-tabulated
+with outcomes in this phase.
+
+**Proposed shape.**
+
+1. **A pure function of frozen inputs.** `confidence = score(geometry, context,
+   family config)`. The scorer reads no bars, no layers and no status. Geometry is
+   frozen at `known_at`, and context is the `known_at` snapshot. So confidence is fixed
+   at `known_at` by construction, not by discipline. A boundary test forbids the
+   confidence module from importing the lifecycle or reading `status_history`.
+2. **Two groups.**
+   - `confidence = round(100 × (g·G + (1 − g)·E))`, with g = `geometry_weight` (0.65).
+   - G is the mean of the family's geometry components (§7, unchanged).
+   - E is the mean of its **applicable** evidence components.
+   - Equal weights within each group. Per-pattern weights are configurable.
+3. **Not applicable is excluded, never scored.** An evidence component that cannot be
+   observed for this pattern is left out of E's mean, and recorded with its reason.
+   It is never scored 0, and never 0.5. A flag is not penalised for divergence that the
+   methodology cannot see.
+4. **Fully explainable.** Each component is recorded with its name, group, value (or
+   `null` with a not-applicable reason) and the context or geometry facts it was
+   computed from. `confidence_version` is recorded. The LLM may explain these
+   components. It never computes or adjusts them.
+
+**Proposed evidence components (replacing §5's list):**
+
+| Component | Proposal | Change from §5 |
+|---|---|---|
+| `prior_move` | As §5, from `PriorMove`. Not applicable when the prior move is part of the geometry (V drop, flag/pennant pole), and for neutral patterns | §5 counted the V drop and the flag pole twice, once in geometry and once as context |
+| `prior_trend` | Structure's state as of the bar of the first defining swing, mapped with §5's table. Not applicable for neutral patterns | Replaces `trend_context`, which used the state at `known_at`. Needs one context fact added: the structure snapshot at the first defining bar (`context_version` 3) |
+| `level_alignment` | As §5: a level known by `known_at`, with the pattern's role then, near the base or top | Unchanged |
+| `volume_behaviour` | As stated per pattern in §7 | Needs the volume SMA at **every** defining swing as a context fact (H&S compares L2 and L3; rounding uses the vertex), not only the first and last |
+| `divergence` | `PRESENT` = 1, `ABSENT` = 0, `NOT_APPLICABLE` excluded | Uses §13's three states |
+| `volatility_contraction` | **Removed** (§13) | Removed |
+| `fib_depth` | **Removed.** For flags and handles the retracement depth is already a geometry component (`retrace`, `handle_ratio`). Fibonacci position waits for its own design (§13) | Removed |
+
+**Questions for review:**
+
+1. **Neutral patterns** (rectangle, symmetrical triangle). Once contraction is removed
+   and `prior_move` / `prior_trend` are not applicable, E is a single binary
+   (`volume_behaviour`), and it would move confidence by 35 points. Proposal: neutral
+   patterns are scored on geometry only (E reported, not scored). The alternative is to
+   add `level_alignment` at both boundaries.
+2. **`prior_trend` as of the first defining swing's bar.** The structure state that
+   day comes only from swings known by then. The pattern's own swings are not yet
+   confirmed, so it is pre-pattern. Is this the reference you want?
+3. **Saturation.** `prior_move` reaches 1 at 4 ATR. The real-data median move into
+   bottoms is 3.5–4 ATR, and into tops about 5, so most reversals score near 1. Keep the
+   definition (a reversal needs something to reverse; it should not grade the size), or
+   revisit? I would not tune it to the distribution.
+4. **Name.** Keep the field `confidence`, as in the ADR? Or call it `definition_fit`
+   in the API and UI, so that no reader takes it for a probability?
+
+**Proposed tests:**
+
+- confidence equals its value from a run as of `known_at`, and from a run whose later
+  bars flip the outcome (COMPLETED ↔ FAILED);
+- the module cannot import or read the lifecycle;
+- every component lies in [0, 1], and the score in 0–100;
+- monotonicity per geometry component (closer rims → a higher score; nothing else
+  changes);
+- not-applicable components never change the score;
+- hand-computed golden values for one pattern per family.
+
+**Real-data report (planned):** confidence distributions and component means per family.
+No outcome cross-tabulation.
 
 ## Testing (mandatory)
 

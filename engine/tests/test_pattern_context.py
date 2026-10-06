@@ -2,7 +2,8 @@
 
 Context is a snapshot of the facts available at the pattern's ``known_at``. A run as of
 ``known_at`` must produce exactly the context the full run shows, later bars can never
-change it, and every object it cites must already have been known."""
+change it, and every object it cites must itself have been known by then: an object built
+from old bars but only knowable later never enters the context (object-level contract)."""
 
 from __future__ import annotations
 
@@ -10,7 +11,16 @@ from datetime import date
 
 import pandas as pd
 import pytest
-from analysis_chain import SEG, SID, known_at_of, manual_swings, random_bars, run_chain, week
+from analysis_chain import (
+    SEG,
+    SID,
+    Chain,
+    known_at_of,
+    manual_swings,
+    random_bars,
+    run_chain,
+    week,
+)
 
 from chartlens_core.config import AnalysisConfig, IndicatorConfig
 from chartlens_engine.patterns import Pattern
@@ -55,9 +65,11 @@ SWINGS = [
 ]
 
 
-def _double(tail: list[float]) -> tuple[Pattern, pd.DataFrame]:
+def _double(
+    tail: list[float], swings: list[tuple[str, int, int, float]] = SWINGS
+) -> tuple[Pattern, pd.DataFrame]:
     bars = frame(rows_from_closes(DECLINE + BOTTOM + tail))
-    chain = run_chain(bars, HAND, manual_swings(bars, SWINGS))
+    chain = run_chain(bars, HAND, manual_swings(bars, swings))
     (p,) = [p for p in chain.patterns.patterns if p.pattern_type == "DOUBLE_BOTTOM"]
     return p, bars
 
@@ -77,7 +89,31 @@ def test_context_facts_by_hand() -> None:
     assert ("LOW_1", "SUPPORT", 45.1) in near and ("LOW_2", "SUPPORT", 45.1) in near
     own = set(p.depends_on)
     assert not [lv for lv in ctx.levels_near if lv.level_id.split(":LEVEL")[0] in own]
-    assert ctx.divergence_ids == ()
+    assert ctx.divergence.presence == "ABSENT" and ctx.divergence.divergences == []
+    # the trend state is the structure layer's as of known_at, never relabelled
+    assert ctx.structure.since is None or ctx.structure.since <= p.known_at
+
+
+def test_an_object_from_old_bars_discovered_later_never_enters_the_context() -> None:
+    """A swing low at week 22 (45.4, near both lows) that is only confirmed at week 44,
+    after the pattern is known at week 41. Its level's bars precede ``known_at`` but the
+    level itself was not knowable then, so the week-41 context must not cite it, even
+    though the full run has it."""
+    late = (*SWINGS, ("LOW", 22, 44, 45.4))
+    tail = [47.0, 47.5, 48.0, 48.2, 48.4, 48.6]
+    p, bars = _double(tail, sorted(late, key=lambda s: s[1]))
+    chain = run_chain(bars, HAND, manual_swings(bars, sorted(late, key=lambda s: s[1])))
+    level = next(lv for lv in chain.levels.levels if lv.price == 45.4)
+    assert level.bar_date < p.known_at < level.known_at == week(44)
+    # had it been known, it would qualify: within the tolerance of LOW_2 (45.3)
+    assert abs(level.price - 45.3) <= 0.5 * p.geometry.atr_d
+    ctx = p.context
+    assert ctx is not None
+    assert level.level_id not in ctx.evidence_refs
+    assert all(lv.level_id != level.level_id for lv in ctx.levels_near)
+    # ...and the context is exactly the one without the late swing at all
+    q, _ = _double(tail)
+    assert ctx == q.context
 
 
 def test_a_level_that_breaks_after_recognition_stays_support_in_the_context() -> None:
@@ -148,11 +184,65 @@ def test_context_cites_only_what_was_known(seed: int) -> None:
             assert ref in known, ref
             assert known[ref] <= p.known_at, (p.pattern_id, ref)
             cited += 1
+        for f in ctx.fibonacci:
+            assert f.fib_known_at <= p.known_at
         prior = ctx.prior_move
         if prior.window_end is not None:
             assert prior.window_end < p.start_date
         if ctx.structure.since is not None:
             assert ctx.structure.since <= p.known_at
-        if p.direction == "NEUTRAL":
-            assert ctx.divergence_ids == ()
     assert cited > 0
+
+
+def _observed(chain: Chain) -> list[tuple[str, date, date]]:
+    """Every citable object: (id, the last bar it was built from, its own known_at)."""
+    rows: list[tuple[str, date, date]] = []
+    rows += [(lv.level_id, lv.bar_date, lv.known_at) for lv in chain.levels.levels]
+    rows += [(d.divergence_id, d.date_end, d.known_at) for d in chain.divergence.divergences]
+    rows += [(f.fib_id, f.counter_bar_date, f.known_at) for f in chain.fibonacci.structures]
+    rows += [(e.event_id, e.bar_date, e.known_at) for e in chain.structure.events]
+    rows += [(e.event_id, e.bar_date, e.known_at) for e in chain.volatility.events]
+    return rows
+
+
+@pytest.mark.parametrize("seed", [4, 17])
+def test_objects_built_from_old_bars_but_known_later_are_never_cited(seed: int) -> None:
+    """The object-level contract on random series, and proof it is not vacuous: objects
+    whose bars all precede a pattern's ``known_at`` but which became known after it do
+    occur, and none of them is ever cited."""
+    chain = run_chain(random_bars(700, seed))
+    objects = _observed(chain)
+    late_seen = 0
+    for p in chain.patterns.patterns:
+        assert p.context is not None
+        cited = set(p.context.evidence_refs)
+        late = {i for i, last_bar, known in objects if last_bar <= p.known_at < known}
+        late_seen += len(late)
+        assert not cited & late, (p.pattern_id, sorted(cited & late))
+    assert late_seen > 0
+
+
+@pytest.mark.parametrize("seed", [4, 17, 33])
+def test_divergence_presence_absence_and_not_applicable(seed: int) -> None:
+    chain = run_chain(random_bars(900, seed))
+    seen: set[str] = set()
+    for p in chain.patterns.patterns:
+        div = p.context.divergence  # type: ignore[union-attr]
+        seen.add(div.presence)
+        if p.direction == "NEUTRAL":
+            assert (div.presence, div.not_applicable_reason) == (
+                "NOT_APPLICABLE",
+                "NEUTRAL_DIRECTION",
+            )
+        elif p.family in ("flag", "pennant"):
+            assert (div.presence, div.not_applicable_reason) == (
+                "NOT_APPLICABLE",
+                "FINE_SWING_GEOMETRY",
+            )
+        if div.presence == "NOT_APPLICABLE":
+            assert div.divergences == []
+        else:
+            assert div.not_applicable_reason is None
+            active = [d for d in div.divergences if d.status in ("FORMING", "CONFIRMED")]
+            assert (div.presence == "PRESENT") == bool(active)
+    assert seen == {"PRESENT", "ABSENT", "NOT_APPLICABLE"}
