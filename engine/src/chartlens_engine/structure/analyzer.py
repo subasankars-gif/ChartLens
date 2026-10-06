@@ -121,6 +121,11 @@ class StructureResult(AnalyzerResult):
     """Every change of state, in order; the state as of T is the last entry with
     ``since <= T``."""
 
+    def character_changes(self) -> list[StructureEvent]:
+        """The CHoCH events, in order: structure owns its vocabulary, so later layers ask
+        for them rather than naming the kind (ADR-0021)."""
+        return [e for e in self.events if e.kind == "CHoCH"]
+
     def state_as_of(self, day: date) -> TrendState | None:
         current = None
         for s in self.trend_history:

@@ -11,6 +11,13 @@ from chartlens_engine.patterns.model import (
     PatternTouch,
     Rejection,
 )
+from chartlens_engine.patterns.relevance import (
+    PatternRelevance,
+    RelevanceAnalyzer,
+    RelevanceEntry,
+    RelevanceResult,
+    RelevanceTag,
+)
 
 __all__ = [
     "FAMILIES",
@@ -20,8 +27,13 @@ __all__ = [
     "Pattern",
     "PatternAnalyzer",
     "PatternLine",
+    "PatternRelevance",
     "PatternResult",
     "PatternTouch",
     "Rejection",
+    "RelevanceAnalyzer",
+    "RelevanceEntry",
+    "RelevanceResult",
+    "RelevanceTag",
     "definition_fit",
 ]

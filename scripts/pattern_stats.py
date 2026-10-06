@@ -35,7 +35,12 @@ from chartlens_engine.fibonacci import FibonacciAnalyzer
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
 from chartlens_engine.levels import LevelsAnalyzer
-from chartlens_engine.patterns import FAMILIES, PatternAnalyzer, definition_fit
+from chartlens_engine.patterns import (
+    FAMILIES,
+    PatternAnalyzer,
+    RelevanceAnalyzer,
+    definition_fit,
+)
 from chartlens_engine.structure import StructureAnalyzer
 from chartlens_engine.swings import SwingAnalyzer
 
@@ -94,6 +99,13 @@ def main() -> None:
     fit_rows: list[dict[str, Any]] = []
     comp: dict[str, Counter[str]] = defaultdict(Counter)
     comp_scores: dict[str, list[float]] = defaultdict(list)
+    rel_current: dict[str, Counter[str]] = defaultdict(Counter)
+    rel_included_per_security: list[int] = []
+    rel_entries: list[int] = []
+    rel_transitions: Counter[str] = Counter()
+    rel_reasons_ever: Counter[str] = Counter()
+    rel_tags: Counter[str] = Counter()
+    rel_seconds = 0.0
     securities = bars_total = 0
     seconds = 0.0
     for sid, frame in source:
@@ -132,6 +144,25 @@ def main() -> None:
             ctx,
         )
         seconds += time.perf_counter() - t0
+        t1 = time.perf_counter()
+        rel = run_analyzer(RelevanceAnalyzer(cfg.patterns, ind, result, st), frame, ctx)
+        rel_seconds += time.perf_counter() - t1
+        family_of = {p.pattern_id: p.family for p in result.patterns}
+        included_now = 0
+        for r in rel.relevance:
+            cur = r.current
+            rel_current[family_of[r.pattern_id]][cur.reason] += 1
+            included_now += cur.included
+            rel_entries.append(len(r.history))
+            prev = "START"
+            for e in r.history:
+                rel_reasons_ever[e.reason] += 1
+                if e.reason != prev:
+                    rel_transitions[f"{prev} > {e.reason}"] += 1
+                prev = e.reason
+            for tg in cur.tags:
+                rel_tags[tg.tag] += 1
+        rel_included_per_security.append(included_now)
         index = {pd.Timestamp(d).date(): i for i, d in enumerate(frame["bar_date"])}
         for family, c in result.candidates.items():
             generated[family] += c.generated
@@ -219,6 +250,22 @@ def main() -> None:
         },
     }
     out["definition_fit"] = fit_report(fit_rows, comp, comp_scores)
+    out["relevance"] = {
+        "note": "Attention annotations by named rules; no score, no definition fit.",
+        "relevance_ms_per_security": round(1000 * rel_seconds / max(securities, 1), 2),
+        "current_reason_by_family": {
+            f: dict(c.most_common()) for f, c in sorted(rel_current.items())
+        },
+        "included_now_per_security": _q([float(x) for x in rel_included_per_security])
+        if rel_included_per_security
+        else None,
+        "securities_with_any_included_now": sum(1 for x in rel_included_per_security if x),
+        "included_now_total": sum(rel_included_per_security),
+        "entries_per_pattern": _q([float(x) for x in rel_entries]) if rel_entries else None,
+        "reasons_ever": dict(rel_reasons_ever.most_common()),
+        "transitions": dict(rel_transitions.most_common(30)),
+        "current_tags": dict(rel_tags.most_common()),
+    }
     print(json.dumps(out, indent=1))
 
 

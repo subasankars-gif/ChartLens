@@ -565,6 +565,24 @@ class CupHandleConfig(PatternSection):
     max_wait_bars: int = Field(default=13, ge=1)
 
 
+class RelevanceConfig(_Section):
+    """Pattern relevance (ADR-0022 §18): which patterns belong in the attention view, by
+    named rules. Declared methodology settings, evaluated with information available at
+    the relevance bar; never tuned from historical outcomes."""
+
+    new_pattern_bars: int = Field(default=4, ge=1)
+    """NEWLY_RECOGNISED while k ≤ t < k + this, in the segment's weekly bars (k = the
+    pattern's known_at bar)."""
+    recent_breakout_bars: int = Field(default=4, ge=1)
+    """BREAKOUT_CONFIRMED while b ≤ t < b + this (b = the breakout bar)."""
+    approaching_confirmation_atr: float = Field(default=1.0, gt=0)
+    """APPROACHING_CONFIRMATION when |close[t] − level[t]| ≤ this × ATR[t] (ATR from data
+    through t)."""
+    max_forming_per_type: int = Field(default=2, ge=1)
+    """At most this many FORMING-stage patterns per type are included; the most recently
+    known first, ties by pattern_id."""
+
+
 class PatternsConfig(_Section):
     """Classical patterns (ADR-0022). Common defaults here; each pattern's own section
     holds its parameters and may override these."""
@@ -582,8 +600,6 @@ class PatternsConfig(_Section):
     shape_share: float = Field(default=2 / 3, ge=0.5, lt=1)
     """Definition fit (ADR-0022 §15): shape's share when every component applies — shape
     weighs twice all the evidence together. The one declared constant; never tuned."""
-    max_forming_per_type: int = Field(default=2, ge=1)
-    report_window_bars: int = Field(default=52, ge=1)
     double: DoublePatternConfig = DoublePatternConfig()
     triple: TriplePatternConfig = TriplePatternConfig()
     head_shoulders: HeadShouldersConfig = HeadShouldersConfig()
@@ -595,6 +611,7 @@ class PatternsConfig(_Section):
     flag: FlagConfig = FlagConfig()
     pennant: PennantConfig = PennantConfig()
     cup_handle: CupHandleConfig = CupHandleConfig()
+    relevance: RelevanceConfig = RelevanceConfig()
 
     def common(self, section: PatternSection, name: str) -> float:
         """A common parameter as it applies to one pattern: its override, else the default."""

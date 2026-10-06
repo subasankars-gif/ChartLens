@@ -25,7 +25,12 @@ from chartlens_engine.fibonacci import FibonacciAnalyzer, FibonacciResult
 from chartlens_engine.indicators import IndicatorAnalyzer, IndicatorResult
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
 from chartlens_engine.levels import LevelsAnalyzer, LevelsResult
-from chartlens_engine.patterns import PatternAnalyzer, PatternResult
+from chartlens_engine.patterns import (
+    PatternAnalyzer,
+    PatternResult,
+    RelevanceAnalyzer,
+    RelevanceResult,
+)
 from chartlens_engine.structure import StructureAnalyzer, StructureResult
 from chartlens_engine.swings import SwingAnalyzer, SwingPoint, SwingResult
 
@@ -45,6 +50,7 @@ class Chain:
     volatility: VolatilityResult
     candles: CandleResult
     patterns: PatternResult
+    relevance: RelevanceResult
 
 
 def context(bars: pd.DataFrame, sid: str = SID, seg: str = SEG) -> AnalysisContext:
@@ -96,7 +102,8 @@ def run_chain(
         bars,
         ctx,
     )
-    return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl, pat)
+    rel = run_analyzer(RelevanceAnalyzer(cfg.patterns, ind, pat, st), bars, ctx)
+    return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl, pat, rel)
 
 
 def known_at_of(chain: Chain) -> dict[str, date]:
