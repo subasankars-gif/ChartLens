@@ -1562,7 +1562,7 @@ comparison of the published fingerprints (probe run 37498737083) then confirmed 
 were equal, and the diagnostic script was corrected. This did not affect analytical
 outputs.
 
-## 19. Breakout events (proposal for review, not yet accepted)
+## 19. Breakout events (approved with changes in §19.1)
 
 §5 sketched breakout events. Since then the evidence invariant (§18.5), the
 lifecycle's own FAILED rule and the size of the level layer change some of its
@@ -1663,6 +1663,108 @@ event-relevance design.
    further entries?
 4. **The Phase 4 evidence amendment** (`RoleChange.change_bar` and `change_bar_volume`,
    evidence only): approve it as part of this phase?
+
+### 19.1 Approval and changes (Suba, 2026-10-06)
+
+**Invariant:**
+
+> A breakout event is derived from an already-authoritative source event. It does not
+> reinterpret or modify the source. Its lifecycle observes what happened after a source
+> breakout; it never mutates, relabels or feeds back into the source pattern or level
+> lifecycle. **The event layer reads the source and never writes to it.**
+
+| Question | Decision |
+|---|---|
+| Pattern breakouts | Build now: `PatternBreakoutEvent` |
+| Level breakouts | Build now: `LevelBreakoutEvent`, an independent source type |
+| Merge coincident pattern and level events | **No.** Not even at identical prices |
+| Reversal window | **Source-specific.** Pattern: the existing 8-bar pattern failure authority. Level: the 3-bar level reversal. No generic "breakout → wait N bars → decide" |
+| Wording | The event layer does not "detect" a false breakout for a pattern. It references and classifies the pattern's own FAILED event; the pattern analyzer stays authoritative |
+| `WINDOW_ENDED` | An explicit terminal record. It means exactly: the defined observation period ended without another qualifying event. **It is not success** |
+| Terminality | Once `WINDOW_ENDED`, `FALSE_BREAKOUT` or `FAILED_RETEST` occurs, nothing more is appended |
+| Phase 4 evidence amendment | Approved now. The level event consumes the frozen record; it never queries or recalculates indicators |
+| Retest ATR | **Frozen to the breakout's own ATR**, never the retest bar's. The band is 0.5 × A_breakout. Likewise, the level's break buffer is the one frozen in its role-change record |
+| Event modifies source | Never |
+| Persistence and API | Not decided until the real-NSE scale report for level events has been reviewed |
+
+### 19.2 Implementation (2026-10-06)
+
+- **`chartlens_engine.bar_evidence`.** `BarVolumeEvidence`, `VolumeSource` and
+  `bar_volume_evidence` are one implementation for every event source:
+  - patterns: `breakout_bar_volume` (the data is unchanged);
+  - levels: `change_bar_volume`.
+- **Levels v2 (the Phase 4 amendment).** Each non-original `RoleChange` records
+  `change_bar` and `change_bar_volume`.
+  - `change_bar` holds: bar date, direction, open, close, level, ATR at the bar (the
+    approved Phase 4 rule), `level_break_atr`, buffer, threshold, evidence refs and
+    `measurement_version`.
+  - Role changes themselves are unchanged (fingerprint).
+- **`chartlens_engine.breakouts`.** `BreakoutEventAnalyzer` produces `BreakoutResult`
+  with `pattern_events` and `level_events`, kept apart.
+  - **Identity:** `{source_id}:{BREAKOUT|BREAKDOWN}:{bar_date}`.
+  - **Fields:** `source_event_ref`; `level_at_break`; `reference_atr`, frozen from the
+    source record (a pattern: `atr_pre`; a level: `change_bar.atr`); `retest_band`;
+    the reversal and retest windows; `observation_bars`; `source_measured_values` and
+    `bar_volume`, copied from the source; `history`.
+  - **Each follow-up records** its kind, date, `known_at`, `authority`
+    (`RETEST_RULE`, `PATTERN_LIFECYCLE`, `LEVEL_ROLE_CHANGE` or `WINDOW`),
+    `source_outcome_ref` and its measured values.
+- **A pattern's level** is its confirmation level, or the frozen confirmation line's
+  value at t (the line the lifecycle broke).
+- **Same-bar ordering.** A RETEST on the last bar of the window shares that bar with
+  `WINDOW_ENDED`, in that order.
+- **A level role change in ATR warm-up** has no reference ATR. That event looks for no
+  retest; reversals and the window still apply.
+- **The layer never reads indicators** for ATR or volume (tested). It reads complete
+  bars for its one rule (RETEST) and the source records for everything else.
+- **Configuration** `[analysis.breakouts]`: `retest_window` 10, `retest_tol_atr` 0.5,
+  `level_false_window` 3.
+  - **Note:** the levels layer itself has no reversal window. Its authority is the
+    next role change. The 3 bars are the declared window, carried over from §5, within
+    which that reversal counts as a false breakout.
+
+### 19.3 Real-NSE diagnostics (probe run 37504820464; snapshot meta-a89cf1fbcd05; descriptive)
+
+**Sources unchanged.** The fingerprint of 4641497 (before this phase) and bbfa307 is
+identical on all 3,191 securities:
+
+- patterns and relevance;
+- levels, zones and trendlines (the new evidence fields excluded).
+
+**Authority respected.** Pattern events: FALSE_BREAKOUT 2,097 + FAILED_RETEST 3,644 =
+5,741, exactly the pattern lifecycle's FAILED count.
+
+**Scale.** This is the input to the persistence and API decision, which is not taken
+here.
+
+| | Level events | Pattern events |
+|---|---|---|
+| Total | 501,792 | 15,719 |
+| Per security: mean / median / p90 / max | 157 / 70 / 450 / 1,353 | 4.9 / 3 / 13 / 30 |
+| Serialized JSON | ~869 MB (~1.7 KB each) | ~28 MB |
+| Ratio | 32 : 1 | |
+
+The breakout stage takes about 7.1 ms per security.
+
+**Follow-ups.**
+
+| | Level events | Pattern events |
+|---|---|---|
+| RETEST → WINDOW_ENDED | 165,900 (33.1 %) | 7,694 (48.9 %) |
+| RETEST → FAILED_RETEST | 189,016 (37.7 %) | 3,644 (23.2 %) |
+| FALSE_BREAKOUT | 107,330 (21.4 %) | 2,097 (13.3 %) |
+| WINDOW_ENDED without a retest | 33,177 (6.6 %) | 2,048 (13.0 %) |
+| Still within the window (RETESTED / open) | 6,369 | 236 |
+
+**Observations, recorded and not acted on:**
+
+- **A retest follows about 72 % of breaks from either source.** The band (0.5 × the
+  breakout's ATR) is wider than the margin by which the break closed beyond the level
+  (0.10 ATR for a level, 0.25 ATR_pre for a pattern), so the next bars usually reach
+  back into it. The rule is as approved; any change would be a methodology decision.
+- **Level breaks reverse within their windows far more often than pattern breakouts**
+  (59 % against 37 %). This is consistent with the small 0.10-ATR level buffer. It is
+  descriptive only: no inference about which breaks are better.
 
 ## Testing (mandatory)
 
