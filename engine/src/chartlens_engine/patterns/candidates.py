@@ -741,7 +741,8 @@ class Generator:
                 return self._no(family, w, "slopes")
             width_start = q_upper(h1.bar_index) - q_lower(h1.bar_index)
             width_end = q_upper(l3.bar_index) - q_lower(l3.bar_index)
-            if width_start <= 0 or width_end > cfg.converge_ratio * width_start:
+            converge = self.cfg.pennant.converge_ratio
+            if width_start <= 0 or width_end > converge * width_start:
                 return self._no(family, w, "convergence")
         # Lines back in price space: q-upper is the upper line when bullish, the lower
         # line when bearish.
