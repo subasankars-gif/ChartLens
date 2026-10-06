@@ -42,6 +42,30 @@ class MeasuredMove(Frozen):
     target_calculated_at: date
 
 
+class BreakoutBarVolume(Frozen):
+    """The breakout bar's own volume evidence, frozen in the breakout event when it is
+    created (ADR-0022 §3, §18.4). Data through the breakout bar only: the bar's volume
+    and the ``baseline_bars`` bars before it. It answers "what was volume like on the
+    breakout bar?" and is never a later or current volume classification."""
+
+    bar_date: date
+    """The breakout bar (= the event's ``effective_date``)."""
+    volume: float
+    baseline_bars: int
+    baseline_mean_volume: float | None
+    """Mean volume of the ``baseline_bars`` bars before the breakout bar (the bar itself
+    is not in its own baseline); None before enough history."""
+    rvol: float | None
+    """``volume / baseline_mean_volume`` (the indicator layer's relative volume at the
+    bar); None during warm-up or with a zero baseline."""
+    classification: Literal["EXPANSION", "NORMAL", "CONTRACTION"] | None
+    """The indicator layer's volume state at the bar, by its own thresholds."""
+    expansion_threshold: float
+    contraction_threshold: float
+    evidence_refs: tuple[str, ...]
+    measurement_version: str
+
+
 class PatternEvent(Frozen):
     """One immutable lifecycle event. Events are appended, never edited."""
 
@@ -65,6 +89,8 @@ class PatternEvent(Frozen):
     """The bar closed on a non-regular session (ADR-0015)."""
     measured_move: MeasuredMove | None = None
     """Only on the breakout event (CONFIRMED or RECOGNISED_AFTER_BREAKOUT)."""
+    breakout_bar_volume: BreakoutBarVolume | None = None
+    """Only on the breakout event: the breakout bar's frozen volume evidence."""
 
 
 class KeyPoint(Frozen):

@@ -16,17 +16,26 @@ never writes geometry. One forward pass from ``known_at``:
   (the zone reached within ``completion_window``) are judged from the next bar; when
   both happen on one bar, FAILED wins (the close is the bar's final state). If neither
   happens, the pattern stays in its breakout state as a historical fact.
+* **The breakout event freezes the breakout bar's volume evidence** (RVOL, its inputs and
+  the indicator layer's classification), from data through that bar only. It is
+  evidence, never a condition: no transition reads it (ADR-0022 §18.4).
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from chartlens_core.config import PatternsConfig, PatternSection
 from chartlens_engine.causal import Array, CompleteBars
 from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Line, Spec
-from chartlens_engine.patterns.model import MeasuredMove, PatternEvent, PatternStatus
+from chartlens_engine.patterns.model import (
+    BreakoutBarVolume,
+    MeasuredMove,
+    PatternEvent,
+    PatternStatus,
+)
 
 Level = Callable[[int], float]
 
@@ -36,14 +45,56 @@ def section(config: PatternsConfig, family: str) -> PatternSection:
     return section_
 
 
+BREAKOUT_VOLUME_VERSION = "1"
+
+
+@dataclass(frozen=True)
+class VolumeSource:
+    """The indicator layer's relative volume and volume state, read at the breakout bar
+    only (never recomputed or reclassified here)."""
+
+    rvol: Array
+    state: list[object]
+    baseline: int
+    expansion: float
+    contraction: float
+
+
 class Lifecycle:
     def __init__(
-        self, config: PatternsConfig, cb: CompleteBars, atr_pre: Array, analyzer_version: str
+        self,
+        config: PatternsConfig,
+        cb: CompleteBars,
+        atr_pre: Array,
+        analyzer_version: str,
+        volume: VolumeSource,
     ) -> None:
         self.config = config
         self.cb = cb
         self.atr_pre = atr_pre
         self.analyzer_version = analyzer_version
+        self.volume = volume
+
+    def breakout_bar_volume(self, t: int) -> BreakoutBarVolume:
+        """The breakout bar's volume evidence from data through bar t only."""
+        cb, v = self.cb, self.volume
+        n = v.baseline
+        base = float(cb.volume[t - n : t].mean()) if t >= n else None
+        r = float(v.rvol[t])
+        state = v.state[t]
+        day = cb.dates[t]
+        return BreakoutBarVolume(
+            bar_date=day,
+            volume=float(cb.volume[t]),
+            baseline_bars=n,
+            baseline_mean_volume=base,
+            rvol=None if math.isnan(r) else r,
+            classification=None if state is None else str(state),  # type: ignore[arg-type]
+            expansion_threshold=v.expansion,
+            contraction_threshold=v.contraction,
+            evidence_refs=(f"indicators:relative_volume@{day}", f"indicators:volume_state@{day}"),
+            measurement_version=BREAKOUT_VOLUME_VERSION,
+        )
 
     def events(self, spec: Spec) -> list[PatternEvent]:
         cb = self.cb
@@ -69,6 +120,7 @@ class Lifecycle:
                 methodology_version=version,
                 provisional=bool(cb.special[t]),
                 measured_move=measured_move,
+                breakout_bar_volume=None if measured_move is None else self.breakout_bar_volume(t),
             )
 
         def buffer(t: int) -> float | None:

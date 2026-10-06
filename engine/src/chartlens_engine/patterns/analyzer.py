@@ -27,7 +27,7 @@ from chartlens_engine.patterns import fit
 from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Generator, Line, Spec
 from chartlens_engine.patterns.context import ContextBuilder
 from chartlens_engine.patterns.fit import DefinitionFit
-from chartlens_engine.patterns.lifecycle import Lifecycle
+from chartlens_engine.patterns.lifecycle import Lifecycle, VolumeSource
 from chartlens_engine.patterns.model import (
     CandidateCount,
     Geometry,
@@ -89,7 +89,7 @@ FAMILIES = (
 
 class PatternAnalyzer:
     name = "patterns"
-    version = "4"
+    version = "5"
 
     def __init__(
         self,
@@ -141,7 +141,15 @@ class PatternAnalyzer:
             )
         )
         atr_pre = np.concatenate(([np.nan], atr[:-1])) if cb.n else atr
-        lifecycle = Lifecycle(self.config, cb, atr_pre, self.version)
+        vs = self.indicators.get("volume_state")
+        volume = VolumeSource(
+            rvol=numeric(self.indicators, "relative_volume", cb.n),
+            state=list(vs.data[: cb.n]),
+            baseline=int(vs.params["baseline"]),
+            expansion=float(vs.params["expansion"]),
+            contraction=float(vs.params["contraction"]),
+        )
+        lifecycle = Lifecycle(self.config, cb, atr_pre, self.version, volume)
         builder = self._context_builder(cb, context)
         patterns: list[Pattern] = []
         accepted: list[tuple[Spec, Pattern, int]] = []

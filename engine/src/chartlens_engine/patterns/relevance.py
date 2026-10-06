@@ -157,7 +157,6 @@ class RelevanceAnalyzer:
         cb = complete_bars(bars, context, self.indicators)
         n = cb.n
         atr = numeric(self.indicators, "atr", n)
-        volume_state = self.indicators.get("volume_state").data[:n]
         index = cb.index()
         cfg = self.config.relevance
         pats = self.patterns.patterns
@@ -216,7 +215,7 @@ class RelevanceAnalyzer:
                 if pid in done:
                     continue
                 s = stage[pid]
-                tags = self._tags(p, s, t, day, chochs, volume_state, index)
+                tags = self._tags(p, day, chochs)
                 key = (s.included, s.reason, s.container, s.kept, tuple(tags))
                 if last_key.get(pid) == key:
                     continue
@@ -326,12 +325,8 @@ class RelevanceAnalyzer:
     def _tags(
         self,
         p: Pattern,
-        s: _Stage,
-        t: int,
         day: date,
         chochs: list,  # type: ignore[type-arg]
-        volume_state: list,  # type: ignore[type-arg]
-        index: dict[date, int],
     ) -> list[tuple[str, tuple[str, ...]]]:
         ctx = p.context
         if ctx is None:
@@ -359,10 +354,10 @@ class RelevanceAnalyzer:
         breakout = next(
             (e for e in p.status_history if e.status in BROKEN_OUT and e.known_at <= day), None
         )
-        if breakout is not None:
-            b = index[breakout.effective_date]
-            if volume_state[b] == "EXPANSION":
-                out.append(("BREAKOUT_VOLUME", (_event_ref(p, breakout),)))
+        # The breakout event's own frozen evidence (ADR-0022 §18.4), never re-derived here.
+        bbv = None if breakout is None else breakout.breakout_bar_volume
+        if breakout is not None and bbv is not None and bbv.classification == "EXPANSION":
+            out.append(("BREAKOUT_VOLUME", (_event_ref(p, breakout), *bbv.evidence_refs)))
         return out
 
 
