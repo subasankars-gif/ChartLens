@@ -77,6 +77,7 @@ def main() -> None:
     to_breakout: dict[str, list[int]] = defaultdict(list)
     to_terminal: dict[str, list[int]] = defaultdict(list)
     lag: dict[str, list[int]] = defaultdict(list)
+    to_invalidation: dict[str, list[int]] = defaultdict(list)
     securities = bars_total = 0
     seconds = 0.0
     for sid, frame in source:
@@ -111,6 +112,8 @@ def main() -> None:
             final[t][path] += 1
             for e in h[1:]:
                 reasons[t][f"{e.status}:{e.reason}"] += 1
+            if h[-1].status == "INVALIDATED":
+                to_invalidation[t].append(index[h[-1].effective_date] - k)
             if p.breakout is not None:
                 to_breakout[t].append(index[p.breakout.effective_date] - k)
                 if len(h) > 2:
@@ -138,6 +141,8 @@ def main() -> None:
                 "median_bars_last_swing_to_known": med(lag[t]),
                 "median_bars_known_to_breakout": med(to_breakout[t]),
                 "median_bars_breakout_to_terminal": med(to_terminal[t]),
+                "invalidated_on_recognition": sum(1 for x in to_invalidation[t] if x == 0),
+                "median_bars_known_to_invalidation": med(to_invalidation[t]),
             }
             for t in sorted(final, key=lambda t: -sum(final[t].values()))
         },
