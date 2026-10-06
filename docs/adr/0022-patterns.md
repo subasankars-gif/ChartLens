@@ -340,7 +340,7 @@ below). Each pattern lists its parameters and defaults.
 |---|---|
 | Swing sequence | Two primary swing highs H_a and H_b (rims), not necessarily consecutive. Every primary swing high between them is below min(P(H_a), P(H_b)) |
 | Candidate geometry | Closes over b(H_a)…b(H_b) fitted by least squares to c = a·x² + b·x + c₀, with a > 0 |
-| Tolerances | \|P(H_a) − P(H_b)\| ≤ `rim_tol_atr` × ATR_D; R² ≥ `min_r2`; the vertex lies in [`vertex_min`, `vertex_max`] of the span; no primary swing low between the rims is below the fitted minimum by more than `low_tol_atr` × ATR_D |
+| Tolerances | \|P(H_a) − P(H_b)\| ≤ `rim_tol_atr` × ATR_D; R² ≥ `min_r2`; the vertex lies in [`vertex_min`, `vertex_max`] of the span; no primary swing low between the rims has a **close** below the fitted curve **at its own bar** by more than `low_tol_atr` × ATR_D (closes against a curve fitted to closes: one price basis; geometry version 2) |
 | Separation | bars(H_a, H_b) ∈ [`min_span`, `max_span`] |
 | Height | Depth = min(rims) − fitted minimum ≥ `min_depth_atr` × ATR_D |
 | Context | `prior_move` (decline into the vertex region, from H_a); `trend_context` (bullish reversal); `level_alignment` at the fitted minimum; `volume_behaviour` = 1 if the volume SMA at the vertex bar < at both rims; `volatility_contraction` |
@@ -563,15 +563,22 @@ confirmation and the rest of the status machine follow after that review.
   - the waiting window (for flags and pennants: `flag_max_bars` after the pole's end).
 - **"Still FORMING" in 5a.** For the same-formation rule this means "inside that
   horizon". Phase 5b replaces it with the status machine.
-- **Finding for review: the rounding bottom's low rule (§7.4) never passes.**
-  - The rule compares primary swing lows, which are bar lows, with the minimum of a
-    quadratic fitted to closes. A bar's low sits below its close by about half its
-    range, so a real bowl almost always fails.
-  - On 60 synthetic 800-bar series (3,592 candidates), the rule as written gave **0**
-    valid rounding bottoms.
-  - Comparing each swing bar's close with the fitted curve at that bar (one price
-    basis) gave 52. Without the rule there would be 408.
-  - Code keeps the rule as written until Suba decides.
+- **Rounding-bottom low rule (decided by Suba after 5a).**
+  - The first rule compared swing **lows** with the minimum of a curve fitted to
+    **closes**. Those are two price series, and a bar's low sits below its close, so
+    the rule rejected every bowl: 0 of 3,592 candidates on 60 synthetic series.
+  - The rule is now closes-to-closes: each interior swing week's close is compared with
+    the fitted curve at that week. That gave 52 valid on the same series.
+  - Dropping the rule (408) was rejected, because it would turn the definition into a
+    loose shape matcher.
+  - Weekly lows stay in the pattern as structural information (key points).
+  - The rounding family's `geometry_version` is 2. A regression test proves a valid
+    synthetic bowl, whose swing-week low sits well below its close, survives.
+- **Geometry versions.** Every geometry records its family's `geometry_version`, which
+  is bumped whenever that family's geometric definition changes.
+- **Geometry, confirmation and status stay separate.** Geometry is a frozen object
+  fixed at `known_at`. Confirmation and status (Phase 5b) are recorded only in status
+  entries, so a breakout can never reshape the pattern it confirms.
 
 ## Testing (mandatory)
 

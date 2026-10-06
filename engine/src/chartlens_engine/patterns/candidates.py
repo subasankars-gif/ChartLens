@@ -80,6 +80,27 @@ class Tally:
     )
 
 
+GEOMETRY_VERSIONS: dict[str, str] = {
+    "double": "1",
+    "triple": "1",
+    "head_shoulders": "1",
+    "rounding": "2",  # 2: interior swings compared close-to-close with the fit (5a review)
+    "v": "1",
+    "rectangle": "1",
+    "triangle": "1",
+    "wedge": "1",
+    "flag": "1",
+    "pennant": "1",
+    "cup_handle": "1",
+}
+"""Each family's geometry rules version: bumped whenever a family's geometric definition
+changes, so every stored geometry says which rules made it."""
+
+
+def _curve(a: float, b: float, c: float, x: float) -> float:
+    return a * x * x + b * x + c
+
+
 def _opposite(kind: Kind) -> Kind:
     return "LOW" if kind == "HIGH" else "HIGH"
 
@@ -434,8 +455,14 @@ class Generator:
                 self.reject("rounding", w, "vertex_position")
             elif depth < cfg.min_depth_atr * atr:
                 self.reject("rounding", w, "depth")
-            elif any(s * x.price < fitted_min - cfg.low_tol_atr * atr for x in downs):
-                self.reject("rounding", w, "low_below_fit")
+            elif any(
+                s * float(self.cb.close[x.bar_index])
+                < _curve(a2, a1, a0, x.bar_index - ra.bar_index) - cfg.low_tol_atr * atr
+                for x in downs
+            ):
+                # Closes against the curve fitted to closes: one price basis. A swing's
+                # bar low sits below its close, so comparing lows would reject every bowl.
+                self.reject("rounding", w, "swing_close_below_fit")
             else:
                 k = self.known_index(w)
                 bull = s > 0

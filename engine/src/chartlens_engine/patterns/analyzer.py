@@ -20,7 +20,7 @@ from chartlens_core.config import PatternsConfig
 from chartlens_engine.causal import CompleteBars, StatusEntry, complete_bars, numeric
 from chartlens_engine.indicators import IndicatorResult
 from chartlens_engine.interfaces import AnalysisContext
-from chartlens_engine.patterns.candidates import Generator, Line, Spec
+from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Generator, Line, Spec
 from chartlens_engine.patterns.model import (
     CandidateCount,
     Geometry,
@@ -207,6 +207,7 @@ class PatternAnalyzer:
             )
 
         geometry = Geometry(
+            geometry_version=GEOMETRY_VERSIONS[spec.family],
             key_points=[
                 KeyPoint(
                     label=label,

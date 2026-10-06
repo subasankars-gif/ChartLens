@@ -295,3 +295,40 @@ def test_every_pattern_is_known_with_its_last_defining_swing(seed: int) -> None:
     for c in chain.patterns.candidates.values():
         assert c.same_formation <= c.valid <= c.generated
         assert c.valid + sum(c.rejected.values()) == c.generated
+
+
+# ------------------------------------------------- rounding bottom: closes-to-closes rule
+
+BOWL = [60.0] * 5 + [50 + 0.1 * (b - 15) ** 2 for b in range(5, 26)] + [60.3, 61, 61.5, 62, 62.5]
+# Rims at bars 5 and 25; an interior swing low at bar 15 whose bar low (48.8) sits well
+# below its close (50), as real weekly lows do.
+BOWL_SWINGS = [hi(5, 60.0), lo(15, 48.8), hi(25, 60.3)]
+
+
+def test_a_valid_bowl_survives_the_closes_to_closes_rule() -> None:
+    result = _run(BOWL_SWINGS, BOWL, n=len(BOWL))
+    (r,) = _of(result, "ROUNDING_BOTTOM")
+    g = r.geometry
+    assert (r.known_at, g.geometry_version, g.confirmation_level) == (week(26), "2", 60.3)
+    assert g.measures["r2"] == pytest.approx(1.0)
+    assert g.height == pytest.approx(10.0)  # the lower rim (60) − the curve's minimum (50)
+    # The rule as first written compared the swing's *low* with the fitted minimum of
+    # *closes*: 48.8 is below 50 − 0.5 × ATR, so it would have rejected this bowl.
+    swing_low = 48.8
+    assert swing_low < 50 - 0.5 * g.atr_d
+
+
+def test_a_close_below_the_curve_still_rejects_the_bowl() -> None:
+    spiked = list(BOWL)
+    spiked[15] = 47.0  # the swing week *closes* far below the curve
+    result = _run([hi(5, 60.0), lo(15, 46.5), hi(25, 60.3)], spiked, n=len(spiked))
+    assert _of(result, "ROUNDING_BOTTOM") == []
+    assert "swing_close_below_fit" in _rules(result, "rounding")
+
+
+def test_confirmation_and_status_never_write_geometry() -> None:
+    """ADR-0022 §2: geometry is a frozen, separate part of the pattern."""
+    (p,) = _of(_run(DOUBLE), "DOUBLE_BOTTOM")
+    with pytest.raises(ValueError, match="frozen"):
+        p.geometry.confirmation_level = 50.0  # type: ignore[misc]
+    assert p.geometry.geometry_version == "1"

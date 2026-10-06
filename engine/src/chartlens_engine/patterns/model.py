@@ -42,7 +42,14 @@ class PatternLine(Frozen):
 
 
 class Geometry(Frozen):
-    """Everything fixed at ``known_at``. Never refitted (ADR-0022 §2)."""
+    """Everything fixed at ``known_at``. Never refitted (ADR-0022 §2).
+
+    Geometry, confirmation and status are separate parts of a pattern. Confirmation and
+    status (Phase 5b) are recorded in status entries and never write here: a breakout
+    can never reshape the pattern it confirms."""
+
+    geometry_version: str
+    """The family's geometry rules version (``candidates.GEOMETRY_VERSIONS``)."""
 
     key_points: list[KeyPoint]
     lines: list[PatternLine]
