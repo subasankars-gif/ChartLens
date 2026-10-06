@@ -18,9 +18,13 @@ import pandas as pd
 
 from chartlens_core.config import PatternsConfig
 from chartlens_engine.causal import CompleteBars, complete_bars, numeric
+from chartlens_engine.evidence import DivergenceResult, VolatilityResult
+from chartlens_engine.fibonacci import FibonacciResult
 from chartlens_engine.indicators import IndicatorResult
 from chartlens_engine.interfaces import AnalysisContext
+from chartlens_engine.levels import LevelsResult
 from chartlens_engine.patterns.candidates import GEOMETRY_VERSIONS, Generator, Line, Spec
+from chartlens_engine.patterns.context import ContextBuilder
 from chartlens_engine.patterns.lifecycle import Lifecycle
 from chartlens_engine.patterns.model import (
     CandidateCount,
@@ -32,6 +36,7 @@ from chartlens_engine.patterns.model import (
     PatternTouch,
     Rejection,
 )
+from chartlens_engine.structure import StructureResult
 from chartlens_engine.swings import SwingPoint, SwingResult
 
 FAMILIES = (
@@ -51,7 +56,7 @@ FAMILIES = (
 
 class PatternAnalyzer:
     name = "patterns"
-    version = "2"
+    version = "3"
 
     def __init__(
         self,
@@ -59,13 +64,24 @@ class PatternAnalyzer:
         indicators: IndicatorResult,
         swings: SwingResult,
         *,
+        structure: StructureResult | None = None,
+        levels: LevelsResult | None = None,
+        fibonacci: FibonacciResult | None = None,
+        divergence: DivergenceResult | None = None,
+        volatility: VolatilityResult | None = None,
         diagnostics: bool = False,
     ) -> None:
         """``diagnostics`` keeps every rejected candidate with its failed rule (tests and
-        reviews). It never changes which patterns exist."""
+        reviews). It never changes which patterns exist. Context (5b-B) is built when the
+        other layers are given, as the orchestrator always does."""
         self.config = config
         self.indicators = indicators
         self.swings = swings
+        self.structure = structure
+        self.levels = levels
+        self.fibonacci = fibonacci
+        self.divergence = divergence
+        self.volatility = volatility
         self.diagnostics = diagnostics
 
     def analyze(self, bars: pd.DataFrame, context: AnalysisContext) -> PatternResult:
@@ -93,6 +109,7 @@ class PatternAnalyzer:
         )
         atr_pre = np.concatenate(([np.nan], atr[:-1])) if cb.n else atr
         lifecycle = Lifecycle(self.config, cb, atr_pre, self.version)
+        builder = self._context_builder(cb, context)
         patterns: list[Pattern] = []
         accepted: list[tuple[Spec, Pattern, int]] = []
         same: dict[str, int] = {}
@@ -104,7 +121,12 @@ class PatternAnalyzer:
                 same[spec.family] = same.get(spec.family, 0) + 1
                 continue
             touches = self._touches(spec, atr, primary, fine, index_of, forming_end)
-            pattern = self._pattern(spec, cb, touches).model_copy(update={"status_history": events})
+            pattern = self._pattern(spec, cb, touches).model_copy(
+                update={
+                    "status_history": events,
+                    "context": None if builder is None else builder.build(spec),
+                }
+            )
             accepted.append((spec, pattern, forming_end))
             patterns.append(pattern)
         tally = generator.tally
@@ -129,6 +151,24 @@ class PatternAnalyzer:
             rejections=[
                 Rejection(family=f, swing_ids=ids, rule=rule) for f, ids, rule in tally.rejections
             ],
+        )
+
+    def _context_builder(self, cb: CompleteBars, ctx: AnalysisContext) -> ContextBuilder | None:
+        structure, levels, fibonacci = self.structure, self.levels, self.fibonacci
+        divergence, volatility = self.divergence, self.volatility
+        if (
+            structure is None
+            or levels is None
+            or fibonacci is None
+            or divergence is None
+            or volatility is None
+        ):
+            return None
+        for layer in (structure, levels, fibonacci, divergence, volatility):
+            if layer.context != ctx:
+                raise ValueError(f"{layer.analyzer} was computed for another context")
+        return ContextBuilder(
+            self.config, cb, self.indicators, structure, levels, fibonacci, divergence, volatility
         )
 
     # ------------------------------------------------------------------ touches

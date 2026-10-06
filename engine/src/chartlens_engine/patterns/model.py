@@ -9,6 +9,7 @@ from typing import Literal
 
 from chartlens_engine.causal import Frozen
 from chartlens_engine.interfaces import AnalyzerResult
+from chartlens_engine.patterns.context import PatternContext
 
 Direction = Literal["BULLISH", "BEARISH", "NEUTRAL"]
 PatternStatus = Literal[
@@ -151,6 +152,9 @@ class Pattern(Frozen):
     ``known_at``."""
     depends_on: tuple[str, ...]
     """The defining swings."""
+    context: PatternContext | None = None
+    """A snapshot of the facts available at ``known_at`` (5b-B); None only when the
+    analyzer runs without the other layers (unit tests of geometry alone)."""
     status_history: list[PatternEvent]
     """Append-only; the first is FORMING at ``known_at``. At most one breakout event and
     one terminal event, each the first condition objectively satisfied."""

@@ -81,7 +81,21 @@ def run_chain(
     vol = run_analyzer(VolumeAnalyzer(cfg.volume, ind, sw, st, lv), bars, ctx)
     vty = run_analyzer(VolatilityAnalyzer(cfg.volatility, ind), bars, ctx)
     cdl = run_analyzer(CandleAnalyzer(cfg.candles, ind, st), bars, ctx)
-    pat = run_analyzer(PatternAnalyzer(cfg.patterns, ind, sw, diagnostics=True), bars, ctx)
+    pat = run_analyzer(
+        PatternAnalyzer(
+            cfg.patterns,
+            ind,
+            sw,
+            structure=st,
+            levels=lv,
+            fibonacci=fib,
+            divergence=div,
+            volatility=vty,
+            diagnostics=True,
+        ),
+        bars,
+        ctx,
+    )
     return Chain(ind, sw, st, fib, lv, div, vol, vty, cdl, pat)
 
 

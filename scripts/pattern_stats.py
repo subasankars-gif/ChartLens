@@ -25,9 +25,13 @@ import pandas as pd
 from chartlens_core.config import AnalysisConfig
 from chartlens_core.domain import Timeframe
 from chartlens_core.testing import make_bars
+from chartlens_engine.evidence import DivergenceAnalyzer, VolatilityAnalyzer
+from chartlens_engine.fibonacci import FibonacciAnalyzer
 from chartlens_engine.indicators import IndicatorAnalyzer
 from chartlens_engine.interfaces import AnalysisContext, run_analyzer
+from chartlens_engine.levels import LevelsAnalyzer
 from chartlens_engine.patterns import FAMILIES, PatternAnalyzer
+from chartlens_engine.structure import StructureAnalyzer
 from chartlens_engine.swings import SwingAnalyzer
 
 
@@ -78,6 +82,10 @@ def main() -> None:
     to_terminal: dict[str, list[int]] = defaultdict(list)
     lag: dict[str, list[int]] = defaultdict(list)
     to_invalidation: dict[str, list[int]] = defaultdict(list)
+    context: dict[str, Counter[str]] = defaultdict(Counter)
+    trend: dict[str, Counter[str]] = defaultdict(Counter)
+    decline: dict[str, list[float]] = defaultdict(list)
+    rise: dict[str, list[float]] = defaultdict(list)
     securities = bars_total = 0
     seconds = 0.0
     for sid, frame in source:
@@ -95,8 +103,26 @@ def main() -> None:
         )
         ind = run_analyzer(IndicatorAnalyzer(cfg.indicators), frame, ctx)
         sw = run_analyzer(SwingAnalyzer(cfg.swings, ind), frame, ctx)
+        st = run_analyzer(StructureAnalyzer(cfg.structure, ind, sw), frame, ctx)
+        fib = run_analyzer(FibonacciAnalyzer(cfg.fibonacci, ind, sw), frame, ctx)
+        lv = run_analyzer(LevelsAnalyzer(cfg.levels, ind, sw, st, fib), frame, ctx)
+        div = run_analyzer(DivergenceAnalyzer(cfg.divergence, ind, sw, st), frame, ctx)
+        vty = run_analyzer(VolatilityAnalyzer(cfg.volatility, ind), frame, ctx)
         t0 = time.perf_counter()
-        result = run_analyzer(PatternAnalyzer(cfg.patterns, ind, sw), frame, ctx)
+        result = run_analyzer(
+            PatternAnalyzer(
+                cfg.patterns,
+                ind,
+                sw,
+                structure=st,
+                levels=lv,
+                fibonacci=fib,
+                divergence=div,
+                volatility=vty,
+            ),
+            frame,
+            ctx,
+        )
         seconds += time.perf_counter() - t0
         index = {pd.Timestamp(d).date(): i for i, d in enumerate(frame["bar_date"])}
         for family, c in result.candidates.items():
@@ -112,6 +138,17 @@ def main() -> None:
             final[t][path] += 1
             for e in h[1:]:
                 reasons[t][f"{e.status}:{e.reason}"] += 1
+            c = p.context
+            if c is not None:
+                context[t]["levels_near"] += bool(c.levels_near)
+                context[t]["divergence"] += bool(c.divergence_ids)
+                context[t]["contraction"] += bool(c.volatility.contraction_event_ids)
+                context[t]["fibonacci"] += bool(c.fibonacci)
+                trend[t][c.structure.state or "NONE"] += 1
+                if c.prior_move.decline_into_atr is not None:
+                    decline[t].append(c.prior_move.decline_into_atr)
+                if c.prior_move.rise_into_atr is not None:
+                    rise[t].append(c.prior_move.rise_into_atr)
             if h[-1].status == "INVALIDATED":
                 to_invalidation[t].append(index[h[-1].effective_date] - k)
             if p.breakout is not None:
@@ -143,6 +180,10 @@ def main() -> None:
                 "median_bars_breakout_to_terminal": med(to_terminal[t]),
                 "invalidated_on_recognition": sum(1 for x in to_invalidation[t] if x == 0),
                 "median_bars_known_to_invalidation": med(to_invalidation[t]),
+                "context_with": dict(context[t]),
+                "trend_state_at_known": dict(trend[t].most_common()),
+                "median_prior_decline_atr": statistics.median(decline[t]) if decline[t] else None,
+                "median_prior_rise_atr": statistics.median(rise[t]) if rise[t] else None,
             }
             for t in sorted(final, key=lambda t: -sum(final[t].values()))
         },

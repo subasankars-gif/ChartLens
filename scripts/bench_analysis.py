@@ -86,7 +86,20 @@ for i, n in enumerate(lengths.tolist()):
     clock.lap("volatility")
     cdl = run_analyzer(CandleAnalyzer(cfg.candles, ind, st), bars, ctx)
     clock.lap("candles")
-    pat = run_analyzer(PatternAnalyzer(cfg.patterns, ind, sw), bars, ctx)
+    pat = run_analyzer(
+        PatternAnalyzer(
+            cfg.patterns,
+            ind,
+            sw,
+            structure=st,
+            levels=lv,
+            fibonacci=fib,
+            divergence=div,
+            volatility=vty,
+        ),
+        bars,
+        ctx,
+    )
     clock.lap("patterns")
     for family, c in pat.candidates.items():
         candidates[family][0] += c.generated

@@ -670,6 +670,44 @@ later bar upgrades FAILED to COMPLETED.
 belong to the later historical-validation layer, where the observation window, the
 outcome definition, censoring and the methodology version can be controlled.
 
+**Phase 5b-A is closed (Suba, 2026-10-06).** Confirmation, recognition after the
+breakout, lifecycle transitions, terminal-state precedence, measured-move freezing,
+event immutability and historical replay are implemented and validated. Cup and handle
+geometry version 2 resolves the conflict between recognition and lifecycle. No other
+pattern family changed. Recognition of V patterns after the breakout remains an
+intentional property of structural confirmation.
+
+## 12. Phase 5b-B: context, facts only (2026-10-06)
+
+- **Context is a snapshot as of `known_at`.** It uses the bars up to `known_at` and
+  every other layer's objects as they stood then: levels via `as_of(known_at)` with
+  their role on that day, the current Fibonacci structures as of `known_at`, structure's
+  state as of `known_at`, and divergences and volatility episodes known by then.
+  - Nothing from later bars is used.
+  - A run as of `known_at` reproduces every context exactly, and changing later bars
+    changes none (both are tested).
+  - Every cited object was known by `known_at` (tested).
+- **Facts, not scores.** Context records measurements. Mapping them to the [0, 1]
+  components of §5 and to a confidence is a later step (5b-C), so a change to scoring
+  can never be mistaken for a change in what was observed. Context never creates,
+  deletes or reshapes a pattern, and never writes geometry or status.
+- **What is recorded** (`PatternContext`, `context_version` 1):
+
+| Part | Facts |
+|---|---|
+| Prior move | The `context_lookback` (26) bars before the first defining swing: the highest and lowest close with their dates; the rise into and the decline into the first swing, in ATR at that swing's bar; the window's high–low range in ATR (how tight the preceding consolidation was) |
+| Structure | Trend state, regime, pending direction and `since`, as of `known_at`; the last BOS/CHoCH known by then; the events inside the pattern's span |
+| Levels | Levels known by `known_at` within `level_tol_atr` × ATR_D of any key point, with their role as of `known_at` and their distance. Levels built from the pattern's own defining swings are excluded |
+| Volume | Volume SMA at the first and last defining bars; RVOL at the last; volume state and trend at `known_at`; OBV change across the span relative to volume |
+| Volatility | ATR% at the first and last defining bars and at `known_at`; contraction episodes starting inside the span and known by `known_at` |
+| Divergence | Divergences in the pattern's direction, known by `known_at`, whose second swing is a defining swing (none for neutral patterns) |
+| Fibonacci | For each current structure as of `known_at`: its status then, where the pattern's base sits in the leg (0 = counter swing, 1 = anchor), and the nearest Fibonacci ratio and its distance in ATR |
+
+- **The pattern's base** is its lowest defining low (bullish) or highest defining high
+  (bearish). When it has no defining swing of that type (rounding rims), the base is its
+  invalidation level. For neutral patterns it is the last defining swing.
+- `evidence_refs` lists every object id the context cites.
+
 ## Testing (mandatory)
 
 **Golden fixtures**, small and readable weekly series, one per pattern and direction:
