@@ -1,6 +1,7 @@
 # ADR-0027: Chart layers
 
-**Status:** Accepted · 2026-10-07, with the review clarifications frozen below (decisions
+**Status:** Accepted · 2026-10-07. **Phase 6d CLOSED** (2026-10-07) with two non-blocking
+follow-ups (§10). Review clarifications frozen below (decisions
 1–5 approved; the `known_at` ≤ snapshot `as_of` invariant, per-component snapshot
 identity, a declarative `/chart`, and the stricter property tests added). It extends
 ADR-0017 (the faithful-visualization rule) and ADR-0023 (the layer toggles), and builds
@@ -313,9 +314,62 @@ series with no stored value at all (warm-up longer than the history, e.g. `sma_2
 over a short listing). They are not objects with a missing date, so the adapter now
 proposes nothing for them (with a test); the rerun drew the same 6,703,479 objects and
 refused 0. That is evidence, not the contract: the contract is that unplaced objects are
-refused and surfaced.
+refused and surfaced. The two numbers are different things: the 8,148 were not
+unplaceable analytical objects but series with nothing to draw; the result is **0
+objects with a valid drawable coordinate refused or misplaced**.
+
+The current snapshot's document is bounded by `as_of`, and placement checks every stored
+status entry's `known_at` as well as the object's, so "the next status entry" that ends
+a measured-move zone is always one known within the selected snapshot. (Replay would
+need its own treatment; it is deferred.)
 
 Screenshots (real NSE): KOTHARIPRO history view across an unquantified-corporate-action
 break (overlays only after the break); INDSWFTLTD, delisted, analysis as of its last bar;
 RANEHOLDIN, forming week with an included falling wedge, its stored lines, confirmation
 level, measured-move zone and "recognised" mark; CARYSIL with every layer on.
+
+## 10. Follow-ups recorded at closure (non-blocking; do not reopen 6d)
+
+### 10.1 Spans across missing weekly observations
+
+Proposed rule (Suba): *"A drawn span may connect stored coordinates only across
+contiguous available weekly observations. A missing weekly observation terminates the
+drawable span; the renderer never creates an implicit connection across the missing
+observation."*
+
+Status as built: **not enforced, and not guaranteed by the segment rule.** A continuity
+break needs a trading gap of more than 65 expected sessions (ADR-0012), so a shorter
+gap (a suspension of a few weeks) leaves weeks with no bar *inside* one segment. Today
+a path between two stored points, and an indicator line between consecutive stored
+bars, is drawn straight across such a gap. The synthetic fixture has none; the number
+of real in-segment gaps has not been measured yet.
+
+A methodology question sits underneath: the engine computes on the bar sequence, so its
+own geometry (pattern lines, trendlines, indicator windows) already treats the bars on
+either side of a missing week as adjacent. Cutting the drawing at the gap would show
+less than the engine defines; not cutting it implies continuity the data does not have.
+To settle with evidence: (a) measure in-segment missing weeks on real NSE; (b) decide
+whether the rule is a rendering rule only or also an engine statement; (c) add the
+regression test either way.
+
+### 10.2 Formation geometry vs. when a level became authoritative
+
+Suba's distinction: formation geometry keeps its formation coordinates, but *an
+analytical level that becomes authoritative only at `known_at` should not be visually
+represented as an established level before that `known_at`.*
+
+Status as built: **the ambiguity is present, by construction, in three spans** (counted
+on the fixture; it follows from the engine's definitions, not from the data):
+
+| Span (§8 item 4) | Drawn from | Known at | Fixture |
+|---|---|---|---|
+| Pattern confirmation / invalidation level | `start_date` → `end_date` | the pattern's `known_at`, after `end_date` | 10 of 10 levels lie entirely before their `known_at` |
+| Fibonacci level | `counter_bar_date` → … | the structure's `known_at`, after the counter swing confirms | 20 of 20 begin before `known_at` |
+| Support/resistance zone | `first_seen` → `levels.state_date` | the zone's `known_at` | 2 of 5 begin before `known_at` |
+
+Pattern lines, key points, Fibonacci legs and trendline touches are formation geometry
+(the shape that formed), and stay where they are. The candidate fix keeps every
+coordinate stored and moves only the start of the *level's* visible span to its own
+knowledge date (e.g. a pattern's confirmation level from `known_at` to the end of its
+stored status span), with a regression test that no level is drawn before it was known.
+Proposed as a small, separate amendment for review; not done in 6d.
