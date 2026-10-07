@@ -23,6 +23,7 @@ volume, and it never writes to a source.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from datetime import date
 
@@ -47,6 +48,34 @@ BREAKOUTS_VERSION = "1"
 LevelAt = Callable[[int], float]
 
 
+def event_id(
+    dataset: str,
+    security_id: str,
+    segment: str,
+    source_id: str,
+    source_date: date,
+    source_event: str,
+    direction: str,
+    source_version: str,
+) -> str:
+    """Deterministic event identity (ADR-0022 §19.4): a hash of the source identity and
+    the source methodology version. Never random, never order-dependent."""
+    prefix = "PBE" if dataset == "pattern_breakouts" else "LBE"
+    canonical = "|".join(
+        (
+            dataset,
+            security_id,
+            segment,
+            source_id,
+            source_date.isoformat(),
+            source_event,
+            direction,
+            source_version,
+        )
+    )
+    return f"{prefix}-{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
+
+
 class BreakoutEventAnalyzer:
     name = "breakout_events"
     version = BREAKOUTS_VERSION
@@ -69,8 +98,10 @@ class BreakoutEventAnalyzer:
                 raise ValueError(f"{layer.analyzer} was computed for another context")
         cb = complete_bars(bars, context, self.indicators)
         index = cb.index()
+        security = str(context.security_id)
+        level_version = f"levels-{self.levels.analyzer_version}"
         pattern_events = [
-            e for p in self.patterns.patterns if (e := self._pattern_event(p, cb, index))
+            e for p in self.patterns.patterns if (e := self._pattern_event(p, cb, index, security))
         ]
         level_events: list[LevelBreakoutEvent] = []
         for lv in self.levels.levels:
@@ -98,7 +129,19 @@ class BreakoutEventAnalyzer:
                 )
                 level_events.append(
                     LevelBreakoutEvent(
-                        event_id=f"{lv.level_id}:{bar.direction}:{rc.date}",
+                        event_id=event_id(
+                            "level_breakouts",
+                            security,
+                            cb.segment,
+                            lv.level_id,
+                            rc.date,
+                            "ROLE_CHANGE",
+                            bar.direction,
+                            level_version,
+                        ),
+                        event_key=f"{lv.level_id}:{bar.direction}:{rc.date}",
+                        security_id=security,
+                        source_version=level_version,
                         source_id=lv.level_id,
                         source_event_ref=source_ref,
                         continuity_segment_id=cb.segment,
@@ -126,7 +169,7 @@ class BreakoutEventAnalyzer:
                         level_source_type=lv.source_type,
                     )
                 )
-        level_events.sort(key=lambda e: (e.bar_date, e.event_id))
+        level_events.sort(key=lambda e: (e.bar_date, e.event_key))
         return BreakoutResult(
             analyzer=self.name,
             analyzer_version=self.version,
@@ -139,7 +182,7 @@ class BreakoutEventAnalyzer:
     # ------------------------------------------------------------------ patterns
 
     def _pattern_event(
-        self, p: Pattern, cb: CompleteBars, index: dict[date, int]
+        self, p: Pattern, cb: CompleteBars, index: dict[date, int], security: str
     ) -> PatternBreakoutEvent | None:
         breakout = next((e for e in p.status_history if e.status in BROKEN_OUT), None)
         if breakout is None:
@@ -169,7 +212,19 @@ class BreakoutEventAnalyzer:
             cb, b, direction, level_at, atr, r, failed_ref, "PATTERN_LIFECYCLE", fail_window
         )
         return PatternBreakoutEvent(
-            event_id=f"{p.pattern_id}:{direction}:{breakout.effective_date}",
+            event_id=event_id(
+                "pattern_breakouts",
+                security,
+                cb.segment,
+                p.pattern_id,
+                breakout.effective_date,
+                breakout.status,
+                direction,
+                breakout.methodology_version,
+            ),
+            event_key=f"{p.pattern_id}:{direction}:{breakout.effective_date}",
+            security_id=security,
+            source_version=breakout.methodology_version,
             source_id=p.pattern_id,
             source_event_ref=ref,
             continuity_segment_id=cb.segment,

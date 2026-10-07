@@ -274,3 +274,85 @@ def test_the_event_layer_reads_no_indicators_for_atr_or_volume() -> None:
         assert not names & {"numeric", "relative_volume", "volume_state"}, py.name
         text = py.read_text()
         assert "indicators.get" not in text and "indicators.series" not in text, py.name
+
+
+# ---------------------------------------------------------------- identity (§19.4)
+
+ID = r"^(PBE|LBE)-[0-9a-f]{32}$"
+
+
+def _ids(result) -> dict[str, str]:  # type: ignore[no-untyped-def]
+    return {e.event_key: e.event_id for e in [*result.pattern_events, *result.level_events]}
+
+
+@pytest.mark.parametrize("seed", [3, 9])
+def test_event_ids_are_deterministic_unique_and_order_independent(seed: int) -> None:
+    import re
+
+    bars = random_bars(700, seed)
+    chain = run_chain(bars)
+    ids = _ids(chain.breakouts)
+    assert ids and all(re.match(ID, i) for i in ids.values())
+    assert len(set(ids.values())) == len(ids)  # unique within the security
+    shuffled = run_analyzer(
+        BreakoutEventAnalyzer(
+            AnalysisConfig(),
+            chain.indicators,
+            chain.levels.model_copy(update={"levels": list(reversed(chain.levels.levels))}),
+            chain.patterns.model_copy(update={"patterns": list(reversed(chain.patterns.patterns))}),
+        ),
+        bars,
+        context(bars),
+    )
+    assert _ids(shuffled) == ids  # never row or processing order
+    assert _ids(run_chain(bars).breakouts) == ids  # rerun: same ids
+
+
+def test_event_ids_follow_the_source_version_not_the_event_rules() -> None:
+    bars = random_bars(700, seed=9)
+    chain = run_chain(bars)
+    ids = _ids(chain.breakouts)
+
+    def ids_with(levels=None, cfg=None):  # type: ignore[no-untyped-def]
+        return _ids(
+            run_analyzer(
+                BreakoutEventAnalyzer(
+                    cfg or AnalysisConfig(),
+                    chain.indicators,
+                    levels or chain.levels,
+                    chain.patterns,
+                ),
+                bars,
+                context(bars),
+            )
+        )
+
+    other_rules = AnalysisConfig(breakouts=BreakoutsConfig(retest_window=4, retest_tol_atr=1.5))
+    assert ids_with(cfg=other_rules) == ids  # follow-up rules change histories, not identity
+    bumped = ids_with(levels=chain.levels.model_copy(update={"analyzer_version": "99"}))
+    pattern_keys = {e.event_key for e in chain.breakouts.pattern_events}
+    for key, value in ids.items():
+        if key in pattern_keys:
+            assert bumped[key] == value  # pattern source unchanged
+        else:
+            assert bumped[key] != value  # a new level methodology is a new source version
+    assert all(
+        e.source_version == f"levels-{chain.levels.analyzer_version}"
+        for e in chain.breakouts.level_events
+    )
+
+
+def test_event_ids_differ_across_securities() -> None:
+    from chartlens_engine.breakouts.analyzer import event_id
+
+    args = (
+        "level_breakouts",
+        "X@2006-01-06",
+        "X:LEVEL",
+        date(2020, 1, 3),
+        "ROLE_CHANGE",
+        "BREAKOUT",
+        "levels-2",
+    )
+    assert event_id(args[0], "SEC-A", *args[1:]) != event_id(args[0], "SEC-B", *args[1:])
+    assert event_id(args[0], "SEC-A", *args[1:]) == event_id(args[0], "SEC-A", *args[1:])

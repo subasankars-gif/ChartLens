@@ -39,7 +39,18 @@ class BreakoutFollowUp(Frozen):
 
 class BreakoutEvent(Frozen):
     event_id: str
-    """``{source_id}:{BREAKOUT|BREAKDOWN}:{bar_date}``."""
+    """Deterministic identity: ``PBE-``/``LBE-`` + the first 32 hex digits of SHA-256
+    over (dataset, security_id, continuity segment, source id, source event date, source
+    event type, direction, source version). Same source + same source methodology → same
+    id, independent of row or processing order; never random. The event layer's own
+    version is not part of it: a change to follow-up rules changes an event's history,
+    not which break it is."""
+    event_key: str
+    """The readable natural key, ``{source_id}:{BREAKOUT|BREAKDOWN}:{bar_date}``."""
+    security_id: str
+    source_version: str
+    """The source's methodology version (a pattern breakout's ``methodology_version``;
+    ``levels-{analyzer version}`` for a level role change)."""
     source_id: str
     source_event_ref: str
     """The authoritative source record this event is derived from."""

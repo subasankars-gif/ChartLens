@@ -1562,7 +1562,7 @@ comparison of the published fingerprints (probe run 37498737083) then confirmed 
 were equal, and the diagnostic script was corrected. This did not affect analytical
 outputs.
 
-## 19. Breakout events (approved with changes in §19.1)
+## 19. Breakout events (approved §19.1; closed §19.4)
 
 §5 sketched breakout events. Since then the evidence invariant (§18.5), the
 lifecycle's own FAILED rule and the size of the level layer change some of its
@@ -1711,6 +1711,8 @@ event-relevance design.
     `source_outcome_ref` and its measured values.
 - **A pattern's level** is its confirmation level, or the frozen confirmation line's
   value at t (the line the lifecycle broke).
+- **Identity:** see §19.4. The `{source_id}:{direction}:{bar_date}` form is now the
+  readable `event_key`.
 - **Same-bar ordering.** A RETEST on the last bar of the window shares that bar with
   `WINDOW_ENDED`, in that order.
 - **A level role change in ATR warm-up** has no reference ATR. That event looks for no
@@ -1765,6 +1767,54 @@ The breakout stage takes about 7.1 ms per security.
 - **Level breaks reverse within their windows far more often than pattern breakouts**
   (59 % against 37 %). This is consistent with the small 0.10-ATR level buffer. It is
   descriptive only: no inference about which breaks are better.
+
+### 19.4 Closure (Suba, 2026-10-07)
+
+**The breakout-events phase is CLOSED.**
+
+| Item | Decision |
+|---|---|
+| Sloping-line retest | **Methodology rule:** the retest reference is the frozen breakout geometry evaluated at the retest bar: L(t) = evaluate(G, t). A horizontal level is L(t) = constant. Never the breakout bar's price, so triangles, wedges, flags and sloping necklines are not distorted |
+| Geometry refitting | Never |
+| Retest ATR | The frozen breakout ATR of the source, A. Band = 0.5 × A |
+| Storage | **Per-security Parquet serving files for both event types. No event history in Firestore.** Firestore stays for application state: watchlists, preferences, saved scanner filters, job state, user annotations |
+| Physical datasets | **Separate:** `events/pattern_breakouts/security_id=…` and `events/level_breakouts/security_id=…` (or the equivalent canonical layout). They have different source authorities and lifecycle semantics, so schema evolution and validation stay clean. The API may expose them together (`GET /securities/{id}/breakout-events`); that is a serving concern, not a reason to merge the datasets |
+| The 72 % retest finding; the 59 % vs 37 % reversal finding | Diagnostics only. Questions such as whether retest classification discriminates subsequent outcomes, the effect of a 0.25 / 0.5 / 0.75 ATR band, reversal behaviour by level type, or explanation by volume / structure / context belong to the later statistics work, not to the event detector |
+| Event ids | Deterministic before persistence (below) |
+
+The level stream (501,792 events against 15,719) is a time-series analytical dataset,
+not application state. Parquet follows the architecture's existing data-domain
+boundary; it is not an optimisation.
+
+**Deterministic event identity (implemented).**
+
+- `event_id` = `PBE-` or `LBE-` + the first 32 hex digits of SHA-256 over:
+  - the dataset (`pattern_breakouts` / `level_breakouts`);
+  - `security_id`;
+  - the continuity segment;
+  - the source id (`pattern_id` / `level_id`);
+  - the source event date;
+  - the source event type (the pattern breakout's status / `ROLE_CHANGE`);
+  - the direction;
+  - the **source version** (the pattern breakout's `methodology_version`;
+    `levels-{analyzer version}` for a level).
+- Same source and same source methodology always give the same id, independent of row
+  or processing order. No UUIDs and no random ids.
+- **The event layer's own version is deliberately not part of the id.** A change to
+  follow-up rules changes an event's history, not which break it is. It is recorded in
+  `methodology_version`.
+- `event_key` keeps the readable natural key; `security_id` and `source_version` are
+  fields.
+- **Tests:**
+  - format;
+  - uniqueness within a security;
+  - the same ids after reversing the order of levels and patterns, and on a rerun;
+  - unchanged under different follow-up rules;
+  - changed for level events (and only those) when the levels version changes;
+  - different across securities.
+
+**Persistence itself** (the Parquet materialisation and the API) is built in the serving
+phase, and ADR-0023 is amended then. Nothing is persisted yet.
 
 ## Testing (mandatory)
 
