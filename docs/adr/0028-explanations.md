@@ -254,3 +254,47 @@ Choices made while building, each within the clarifications; listed for the revi
    chart's own document or snapshot. The panel shows the claims verbatim, in order; a
    claim's "Facts" lists each quoted value with its document pointer; pointing at a claim
    focuses the drawn object it is about and turns that layer on.
+
+## 11. Checkpoint evidence (6e)
+
+**Tests.** Core: templates (no digit, no forbidden word), one display rule per kind,
+RFC 6901 resolution, and every tampering refused by `validate` (text, quoted value,
+reference id, unresolvable reference, `known_at`, `provisional`, subject, a computed
+value quoted from a non-existent field, another document, another security, a forged
+key, a forbidden word arriving through a stored enum). Engine (real documents): every
+claim validates; the document is unchanged and the output deterministic; claims follow
+the `current` lists in order; no divergence claim; conditions only as stored; every
+digit in text belongs to a quoted value; a template change changes `explain_version` and
+nothing analytical; static no-arithmetic/no-ordering check. Job stage: one validated,
+bound explanation per analysed security; reuse by key; a wording change regenerates
+explanations only (analysis manifest and documents byte-identical, no analysis
+recomputed); a corrupt explanation is quarantined and regenerated; a claim that does not
+hold fails the stage. Publication (schema 4): the manifest pinned verbatim; checks 10–12
+(another analysis set, another `explain_version`, set hash, canonical form, a missing or
+swapped binding, a tampered claim, a quoted value not in the document, an object that
+disagrees with its entry, a corrupt object); a wording change publishes new explanation
+objects only (analysis objects existence-only). API: verbatim and bound; `/chart`
+carries it only when asked; schema-3 snapshot and a re-pinned lying binding refused.
+Frontend: binding check (98 vitest); e2e: the panel shows the stored claims verbatim in
+stored order, a claim focuses its pattern with 0 unplaced, its facts are the quoted
+values. `poe check` 1,044+ tests; CI green.
+
+**Real NSE** (throwaway probe, read-only towards the lake; data to 2026-10-07):
+
+| | |
+|---|---|
+| Explanations | 3,193 generated in the ANALYSIS stage (`explain-9abff420f1fa`), one per analysed security |
+| Claims | 84,800; independently re-validated: **0 problems** (so 0 vocabulary hits) |
+| By type | DATA_CONTEXT 3,193 · FORMING_WEEK 2,573 · TREND_STATE 3,186 · ZONE 17,024 · ZONE_ROLE_REVERSED 8,586 · FIBONACCI 4,888 · FIBONACCI_LEVEL 39,104 · ACTIVE_TRENDLINE 813 · PATTERN 1,027 · PATTERN_CONFIRMATION 780 · PATTERN_INVALIDATION 780 · PATTERN_MEASURED_MOVE 528 · PATTERN_FIT 1,027 · PATTERN_TAG 1,291 |
+| Size | mean 26.7 KB, p90 40.2 KB, max 63.9 KB per explanation (uncompressed) |
+| First schema-4 publish | `meta-85f7703882b6`, 12,772 objects fully verified (every claim of every explanation validated) in 242 s; again: UNCHANGED in 2.1 s |
+| ANALYSIS (computed + explained, 4 CPUs) | 459 s |
+| Chart layers (6d gate, rerun) | 6,703,479 drawn, 0 refused, 0 snapshot mismatches |
+
+**Findings the explanations surfaced (engine methodology, not 6e defects).** Restating
+stored facts verbatim makes some engine values plain to read, for example on RANEHOLDIN:
+a confirmed descending triangle's stored measured-move zone of −358.8337 to −234.6086
+(price near 1,536), and a Fibonacci down leg's stored 2.618 extension at −1,409.9186.
+The explanation layer must not suppress, clamp or reinterpret them (that would be a
+judgement); whether the engine should publish negative price levels is a methodology
+question for its own review, with a market-wide count first.
