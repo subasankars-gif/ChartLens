@@ -25,7 +25,12 @@ from pydantic import BaseModel
 
 from chartlens_api.deps import CurrentUser, Snapshots
 from chartlens_api.lake import LakeUnavailable
-from chartlens_api.routers.analysis import AnalysisResponse, analysis_payload
+from chartlens_api.routers.analysis import (
+    AnalysisResponse,
+    ExplanationResponse,
+    analysis_payload,
+    explanation_payload,
+)
 from chartlens_api.routers.securities import WeeklyResponse, weekly_payload
 from chartlens_core.canonical import canonical_json
 
@@ -45,6 +50,8 @@ class ChartResponse(BaseModel):
     analysis_status: Literal["analysed", "not_analysed", "no_analysis_in_snapshot"]
     weekly: WeeklyResponse
     analysis: AnalysisResponse | None
+    explanations: ExplanationResponse | None
+    """When asked for (``explanations=true``) and published: the bound explanation."""
 
 
 @router.get(
@@ -60,6 +67,9 @@ def chart(
     sections: Annotated[
         str, Query(description="Comma-separated whole sections of the published document")
     ] = DEFAULT_SECTIONS,
+    explanations: Annotated[
+        bool, Query(description="Also return the published explanation (ADR-0028)")
+    ] = False,
     as_of: Annotated[str | None, Query(include_in_schema=False)] = None,
 ) -> Response:
     """Bars and requested analysis sections of one security, from one snapshot."""
@@ -69,7 +79,7 @@ def chart(
             "point-in-time charts are not served by the API (K3, ADR-0016)",
         )
     try:
-        read = snapshots.chart(security_id)
+        read = snapshots.chart(security_id, explanations=explanations)
     except KeyError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown security {security_id}") from None
     except LakeUnavailable as exc:
@@ -89,5 +99,8 @@ def chart(
         "analysis_status": read.analysis_status,
         "weekly": weekly,
         "analysis": analysis,
+        "explanations": explanation_payload(snap, *read.explanation)
+        if read.explanation is not None
+        else None,
     }
     return Response(content=canonical_json(body), media_type="application/json")

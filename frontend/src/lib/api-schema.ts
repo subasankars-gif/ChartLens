@@ -306,6 +306,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/securities/{security_id}/explanations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Explanations
+         * @description The published explanation of one security's analysis, verbatim. Served only bound
+         *     to exactly the document the snapshot names (ADR-0028 §6).
+         */
+        get: operations["explanations_api_v1_securities__security_id__explanations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/securities/{security_id}/weekly": {
         parameters: {
             query?: never;
@@ -436,6 +457,7 @@ export interface components {
              * Format: date
              */
             data_as_of: string;
+            explanations: components["schemas"]["ExplanationResponse"] | null;
             /** Meta Version */
             meta_version: string;
             /** Security Id */
@@ -522,6 +544,36 @@ export interface components {
             rows: {
                 [key: string]: unknown;
             }[];
+        };
+        /** ExplanationEnvelope */
+        ExplanationEnvelope: {
+            /** Analysis Version */
+            analysis_version: string;
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Document Sha256 */
+            document_sha256: string;
+            /** Explain Version */
+            explain_version: string;
+            /** Explanation Sha256 */
+            explanation_sha256: string;
+            /** Meta Version */
+            meta_version: string;
+            /** Security Id */
+            security_id: string;
+            /** Snapshot Generated At */
+            snapshot_generated_at: string;
+        };
+        /** ExplanationResponse */
+        ExplanationResponse: {
+            envelope: components["schemas"]["ExplanationEnvelope"];
+            /** Explanation */
+            explanation: {
+                [key: string]: unknown;
+            };
         };
         /** Finding */
         Finding: {
@@ -803,6 +855,10 @@ export interface components {
             data_as_of: string;
             /** Exchange */
             exchange: string;
+            /** Explanations */
+            explanations?: {
+                [key: string]: string | number;
+            } | null;
             /** Meta Version */
             meta_version: string;
             /** Refresh Seconds */
@@ -1605,6 +1661,8 @@ export interface operations {
                 segments?: "valid" | "all";
                 /** @description Comma-separated whole sections of the published document */
                 sections?: string;
+                /** @description Also return the published explanation (ADR-0028) */
+                explanations?: boolean;
             };
             header?: {
                 authorization?: string | null;
@@ -1664,6 +1722,46 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DataQualityResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    explanations_api_v1_securities__security_id__explanations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplanationResponse"];
+                };
+            };
+            /** @description unknown_security, not_analysed, no_explanations_in_snapshot */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

@@ -108,6 +108,16 @@
             "title": "Data As Of",
             "type": "string"
           },
+          "explanations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplanationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "meta_version": {
             "title": "Meta Version",
             "type": "string"
@@ -135,7 +145,8 @@
           "segments",
           "analysis_status",
           "weekly",
-          "analysis"
+          "analysis",
+          "explanations"
         ],
         "title": "ChartResponse",
         "type": "object"
@@ -332,6 +343,73 @@
           "next_cursor"
         ],
         "title": "EventsResponse",
+        "type": "object"
+      },
+      "ExplanationEnvelope": {
+        "properties": {
+          "analysis_version": {
+            "title": "Analysis Version",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "document_sha256": {
+            "title": "Document Sha256",
+            "type": "string"
+          },
+          "explain_version": {
+            "title": "Explain Version",
+            "type": "string"
+          },
+          "explanation_sha256": {
+            "title": "Explanation Sha256",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "snapshot_generated_at": {
+            "title": "Snapshot Generated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "snapshot_generated_at",
+          "data_as_of",
+          "analysis_version",
+          "explain_version",
+          "document_sha256",
+          "explanation_sha256"
+        ],
+        "title": "ExplanationEnvelope",
+        "type": "object"
+      },
+      "ExplanationResponse": {
+        "properties": {
+          "envelope": {
+            "$ref": "#/components/schemas/ExplanationEnvelope"
+          },
+          "explanation": {
+            "additionalProperties": true,
+            "title": "Explanation",
+            "type": "object"
+          }
+        },
+        "required": [
+          "envelope",
+          "explanation"
+        ],
+        "title": "ExplanationResponse",
         "type": "object"
       },
       "Finding": {
@@ -1186,6 +1264,27 @@
           "exchange": {
             "title": "Exchange",
             "type": "string"
+          },
+          "explanations": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanations"
           },
           "meta_version": {
             "title": "Meta Version",
@@ -2969,6 +3068,18 @@
             }
           },
           {
+            "description": "Also return the published explanation (ADR-0028)",
+            "in": "query",
+            "name": "explanations",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also return the published explanation (ADR-0028)",
+              "title": "Explanations",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "header",
             "name": "authorization",
             "required": false,
@@ -3071,6 +3182,68 @@
         "summary": "Data Quality",
         "tags": [
           "securities"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/explanations": {
+      "get": {
+        "description": "The published explanation of one security's analysis, verbatim. Served only bound\nto exactly the document the snapshot names (ADR-0028 \u00a76).",
+        "operationId": "explanations_api_v1_securities__security_id__explanations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplanationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "unknown_security, not_analysed, no_explanations_in_snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Explanations",
+        "tags": [
+          "analysis"
         ]
       }
     },

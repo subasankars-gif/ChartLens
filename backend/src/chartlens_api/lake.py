@@ -33,8 +33,11 @@ from chartlens_pipeline.analysis_store import (
     AnalysisEntry,
     Dataset,
     EventArtifact,
+    ExplanationEntry,
+    explanation_disagreements,
     inspect_document,
     inspect_events,
+    inspect_explanation,
 )
 from chartlens_pipeline.serving import ServingSnapshot, SnapshotUnavailable, StaleSnapshot
 from chartlens_pipeline.storage import ObjectStore, StorageError
@@ -54,6 +57,10 @@ class NotAnalysed(LookupError):
     """The security is outside the snapshot's analysed universe (→ 404)."""
 
 
+class NoExplanationsInSnapshot(LookupError):
+    """The live snapshot predates schema 4: it carries no explanations (→ 404)."""
+
+
 class _Retry(Exception):
     """An object the snapshot names is gone or corrupt: reload once, then 503."""
 
@@ -70,6 +77,8 @@ class ChartRead:
     entry: AnalysisEntry | None
     document: dict[str, Any] | None
     analysis_status: Literal["analysed", "not_analysed", "no_analysis_in_snapshot"]
+    explanation: tuple[ExplanationEntry, dict[str, Any]] | None = None
+    """When asked for and published: the entry and the stored object (ADR-0028 §7)."""
 
 
 class SnapshotProvider:
@@ -217,7 +226,38 @@ class SnapshotProvider:
 
         return self._retrying(read)
 
-    def chart(self, security_id: str) -> ChartRead:
+    def _explanation_of(
+        self, snap: ServingSnapshot, security_id: str
+    ) -> tuple[ExplanationEntry, dict[str, Any]]:
+        """The stored explanation, served only when it is bound to exactly the document
+        this snapshot names for the security (ADR-0028 §6 provenance invariant)."""
+        analysis = self._entry(snap, security_id)
+        if snap.explanations is None:
+            raise NoExplanationsInSnapshot("the live snapshot carries no explanations (schema < 4)")
+        x = snap.explanation_entries.get(security_id)
+        if x is None:  # pragma: no cover - publication guarantees one per document
+            raise NotAnalysed(f"{security_id} has no explanation in this snapshot")
+        if x.document_sha256 != analysis.document_sha256:
+            raise LakeUnavailable("an explanation is not bound to this snapshot's document")
+        key = (snap.meta_version, security_id, "explanation")
+        cached = self._cached(key)
+        if cached is not None:
+            return x, cached
+        body, problem = inspect_explanation(self.store, snap.exchange, x.explanation_sha256)
+        if problem is not None or body is None or explanation_disagreements(x, body):
+            raise _Retry("an explanation is missing or corrupt")
+        return x, self._cached(key, json.loads(body))
+
+    def explanation(
+        self, security_id: str
+    ) -> tuple[ServingSnapshot, ExplanationEntry, dict[str, Any]]:
+        def read(snap: ServingSnapshot) -> tuple[ServingSnapshot, ExplanationEntry, dict[str, Any]]:
+            x, body = self._explanation_of(snap, security_id)
+            return snap, x, body
+
+        return self._retrying(read)
+
+    def chart(self, security_id: str, *, explanations: bool = False) -> ChartRead:
         """Bars and (when analysed) the document **from one snapshot** (ADR-0027 §3).
         A security outside the analysed universe, or a snapshot without analysis, gives
         bars with the reason the analysis is absent, never a document from elsewhere."""
@@ -230,7 +270,11 @@ class SnapshotProvider:
                 return ChartRead(snap, bars, None, None, "no_analysis_in_snapshot")
             except NotAnalysed:
                 return ChartRead(snap, bars, None, None, "not_analysed")
-            return ChartRead(snap, bars, entry, self._document_of(snap, entry), "analysed")
+            document = self._document_of(snap, entry)
+            explained = None
+            if explanations and snap.explanations is not None:
+                explained = self._explanation_of(snap, security_id)
+            return ChartRead(snap, bars, entry, document, "analysed", explained)
 
         return self._retrying(read)
 

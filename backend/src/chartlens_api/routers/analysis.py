@@ -28,9 +28,14 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
 from chartlens_api.deps import CurrentUser, Snapshots
-from chartlens_api.lake import LakeUnavailable, NoAnalysisInSnapshot, NotAnalysed
+from chartlens_api.lake import (
+    LakeUnavailable,
+    NoAnalysisInSnapshot,
+    NoExplanationsInSnapshot,
+    NotAnalysed,
+)
 from chartlens_core.canonical import canonical_json, content_hash
-from chartlens_pipeline.analysis_store import AnalysisEntry
+from chartlens_pipeline.analysis_store import AnalysisEntry, ExplanationEntry
 from chartlens_pipeline.serving import ServingSnapshot
 
 router = APIRouter(prefix="/securities", tags=["analysis"])
@@ -98,7 +103,13 @@ def _known(snap: ServingSnapshot, security_id: str) -> None:
 
 
 def _not_found(exc: LookupError) -> HTTPException:
-    code = "no_analysis_in_snapshot" if isinstance(exc, NoAnalysisInSnapshot) else "not_analysed"
+    code = (
+        "no_analysis_in_snapshot"
+        if isinstance(exc, NoAnalysisInSnapshot)
+        else "no_explanations_in_snapshot"
+        if isinstance(exc, NoExplanationsInSnapshot)
+        else "not_analysed"
+    )
     return HTTPException(status.HTTP_404_NOT_FOUND, {"code": code, "message": str(exc)})
 
 
@@ -162,6 +173,65 @@ def analysis_payload(
         "sections": chosen,
     }
     return {"envelope": envelope, "document": {s: document[s] for s in chosen}}
+
+
+# ----------------------------------------------------------------------------- explanations
+
+
+class ExplanationEnvelope(BaseModel):
+    security_id: str
+    meta_version: str
+    snapshot_generated_at: str
+    data_as_of: date
+    analysis_version: str
+    explain_version: str
+    document_sha256: str
+    """The exact analysis document the explanation is bound to."""
+    explanation_sha256: str
+
+
+class ExplanationResponse(BaseModel):
+    envelope: ExplanationEnvelope
+    explanation: dict[str, Any]
+    """The stored explanation object, verbatim: claims with their references, quoted
+    values and rendered text (ADR-0028)."""
+
+
+def explanation_payload(
+    snap: ServingSnapshot, x: ExplanationEntry, body: dict[str, Any]
+) -> dict[str, Any]:
+    explained = snap.explanations or {}
+    envelope = {
+        **_base(snap, x.security_id),
+        "explain_version": explained.get("explain_version"),
+        "document_sha256": x.document_sha256,
+        "explanation_sha256": x.explanation_sha256,
+    }
+    return {"envelope": envelope, "explanation": body}
+
+
+@router.get(
+    "/{security_id}/explanations",
+    response_model=ExplanationResponse,
+    responses={404: {"description": "unknown_security, not_analysed, no_explanations_in_snapshot"}},
+)
+def explanations(
+    _: CurrentUser,
+    snapshots: Snapshots,
+    security_id: str,
+    as_of: Annotated[str | None, Query(include_in_schema=False)] = None,
+) -> Response:
+    """The published explanation of one security's analysis, verbatim. Served only bound
+    to exactly the document the snapshot names (ADR-0028 §6)."""
+    _refuse_as_of(as_of)
+    try:
+        snap, x, body = snapshots.explanation(security_id)
+    except (NoAnalysisInSnapshot, NoExplanationsInSnapshot, NotAnalysed) as exc:
+        _known(snapshots.get(), security_id)
+        raise _not_found(exc) from None
+    except LakeUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    return _json(explanation_payload(snap, x, body))
 
 
 # ----------------------------------------------------------------------------- events

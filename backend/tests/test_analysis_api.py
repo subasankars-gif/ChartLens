@@ -403,3 +403,90 @@ def test_a_schema_2_chart_is_bars_with_the_reason(tmp_path: Path) -> None:
     )
     assert body["analysis"] is None and body["analysis_status"] == "no_analysis_in_snapshot"
     assert body["weekly"]["bars"]
+
+
+# ----------------------------------------------------------------------------- explanations (ADR-0028 §7)
+
+
+def test_the_explanation_is_served_verbatim_and_bound_to_its_document(
+    env: dict[str, Any],
+) -> None:
+    from chartlens_core.claims import validate
+    from chartlens_pipeline.analysis_store import inspect_explanation
+
+    r = get(env, "/securities/SEC-A/explanations")
+    assert r.status_code == 200
+    body = r.json()
+    snap = env["snapshots"].get()
+    x = snap.explanation_entries["SEC-A"]
+    stored, problem = inspect_explanation(env["store"], "NSE", x.explanation_sha256)
+    assert problem is None and stored is not None
+    assert canonical_json(body["explanation"]) == stored
+    envelope = body["envelope"]
+    assert envelope["meta_version"] == env["published"]["meta_version"]
+    assert envelope["explain_version"] == explain_version()
+    assert envelope["document_sha256"] == snap.analysis_entries["SEC-A"].document_sha256
+    document = get(env, "/securities/SEC-A/analysis").json()["document"]
+    assert validate(body["explanation"], document, envelope["document_sha256"]) == []
+    assert body["explanation"]["claims"][0]["claim_type"] == "DATA_CONTEXT"
+
+
+def test_chart_carries_the_explanation_only_when_asked(env: dict[str, Any]) -> None:
+    plain = get(env, "/securities/SEC-A/chart").json()
+    assert plain["explanations"] is None
+    asked = get(env, "/securities/SEC-A/chart", explanations="true").json()
+    alone = get(env, "/securities/SEC-A/explanations").json()
+    assert canonical_json(asked["explanations"]) == canonical_json(alone)
+    assert asked["explanations"]["envelope"]["meta_version"] == asked["meta_version"]
+    unanalysed = get(env, "/securities/SEC-X/chart", explanations="true").json()
+    assert unanalysed["explanations"] is None
+
+
+def test_explanation_refusals(env: dict[str, Any]) -> None:
+    assert get(env, "/securities/NOPE/explanations").status_code == 404
+    r = get(env, "/securities/SEC-X/explanations")
+    assert r.status_code == 404 and r.json()["detail"]["code"] == "not_analysed"
+    assert get(env, "/securities/SEC-A/explanations", as_of="2015-01-02").status_code == 400
+    assert env["client"].get("/api/v1/securities/SEC-A/explanations").status_code == 401
+
+
+def test_a_schema_3_snapshot_has_no_explanations(tmp_path: Path) -> None:
+    from chartlens_api.lake import NoExplanationsInSnapshot
+
+    store = LocalObjectStore(tmp_path / "lake")
+    build(store, SPECS[:1])
+    analyse_and_publish(store)
+    key = DataLakeLayout.serving_manifest_key("NSE")
+    legacy = json.loads(store.get(key))
+    legacy["schema_version"] = 3
+    del legacy["explanations"]
+    store.put(key, json.dumps(legacy).encode())
+    with pytest.raises(NoExplanationsInSnapshot):
+        SnapshotProvider(store, "NSE").explanation("SEC-A")
+    body = _client(store, SnapshotProvider(store, "NSE")).get(
+        "/api/v1/securities/SEC-A/chart", params={"explanations": "true"}, headers=ADMIN
+    )
+    assert body.status_code == 200 and body.json()["explanations"] is None
+
+
+def test_an_explanation_bound_to_another_document_is_never_served(tmp_path: Path) -> None:
+    """Even a pinned manifest that lies about the binding (here: re-pinned by hand) is
+    refused by the API: the explanation must name the snapshot's document."""
+    import hashlib
+
+    from chartlens_api.lake import LakeUnavailable
+
+    store = LocalObjectStore(tmp_path / "lake")
+    build(store, SPECS[:1])
+    analyse_and_publish(store)
+    key = DataLakeLayout.serving_manifest_key("NSE")
+    pointer = json.loads(store.get(key))
+    block = pointer["explanations"]
+    pinned = json.loads(store.get(block["manifest_key"]))
+    pinned["entries"][0]["document_sha256"] = "f" * 64
+    data = json.dumps(pinned).encode()
+    store.put(block["manifest_key"], data)
+    block["manifest_sha256"] = hashlib.sha256(data).hexdigest()
+    store.put(key, json.dumps(pointer).encode())
+    with pytest.raises(LakeUnavailable, match="not bound"):
+        SnapshotProvider(store, "NSE").explanation("SEC-A")
