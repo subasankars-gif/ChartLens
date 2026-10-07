@@ -1,8 +1,9 @@
 # ADR-0024: Analysis orchestration and publication
 
 **Status:** Accepted · 2026-10-07. Decisions 1–4 and amendments A–G by Suba. Phase 6a
-refinements R1–R5 (end of this ADR) are proposed at the 6a checkpoint. Amends ADR-0001,
-ADR-0018, ADR-0019 and ADR-0023 where stated.
+**closed** 2026-10-07: refinements R1–R5 and the storage decision (§4.1) approved.
+Amends ADR-0001, ADR-0018, ADR-0019 and ADR-0023 where stated. The ANALYSIS stage's
+design is ADR-0025.
 
 The analytical layers are closed: indicators through breakout events (ADR-0020 to
 ADR-0022). This ADR is the contract between them and serving: how one security's
@@ -236,6 +237,29 @@ build strings, processing order.
 The same key gives the same bytes and the same hash. Writes are create-only, so an
 existing blob is left as it is.
 
+### 4.1 Storage form (approved at the 6a checkpoint)
+
+> **One security's analysis is one immutable, self-contained analytical object.**
+
+- The complete document is stored as **one gzip-compressed artifact**, addressed by the
+  **SHA-256 of the uncompressed canonical bytes**, never of the compressed bytes.
+- **Compression is non-semantic.** Gzip metadata never influences identity, and the
+  stored bytes are deterministic (no timestamp, no file name: `mtime=0`). A different
+  compression implementation may change the physical bytes; it can never change the
+  address. A regression test compresses canonical bytes through the production write
+  path and checks the address is the uncompressed hash, and a reader always verifies
+  the decompressed bytes against the address.
+- **The unit is the per-security object, not the snapshot.** The snapshot manifest maps
+  `security_id → analysis content hash` and stays small. The full set's size (5.55 GB
+  uncompressed, about 1 GB compressed, on 3,193 securities) is a measurement, not a
+  serving constraint.
+- **Section splitting is not done now.** It would add addresses, manifest entries,
+  validation, cross-section consistency rules, retrieval logic, partial-snapshot risk
+  and garbage-collection complexity. If serving measurements ever demand it, the
+  manifest can map a security to section manifests instead, and the API (with
+  `layers=`) can make that transition invisible without changing the analytical
+  contract.
+
 ## 5. Publication (serving schema 3), atomic (amendment E)
 
 > **The live pointer is never changed unless every validation step succeeds.**
@@ -348,7 +372,7 @@ version.
 
 Channels follow as their own levels-layer phase.
 
-## Phase 6a refinements (proposed at the 6a checkpoint)
+## Phase 6a refinements (approved at the 6a checkpoint)
 
 - **R1. Stored numbers are lossless; K7 is display.** The document stores each float
   exactly (shortest round-trip text). ADR-0023 K7 (a bar's exact decimal text, 4-decimal
@@ -368,4 +392,11 @@ Channels follow as their own levels-layer phase.
   analyzer without `diagnostics`, so `patterns.rejections` is empty in stored documents;
   the per-family candidate counts remain.
 - **R5. Negative zero keeps its sign.** It is a distinct value, the representation is
-  lossless, and normalizing it would need a second pass over every document.
+  lossless, and normalizing it would need a second pass over every document. Normalizing
+  it later would be an explicit canonical-serialization version change, never a silent
+  one.
+
+Suba's notes on approval: R1 keeps a UI formatting rule from ever changing analytical
+identity. R2 gives two independent guarantees: the event content hash is the logical
+identity the document depends on; the Parquet byte hash in the manifest is physical
+integrity. R4: candidate diagnostics belong to development and statistics outputs.
