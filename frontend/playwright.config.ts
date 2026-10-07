@@ -7,7 +7,14 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   timeout: 90_000,
-  testIgnore: process.env.E2E_LAKE ? ["m6.spec.ts"] : ["real-data.spec.ts"],
+  // Default: the small test lake (M6, M7). E2E_LAKE=synthetic: long analysed histories
+  // for the chart layers (M8). Any other E2E_LAKE: a real lake directory.
+  testIgnore:
+    process.env.E2E_LAKE === "synthetic"
+      ? ["m6.spec.ts", "m7.spec.ts", "real-data.spec.ts"]
+      : process.env.E2E_LAKE
+        ? ["m6.spec.ts", "m8.spec.ts"]
+        : ["real-data.spec.ts", "m8.spec.ts"],
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],

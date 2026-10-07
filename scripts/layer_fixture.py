@@ -46,7 +46,12 @@ KEEP_SERIES = {
     "bollinger_middle",
     "bollinger_lower",
 }
-SECTIONS = "identity,versions,current,provenance,indicators,swings,structure,levels,fibonacci,evidence,patterns"
+SECTIONS = ",".join(
+    (
+        "identity,versions,current,provenance",
+        "indicators,swings,structure,levels,fibonacci,evidence,patterns",
+    )
+)
 ADMIN = {"Authorization": "Bearer admin-uid:boss@example.com"}
 
 

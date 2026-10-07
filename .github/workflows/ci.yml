@@ -85,7 +85,7 @@ jobs:
       - run: pnpm build
 
   e2e:
-    name: Frontend end to end — built site against the real API (test lake)
+    name: Frontend end to end — built site against the real API (test lake, synthetic analysed lake)
     runs-on: ubuntu-latest
     needs: [python, frontend]
     steps:
@@ -110,6 +110,7 @@ jobs:
           npx playwright install --with-deps chromium
           pnpm e2e:build
           pnpm e2e
+          E2E_LAKE=synthetic pnpm e2e
       - uses: actions/upload-artifact@v4
         if: always()
         with:

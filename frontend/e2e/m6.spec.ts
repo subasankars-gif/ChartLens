@@ -52,7 +52,7 @@ test("search → security page → weekly chart, faithful to the API", async ({ 
   );
 
   // Earlier history is opt-in; turning it on asks the API for every segment.
-  const all = page.waitForResponse((r) => r.url().includes("/weekly?segments=all"));
+  const all = page.waitForResponse((r) => r.url().includes("/chart?") && r.url().includes("segments=all"));
   await page.getByTestId("earlier-history").check();
   expect((await all).status()).toBe(200);
 

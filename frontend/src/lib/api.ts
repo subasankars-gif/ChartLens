@@ -26,6 +26,9 @@ export type RunsPage = Schemas["RunsPage"];
 export type StageRecord = Schemas["StageRecord"];
 export type SnapshotView = Schemas["SnapshotView"];
 export type RefreshAccepted = Schemas["RefreshAccepted"];
+export type ChartResponse = Schemas["ChartResponse"];
+export type AnalysisResponse = Schemas["AnalysisResponse"];
+export type EventsResponse = Schemas["EventsResponse"];
 
 export type ApiErrorKind =
   | "signed_out"
@@ -125,6 +128,19 @@ export const api = {
   security: (t: TokenSource, id: string) => apiRequest<SecurityDetail>(`/securities/${encodeURIComponent(id)}`, t),
   weekly: (t: TokenSource, id: string, segments: "valid" | "all") =>
     apiRequest<WeeklyResponse>(`/securities/${encodeURIComponent(id)}/weekly`, t, { query: { segments } }),
+  // One chart, one snapshot (ADR-0027 §3): bars and whole analysis sections together.
+  chart: (t: TokenSource, id: string, segments: "valid" | "all", sections: readonly string[]) =>
+    apiRequest<ChartResponse>(`/securities/${encodeURIComponent(id)}/chart`, t, {
+      query: { segments, sections: sections.join(",") },
+    }),
+  analysis: (t: TokenSource, id: string, sections: readonly string[]) =>
+    apiRequest<AnalysisResponse>(`/securities/${encodeURIComponent(id)}/analysis`, t, {
+      query: { sections: sections.join(",") },
+    }),
+  breakoutEvents: (t: TokenSource, id: string, source: "pattern" | "level", cursor?: string) =>
+    apiRequest<EventsResponse>(`/securities/${encodeURIComponent(id)}/breakout-events`, t, {
+      query: { source, limit: "500", ...(cursor ? { cursor } : {}) },
+    }),
   dataQuality: (t: TokenSource, id: string) =>
     apiRequest<DataQuality>(`/securities/${encodeURIComponent(id)}/data-quality`, t),
   users: (t: TokenSource) => apiRequest<User[]>("/admin/users", t),

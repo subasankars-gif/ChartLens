@@ -8,7 +8,12 @@ Production runs (ADR-0018) use the in-memory run store. "GitHub" is simulated: a
 dispatched refresh is claimed and run here, stage by stage, a second per stage, and it
 publishes nothing new (the test lake does not change), so it ends UNCHANGED.
 
-usage: python scripts/e2e_api.py [PORT] [LAKE_DIR]   (default: a small test lake)
+usage: python scripts/e2e_api.py [PORT] [LAKE_DIR | synthetic]   (default: a small test lake)
+
+``synthetic`` builds long synthetic histories analysed by the real ANALYSIS stage (the
+chart-layer tests, ADR-0027): SEC-L has a continuity break, a forming week, trendlines
+(one active), patterns with measured moves; SEC-P has patterns the engine includes;
+SEC-X is published but not analysed.
 """
 
 from __future__ import annotations
@@ -18,11 +23,13 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / "pipeline/tests"), str(ROOT / "backend/tests")]
+sys.path[:0] = [str(ROOT / "pipeline/tests"), str(ROOT / "backend/tests"), str(ROOT / "jobs/tests")]
 
 import uvicorn  # noqa: E402
+from analysis_lake import Spec, build  # noqa: E402
 from chartlens_jobs.analysis_stage import AnalysisStage, StoreSpec  # noqa: E402
 from chartlens_jobs.production import ProductionRunner, StageResult  # noqa: E402
 from fakes import FakeVerifier, MemoryAppState  # noqa: E402
@@ -77,8 +84,31 @@ class SimulatedWorkflow:
         threading.Thread(target=self._run, args=(run_id,), daemon=True).start()
 
 
+SYNTHETIC = [
+    Spec("SEC-L", seed=6, weeks=700, break_at=250, forming=True),
+    Spec("SEC-P", seed=12, weeks=700, break_at=250, forming=True),
+    Spec("SEC-X", seed=5, status="NOT_USABLE"),
+]
+
+
+def synthetic_lake() -> LocalObjectStore:
+    store = LocalObjectStore(Path(tempfile.mkdtemp(prefix="chartlens-e2e-synthetic-")))
+    build(store, SYNTHETIC)
+    settings = ChartLensSettings()
+    AnalysisStage(settings, "NSE", StoreSpec("local", root=str(store.root)), workers=1).run()
+    ServingPublisher(
+        settings,
+        SimpleNamespace(exchange_code="NSE"),  # type: ignore[arg-type]
+        store,
+        expected_analysis_version=analysis_version(settings.analysis),
+    ).run()
+    return store
+
+
 def main(port: int, lake: Path | None) -> None:
-    if lake is not None:  # an existing lake with a published serving snapshot (real data)
+    if lake is not None and str(lake) == "synthetic":
+        store = synthetic_lake()
+    elif lake is not None:  # an existing lake with a published serving snapshot (real data)
         store = LocalObjectStore(lake)
     else:
         tmp = Path(tempfile.mkdtemp(prefix="chartlens-e2e-"))
