@@ -1,0 +1,298 @@
+{
+ "analysis_set_hash": "cada6bbd5275aba9b4d11c163dc6fe5b1bd78e26b91cb50fae1643ca200b4eab",
+ "seconds": 860.4,
+ "measured_moves": {
+  "all": {
+   "all": 15718,
+   "negative": 932,
+   "share": 0.0593
+  },
+  "by_family": {
+   "cup_handle": {
+    "all": 1491,
+    "negative": 0,
+    "share": 0.0
+   },
+   "double": {
+    "all": 3833,
+    "negative": 82,
+    "share": 0.0214
+   },
+   "flag": {
+    "all": 285,
+    "negative": 10,
+    "share": 0.0351
+   },
+   "head_shoulders": {
+    "all": 943,
+    "negative": 139,
+    "share": 0.1474
+   },
+   "pennant": {
+    "all": 269,
+    "negative": 8,
+    "share": 0.0297
+   },
+   "rectangle": {
+    "all": 1952,
+    "negative": 119,
+    "share": 0.061
+   },
+   "rounding": {
+    "all": 262,
+    "negative": 2,
+    "share": 0.0076
+   },
+   "triangle": {
+    "all": 1586,
+    "negative": 537,
+    "share": 0.3386
+   },
+   "triple": {
+    "all": 287,
+    "negative": 10,
+    "share": 0.0348
+   },
+   "v": {
+    "all": 4253,
+    "negative": 1,
+    "share": 0.0002
+   },
+   "wedge": {
+    "all": 557,
+    "negative": 24,
+    "share": 0.0431
+   }
+  },
+  "by_direction": {
+   "-1.0": {
+    "all": 6752,
+    "negative": 932,
+    "share": 0.138
+   },
+   "1.0": {
+    "all": 8966,
+    "negative": 0,
+    "share": 0.0
+   }
+  },
+  "by_adjustment_in_span": {
+   "True": {
+    "all": 663,
+    "negative": 72,
+    "share": 0.1086
+   },
+   "False": {
+    "all": 15055,
+    "negative": 860,
+    "share": 0.0571
+   },
+   "None": {
+    "all": 0,
+    "negative": 0,
+    "share": null
+   }
+  },
+  "by_dq_status": {
+   "USABLE": {
+    "all": 10858,
+    "negative": 573,
+    "share": 0.0528
+   },
+   "USABLE_WITH_WARNINGS": {
+    "all": 4860,
+    "negative": 359,
+    "share": 0.0739
+   }
+  },
+  "height_over_level_down": {
+   "negative": {
+    "n": 932,
+    "p10": 0.9673,
+    "p50": 1.2117,
+    "p90": 1.9748,
+    "min": 0.8755,
+    "max": 7.3923
+   },
+   "positive": {
+    "n": 5820,
+    "p10": 0.3112,
+    "p50": 0.5357,
+    "p90": 0.8371,
+    "min": 0.0526,
+    "max": 1.7024
+   }
+  }
+ },
+ "fibonacci_down_extensions": {
+  "by_ratio": {
+   "1.272": {
+    "all": 40601,
+    "negative": 3328,
+    "share": 0.082
+   },
+   "1.618": {
+    "all": 40601,
+    "negative": 8515,
+    "share": 0.2097
+   },
+   "2.618": {
+    "all": 40601,
+    "negative": 24495,
+    "share": 0.6033
+   }
+  },
+  "legs_with_any_negative": {
+   "all": 40601,
+   "negative": 24495,
+   "share": 0.6033
+  },
+  "up_legs": 40942,
+  "decline_fraction": {
+   "n": 40601,
+   "p10": 0.2487,
+   "p50": 0.4321,
+   "p90": 0.7532,
+   "min": 0.0486,
+   "max": 0.9994
+  },
+  "by_adjustment_in_span": {
+   "True": {
+    "all": 3189,
+    "negative": 1531,
+    "share": 0.4801
+   },
+   "False": {
+    "all": 118614,
+    "negative": 34807,
+    "share": 0.2934
+   },
+   "None": {
+    "all": 0,
+    "negative": 0,
+    "share": null
+   }
+  },
+  "by_dq_status": {
+   "USABLE": {
+    "all": 86835,
+    "negative": 24137,
+    "share": 0.278
+   },
+   "USABLE_WITH_WARNINGS": {
+    "all": 34968,
+    "negative": 12201,
+    "share": 0.3489
+   }
+  }
+ },
+ "pattern_lines": {
+  "all": {
+   "all": 26672,
+   "negative": 121,
+   "share": 0.0045
+  },
+  "by_type": {
+   "BEAR_FLAG": {
+    "all": 772,
+    "negative": 0,
+    "share": 0.0
+   },
+   "BEAR_PENNANT": {
+    "all": 484,
+    "negative": 0,
+    "share": 0.0
+   },
+   "BULL_FLAG": {
+    "all": 644,
+    "negative": 0,
+    "share": 0.0
+   },
+   "BULL_PENNANT": {
+    "all": 608,
+    "negative": 0,
+    "share": 0.0
+   },
+   "CUP_HANDLE": {
+    "all": 1830,
+    "negative": 0,
+    "share": 0.0
+   },
+   "DOUBLE_BOTTOM": {
+    "all": 4375,
+    "negative": 0,
+    "share": 0.0
+   },
+   "DOUBLE_TOP": {
+    "all": 3276,
+    "negative": 0,
+    "share": 0.0
+   },
+   "HEAD_SHOULDERS": {
+    "all": 757,
+    "negative": 5,
+    "share": 0.0066
+   },
+   "INVERSE_CUP_HANDLE": {
+    "all": 622,
+    "negative": 0,
+    "share": 0.0
+   },
+   "INVERSE_HEAD_SHOULDERS": {
+    "all": 734,
+    "negative": 0,
+    "share": 0.0
+   },
+   "RECTANGLE": {
+    "all": 4556,
+    "negative": 0,
+    "share": 0.0
+   },
+   "ROUNDING_BOTTOM": {
+    "all": 815,
+    "negative": 0,
+    "share": 0.0
+   },
+   "ROUNDING_TOP": {
+    "all": 273,
+    "negative": 0,
+    "share": 0.0
+   },
+   "TRIANGLE_ASCENDING": {
+    "all": 724,
+    "negative": 12,
+    "share": 0.0166
+   },
+   "TRIANGLE_DESCENDING": {
+    "all": 1594,
+    "negative": 0,
+    "share": 0.0
+   },
+   "TRIANGLE_SYMMETRICAL": {
+    "all": 2104,
+    "negative": 41,
+    "share": 0.0195
+   },
+   "TRIPLE_BOTTOM": {
+    "all": 462,
+    "negative": 0,
+    "share": 0.0
+   },
+   "TRIPLE_TOP": {
+    "all": 238,
+    "negative": 0,
+    "share": 0.0
+   },
+   "WEDGE_FALLING": {
+    "all": 1188,
+    "negative": 3,
+    "share": 0.0025
+   },
+   "WEDGE_RISING": {
+    "all": 616,
+    "negative": 60,
+    "share": 0.0974
+   }
+  }
+ }
+}

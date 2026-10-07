@@ -1,0 +1,1175 @@
+{
+ "analysis_set_hash": "cada6bbd5275aba9b4d11c163dc6fe5b1bd78e26b91cb50fae1643ca200b4eab",
+ "seconds": 860.4,
+ "measured_moves": {
+  "all": {
+   "all": 15718,
+   "negative": 932,
+   "share": 0.0593
+  },
+  "by_family": {
+   "cup_handle": {
+    "all": 1491,
+    "negative": 0,
+    "share": 0.0
+   },
+   "double": {
+    "all": 3833,
+    "negative": 82,
+    "share": 0.0214
+   },
+   "flag": {
+    "all": 285,
+    "negative": 10,
+    "share": 0.0351
+   },
+   "head_shoulders": {
+    "all": 943,
+    "negative": 139,
+    "share": 0.1474
+   },
+   "pennant": {
+    "all": 269,
+    "negative": 8,
+    "share": 0.0297
+   },
+   "rectangle": {
+    "all": 1952,
+    "negative": 119,
+    "share": 0.061
+   },
+   "rounding": {
+    "all": 262,
+    "negative": 2,
+    "share": 0.0076
+   },
+   "triangle": {
+    "all": 1586,
+    "negative": 537,
+    "share": 0.3386
+   },
+   "triple": {
+    "all": 287,
+    "negative": 10,
+    "share": 0.0348
+   },
+   "v": {
+    "all": 4253,
+    "negative": 1,
+    "share": 0.0002
+   },
+   "wedge": {
+    "all": 557,
+    "negative": 24,
+    "share": 0.0431
+   }
+  },
+  "by_direction": {
+   "-1.0": {
+    "all": 6752,
+    "negative": 932,
+    "share": 0.138
+   },
+   "1.0": {
+    "all": 8966,
+    "negative": 0,
+    "share": 0.0
+   }
+  },
+  "by_adjustment_in_span": {
+   "True": {
+    "all": 663,
+    "negative": 72,
+    "share": 0.1086
+   },
+   "False": {
+    "all": 15055,
+    "negative": 860,
+    "share": 0.0571
+   },
+   "None": {
+    "all": 0,
+    "negative": 0,
+    "share": null
+   }
+  },
+  "by_dq_status": {
+   "USABLE": {
+    "all": 10858,
+    "negative": 573,
+    "share": 0.0528
+   },
+   "USABLE_WITH_WARNINGS": {
+    "all": 4860,
+    "negative": 359,
+    "share": 0.0739
+   }
+  },
+  "height_over_level_down": {
+   "negative": {
+    "n": 932,
+    "p10": 0.9673,
+    "p50": 1.2117,
+    "p90": 1.9748,
+    "min": 0.8755,
+    "max": 7.3923
+   },
+   "positive": {
+    "n": 5820,
+    "p10": 0.3112,
+    "p50": 0.5357,
+    "p90": 0.8371,
+    "min": 0.0526,
+    "max": 1.7024
+   }
+  }
+ },
+ "fibonacci_down_extensions": {
+  "by_ratio": {
+   "1.272": {
+    "all": 40601,
+    "negative": 3328,
+    "share": 0.082
+   },
+   "1.618": {
+    "all": 40601,
+    "negative": 8515,
+    "share": 0.2097
+   },
+   "2.618": {
+    "all": 40601,
+    "negative": 24495,
+    "share": 0.6033
+   }
+  },
+  "legs_with_any_negative": {
+   "all": 40601,
+   "negative": 24495,
+   "share": 0.6033
+  },
+  "up_legs": 40942,
+  "decline_fraction": {
+   "n": 40601,
+   "p10": 0.2487,
+   "p50": 0.4321,
+   "p90": 0.7532,
+   "min": 0.0486,
+   "max": 0.9994
+  },
+  "by_adjustment_in_span": {
+   "True": {
+    "all": 3189,
+    "negative": 1531,
+    "share": 0.4801
+   },
+   "False": {
+    "all": 118614,
+    "negative": 34807,
+    "share": 0.2934
+   },
+   "None": {
+    "all": 0,
+    "negative": 0,
+    "share": null
+   }
+  },
+  "by_dq_status": {
+   "USABLE": {
+    "all": 86835,
+    "negative": 24137,
+    "share": 0.278
+   },
+   "USABLE_WITH_WARNINGS": {
+    "all": 34968,
+    "negative": 12201,
+    "share": 0.3489
+   }
+  }
+ },
+ "pattern_lines": {
+  "all": {
+   "all": 26672,
+   "negative": 121,
+   "share": 0.0045
+  },
+  "by_type": {
+   "BEAR_FLAG": {
+    "all": 772,
+    "negative": 0,
+    "share": 0.0
+   },
+   "BEAR_PENNANT": {
+    "all": 484,
+    "negative": 0,
+    "share": 0.0
+   },
+   "BULL_FLAG": {
+    "all": 644,
+    "negative": 0,
+    "share": 0.0
+   },
+   "BULL_PENNANT": {
+    "all": 608,
+    "negative": 0,
+    "share": 0.0
+   },
+   "CUP_HANDLE": {
+    "all": 1830,
+    "negative": 0,
+    "share": 0.0
+   },
+   "DOUBLE_BOTTOM": {
+    "all": 4375,
+    "negative": 0,
+    "share": 0.0
+   },
+   "DOUBLE_TOP": {
+    "all": 3276,
+    "negative": 0,
+    "share": 0.0
+   },
+   "HEAD_SHOULDERS": {
+    "all": 757,
+    "negative": 5,
+    "share": 0.0066
+   },
+   "INVERSE_CUP_HANDLE": {
+    "all": 622,
+    "negative": 0,
+    "share": 0.0
+   },
+   "INVERSE_HEAD_SHOULDERS": {
+    "all": 734,
+    "negative": 0,
+    "share": 0.0
+   },
+   "RECTANGLE": {
+    "all": 4556,
+    "negative": 0,
+    "share": 0.0
+   },
+   "ROUNDING_BOTTOM": {
+    "all": 815,
+    "negative": 0,
+    "share": 0.0
+   },
+   "ROUNDING_TOP": {
+    "all": 273,
+    "negative": 0,
+    "share": 0.0
+   },
+   "TRIANGLE_ASCENDING": {
+    "all": 724,
+    "negative": 12,
+    "share": 0.0166
+   },
+   "TRIANGLE_DESCENDING": {
+    "all": 1594,
+    "negative": 0,
+    "share": 0.0
+   },
+   "TRIANGLE_SYMMETRICAL": {
+    "all": 2104,
+    "negative": 41,
+    "share": 0.0195
+   },
+   "TRIPLE_BOTTOM": {
+    "all": 462,
+    "negative": 0,
+    "share": 0.0
+   },
+   "TRIPLE_TOP": {
+    "all": 238,
+    "negative": 0,
+    "share": 0.0
+   },
+   "WEDGE_FALLING": {
+    "all": 1188,
+    "negative": 3,
+    "share": 0.0025
+   },
+   "WEDGE_RISING": {
+    "all": 616,
+    "negative": 60,
+    "share": 0.0974
+   }
+  }
+ },
+ "examples": {
+  "mm": [
+   {
+    "security_id": "SEC-00687b62-62ae-536f-8627-dfe3884e007d",
+    "pattern_id": "SEC-00687b62-62ae-536f-8627-dfe3884e007d@2010-08-17:PAT:RECTANGLE:2014-08-01:2014-09-19:2014-11-21:2015-01-09",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 0.75,
+    "height": 0.8,
+    "target_low": -0.15666147129486419,
+    "target_high": 0.05666147129486408,
+    "start": "2014-08-01",
+    "calculated_at": "2015-02-28",
+    "key_points": [
+     [
+      "LOW_1",
+      "2014-08-01",
+      0.75
+     ],
+     [
+      "HIGH_2",
+      "2014-09-19",
+      1.5
+     ],
+     [
+      "LOW_3",
+      "2014-11-21",
+      0.75
+     ],
+     [
+      "HIGH_4",
+      "2015-01-09",
+      1.55
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   },
+   {
+    "security_id": "SEC-00687b62-62ae-536f-8627-dfe3884e007d",
+    "pattern_id": "SEC-00687b62-62ae-536f-8627-dfe3884e007d@2010-08-17:PAT:DOUBLE_TOP:2014-09-19:2014-11-21:2015-01-09",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 0.75,
+    "height": 0.8,
+    "target_low": -0.15666147129486419,
+    "target_high": 0.05666147129486408,
+    "start": "2014-09-19",
+    "calculated_at": "2015-02-28",
+    "key_points": [
+     [
+      "HIGH_1",
+      "2014-09-19",
+      1.5
+     ],
+     [
+      "NECKLINE",
+      "2014-11-21",
+      0.75
+     ],
+     [
+      "HIGH_2",
+      "2015-01-09",
+      1.55
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   },
+   {
+    "security_id": "SEC-0095e009-14d3-5cec-a18e-2e755716ed32",
+    "pattern_id": "SEC-0095e009-14d3-5cec-a18e-2e755716ed32@2007-08-06:PAT:TRIANGLE_SYMMETRICAL:2023-10-13:2024-06-07:2024-07-19:2024-11-14",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 39.43130434782609,
+    "height": 41.329565217391306,
+    "target_low": -4.503092460016974,
+    "target_high": 0.7065707208865484,
+    "start": "2023-10-13",
+    "calculated_at": "2025-02-14",
+    "key_points": [
+     [
+      "HIGH_1",
+      "2023-10-13",
+      59.7
+     ],
+     [
+      "LOW_2",
+      "2024-06-07",
+      28.6
+     ],
+     [
+      "HIGH_3",
+      "2024-07-19",
+      52.4
+     ],
+     [
+      "LOW_4",
+      "2024-11-14",
+      35.52
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE"
+   },
+   {
+    "security_id": "SEC-011c6779-f76d-51c8-850a-cda92a37edd1",
+    "pattern_id": "SEC-011c6779-f76d-51c8-850a-cda92a37edd1@2006-01-02:PAT:TRIANGLE_SYMMETRICAL:2024-03-15:2024-08-02:2024-11-22:2025-01-10",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 655.6666666666667,
+    "height": 615.3913043478261,
+    "target_low": -0.5558151777275739,
+    "target_high": 81.10653981540881,
+    "start": "2024-03-15",
+    "calculated_at": "2025-02-14",
+    "key_points": [
+     [
+      "LOW_1",
+      "2024-03-15",
+      385.0
+     ],
+     [
+      "HIGH_2",
+      "2024-08-02",
+      938.0
+     ],
+     [
+      "LOW_3",
+      "2024-11-22",
+      588.0
+     ],
+     [
+      "HIGH_4",
+      "2025-01-10",
+      866.25
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   },
+   {
+    "security_id": "SEC-01bb73d6-1f8f-53df-af22-515e691e1c22",
+    "pattern_id": "SEC-01bb73d6-1f8f-53df-af22-515e691e1c22@2021-04-19:PAT:TRIANGLE_SYMMETRICAL:2023-02-24:2024-06-21:2024-11-01:2024-12-20",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 1136.806818181818,
+    "height": 1631.3557692307695,
+    "target_low": -561.1501219204572,
+    "target_high": -427.94778017744585,
+    "start": "2023-02-24",
+    "calculated_at": "2025-01-24",
+    "key_points": [
+     [
+      "LOW_1",
+      "2023-02-24",
+      355.5
+     ],
+     [
+      "HIGH_2",
+      "2024-06-21",
+      1649.95
+     ],
+     [
+      "LOW_3",
+      "2024-11-01",
+      1043.05
+     ],
+     [
+      "HIGH_4",
+      "2024-12-20",
+      1523.0
+     ]
+    ],
+    "adjusted_in_span": true,
+    "dq_status": "USABLE"
+   },
+   {
+    "security_id": "SEC-01da0c7a-7c00-5fef-b058-c07c0d6c19c0",
+    "pattern_id": "SEC-01da0c7a-7c00-5fef-b058-c07c0d6c19c0@2012-01-05:PAT:TRIANGLE_DESCENDING:2014-11-28:2015-04-10:2015-06-12:2015-06-26",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 10.915000000000001,
+    "height": 16.732727272727274,
+    "target_low": -6.516413059081754,
+    "target_high": -5.119041486372793,
+    "start": "2014-11-28",
+    "calculated_at": "2016-01-22",
+    "key_points": [
+     [
+      "LOW_1",
+      "2014-11-28",
+      8.74
+     ],
+     [
+      "HIGH_2",
+      "2015-04-10",
+      21.5
+     ],
+     [
+      "LOW_3",
+      "2015-06-12",
+      9.755
+     ],
+     [
+      "HIGH_4",
+      "2015-06-26",
+      19.2
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE"
+   },
+   {
+    "security_id": "SEC-027aa3e4-14d1-5586-a65a-88ca556b9823",
+    "pattern_id": "SEC-027aa3e4-14d1-5586-a65a-88ca556b9823@2013-04-16:PAT:RECTANGLE:2023-11-12:2023-12-22:2024-03-15:2024-08-02",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 25.75,
+    "height": 25.25,
+    "target_low": -1.5049142933712227,
+    "target_high": 2.5049142933712227,
+    "start": "2023-11-12",
+    "calculated_at": "2024-12-27",
+    "key_points": [
+     [
+      "LOW_1",
+      "2023-11-12",
+      25.75
+     ],
+     [
+      "HIGH_2",
+      "2023-12-22",
+      51.0
+     ],
+     [
+      "LOW_3",
+      "2024-03-15",
+      28.65
+     ],
+     [
+      "HIGH_4",
+      "2024-08-02",
+      50.4
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   },
+   {
+    "security_id": "SEC-02d3b6d0-b283-580a-80a8-4b3cb1198311",
+    "pattern_id": "SEC-02d3b6d0-b283-580a-80a8-4b3cb1198311@2007-01-23:PAT:TRIANGLE_SYMMETRICAL:2012-02-10:2012-09-08:2012-11-09:2012-11-23",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 23.627272727272732,
+    "height": 23.468181818181826,
+    "target_low": -1.2440548914512948,
+    "target_high": 1.5622367096331078,
+    "start": "2012-02-10",
+    "calculated_at": "2013-02-15",
+    "key_points": [
+     [
+      "HIGH_1",
+      "2012-02-10",
+      40.35
+     ],
+     [
+      "LOW_2",
+      "2012-09-08",
+      20.7
+     ],
+     [
+      "HIGH_3",
+      "2012-11-09",
+      32.1
+     ],
+     [
+      "LOW_4",
+      "2012-11-23",
+      22.1
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE"
+   },
+   {
+    "security_id": "SEC-02d60271-40e2-501f-97a5-ea04e27ce4a3",
+    "pattern_id": "SEC-02d60271-40e2-501f-97a5-ea04e27ce4a3@2015-02-16:PAT:TRIANGLE_SYMMETRICAL:2023-03-03:2024-01-12:2024-07-19:2024-09-27",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 1481.0541666666668,
+    "height": 2151.5067567567567,
+    "target_low": -755.0291936674082,
+    "target_high": -585.8759865127715,
+    "start": "2023-03-03",
+    "calculated_at": "2025-02-14",
+    "key_points": [
+     [
+      "LOW_1",
+      "2023-03-03",
+      1020.0
+     ],
+     [
+      "HIGH_2",
+      "2024-01-12",
+      2652.0
+     ],
+     [
+      "LOW_3",
+      "2024-07-19",
+      1345.45
+     ],
+     [
+      "HIGH_4",
+      "2024-09-27",
+      2224.85
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   },
+   {
+    "security_id": "SEC-030e52a7-c051-5f4c-a78c-bc4beaf99603",
+    "pattern_id": "SEC-030e52a7-c051-5f4c-a78c-bc4beaf99603@2008-07-14:PAT:TRIANGLE_SYMMETRICAL:2008-10-31:2009-06-05:2010-02-26:2010-05-21",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 162.05362318840577,
+    "height": 156.92600000000002,
+    "target_low": -2.1803193972401314,
+    "target_high": 12.43556577405163,
+    "start": "2008-10-31",
+    "calculated_at": "2010-11-19",
+    "key_points": [
+     [
+      "LOW_1",
+      "2008-10-31",
+      106.15
+     ],
+     [
+      "HIGH_2",
+      "2009-06-05",
+      241.5
+     ],
+     [
+      "LOW_3",
+      "2010-02-26",
+      142.2
+     ],
+     [
+      "HIGH_4",
+      "2010-05-21",
+      206.7
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE"
+   },
+   {
+    "security_id": "SEC-0373452e-14e0-56f3-be2c-fb93d1d20887",
+    "pattern_id": "SEC-0373452e-14e0-56f3-be2c-fb93d1d20887@2006-01-02:PAT:TRIANGLE_DESCENDING:2021-12-03:2022-04-29:2022-12-23:2023-01-20",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 155.05363636363634,
+    "height": 190.80131578947362,
+    "target_low": -43.50707052432556,
+    "target_high": -27.988288327348986,
+    "start": "2021-12-03",
+    "calculated_at": "2023-03-31",
+    "key_points": [
+     [
+      "LOW_1",
+      "2021-12-03",
+      171.3
+     ],
+     [
+      "HIGH_2",
+      "2022-04-29",
+      310.9
+     ],
+     [
+      "LOW_3",
+      "2022-12-23",
+      158.35
+     ],
+     [
+      "HIGH_4",
+      "2023-01-20",
+      218.25
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   },
+   {
+    "security_id": "SEC-0373452e-14e0-56f3-be2c-fb93d1d20887",
+    "pattern_id": "SEC-0373452e-14e0-56f3-be2c-fb93d1d20887@2006-01-02:PAT:TRIANGLE_DESCENDING:2024-03-15:2024-08-23:2025-04-11:2025-05-23",
+    "status": "CONFIRMED",
+    "method": "LEVEL_PLUS_HEIGHT",
+    "level": 203.61517857142857,
+    "height": 203.75641025641022,
+    "target_low": -7.291032439970692,
+    "target_high": 7.008569070007397,
+    "start": "2024-03-15",
+    "calculated_at": "2026-01-09",
+    "key_points": [
+     [
+      "LOW_1",
+      "2024-03-15",
+      198.0
+     ],
+     [
+      "HIGH_2",
+      "2024-08-23",
+      356.7
+     ],
+     [
+      "LOW_3",
+      "2025-04-11",
+      201.31
+     ],
+     [
+      "HIGH_4",
+      "2025-05-23",
+      280.3
+     ]
+    ],
+    "adjusted_in_span": false,
+    "dq_status": "USABLE_WITH_WARNINGS"
+   }
+  ],
+  "line": [
+   {
+    "security_id": "SEC-0407635f-4df9-5990-9f42-13e5eebc3257",
+    "pattern_id": "SEC-0407635f-4df9-5990-9f42-13e5eebc3257@2006-04-10:PAT:TRIANGLE_SYMMETRICAL:2017-09-08:2018-07-20:2018-09-21:2018-10-05",
+    "line": "LOWER",
+    "start": [
+     "2017-09-08",
+     -46.91818181818183
+    ],
+    "end": [
+     "2018-10-05",
+     88.5
+    ],
+    "anchor_value": 61.9,
+    "slope_per_bar": 2.4181818181818184,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2017-09-08",
+      210.9
+     ],
+     [
+      "LOW_2",
+      "2018-07-20",
+      61.9
+     ],
+     [
+      "HIGH_3",
+      "2018-09-21",
+      143.0
+     ],
+     [
+      "LOW_4",
+      "2018-10-05",
+      88.5
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-06f6da22-1587-57b7-8836-62796fb67686",
+    "pattern_id": "SEC-06f6da22-1587-57b7-8836-62796fb67686@2006-09-20:PAT:WEDGE_RISING:2024-08-23:2025-01-24:2025-02-28:2025-03-13",
+    "line": "LOWER",
+    "start": [
+     "2024-08-23",
+     -10.574285714285717
+    ],
+    "end": [
+     "2025-03-13",
+     22.61
+    ],
+    "anchor_value": 14.6,
+    "slope_per_bar": 1.1442857142857144,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2024-08-23",
+      25.35
+     ],
+     [
+      "LOW_2",
+      "2025-01-24",
+      14.6
+     ],
+     [
+      "HIGH_3",
+      "2025-02-28",
+      36.26
+     ],
+     [
+      "LOW_4",
+      "2025-03-13",
+      22.61
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-09e2653a-2399-5414-9c90-07da50298941",
+    "pattern_id": "SEC-09e2653a-2399-5414-9c90-07da50298941@2006-01-02:PAT:TRIANGLE_SYMMETRICAL:2008-05-23:2009-02-13:2009-10-23:2009-11-06",
+    "line": "LOWER",
+    "start": [
+     "2008-05-23",
+     -0.10000000000000053
+    ],
+    "end": [
+     "2009-11-06",
+     15.0
+    ],
+    "anchor_value": 7.45,
+    "slope_per_bar": 0.1986842105263158,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2008-05-23",
+      37.0
+     ],
+     [
+      "LOW_2",
+      "2009-02-13",
+      7.45
+     ],
+     [
+      "HIGH_3",
+      "2009-10-23",
+      23.6
+     ],
+     [
+      "LOW_4",
+      "2009-11-06",
+      15.0
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-09e6622a-7ef2-5d3d-8f93-80493ce9a3fa",
+    "pattern_id": "SEC-09e6622a-7ef2-5d3d-8f93-80493ce9a3fa@2012-01-30:PAT:WEDGE_RISING:2021-03-24:2021-05-21:2021-07-09:2021-07-16",
+    "line": "LOWER",
+    "start": [
+     "2021-03-24",
+     -2.5
+    ],
+    "end": [
+     "2021-07-16",
+     14.7
+    ],
+    "anchor_value": 6.1,
+    "slope_per_bar": 1.075,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2021-03-24",
+      8.85
+     ],
+     [
+      "LOW_2",
+      "2021-05-21",
+      6.1
+     ],
+     [
+      "HIGH_3",
+      "2021-07-09",
+      20.45
+     ],
+     [
+      "LOW_4",
+      "2021-07-16",
+      14.7
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-09e6622a-7ef2-5d3d-8f93-80493ce9a3fa",
+    "pattern_id": "SEC-09e6622a-7ef2-5d3d-8f93-80493ce9a3fa@2012-01-30:PAT:WEDGE_RISING:2024-06-28:2024-11-22:2024-12-27:2025-02-01",
+    "line": "LOWER",
+    "start": [
+     "2024-06-28",
+     -205.87099999999995
+    ],
+    "end": [
+     "2025-02-01",
+     372.0
+    ],
+    "anchor_value": 185.59,
+    "slope_per_bar": 18.641,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2024-06-28",
+      298.0
+     ],
+     [
+      "LOW_2",
+      "2024-11-22",
+      185.59
+     ],
+     [
+      "HIGH_3",
+      "2024-12-27",
+      509.0
+     ],
+     [
+      "LOW_4",
+      "2025-02-01",
+      372.0
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-0c549a1b-c155-56d9-9027-48acd2d7a00d",
+    "pattern_id": "SEC-0c549a1b-c155-56d9-9027-48acd2d7a00d@2015-08-27:PAT:TRIANGLE_ASCENDING:2021-03-12:2021-12-03:2021-12-17:2022-01-28",
+    "line": "LOWER",
+    "start": [
+     "2021-03-12",
+     -12.48749999999999
+    ],
+    "end": [
+     "2022-01-28",
+     77.5
+    ],
+    "anchor_value": 61.85,
+    "slope_per_bar": 1.9562499999999998,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2021-03-12",
+      112.9
+     ],
+     [
+      "LOW_2",
+      "2021-12-03",
+      61.85
+     ],
+     [
+      "HIGH_3",
+      "2021-12-17",
+      115.3
+     ],
+     [
+      "LOW_4",
+      "2022-01-28",
+      77.5
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-0d3965f4-f9bc-50f4-b115-be2a5c4c35a5",
+    "pattern_id": "SEC-0d3965f4-f9bc-50f4-b115-be2a5c4c35a5@2006-01-02:PAT:TRIANGLE_ASCENDING:2008-09-05:2009-03-13:2010-01-22:2010-02-06",
+    "line": "LOWER",
+    "start": [
+     "2008-09-05",
+     -14.61808510638298
+    ],
+    "end": [
+     "2010-02-06",
+     53.95
+    ],
+    "anchor_value": 10.4,
+    "slope_per_bar": 0.9265957446808512,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2008-09-05",
+      69.7
+     ],
+     [
+      "LOW_2",
+      "2009-03-13",
+      10.4
+     ],
+     [
+      "HIGH_3",
+      "2010-01-22",
+      79.6
+     ],
+     [
+      "LOW_4",
+      "2010-02-06",
+      53.95
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-13f6303a-1e1b-5fb3-9fcd-f88baaf0ec77",
+    "pattern_id": "SEC-13f6303a-1e1b-5fb3-9fcd-f88baaf0ec77@2012-03-20:PAT:WEDGE_RISING:2025-08-08:2026-01-23:2026-05-29:2026-06-05",
+    "line": "LOWER",
+    "start": [
+     "2025-08-08",
+     -52.59210526315792
+    ],
+    "end": [
+     "2026-06-05",
+     1066.2
+    ],
+    "anchor_value": 571.85,
+    "slope_per_bar": 26.01842105263158,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2025-08-08",
+      1052.0
+     ],
+     [
+      "LOW_2",
+      "2026-01-23",
+      571.85
+     ],
+     [
+      "HIGH_3",
+      "2026-05-29",
+      1417.8
+     ],
+     [
+      "LOW_4",
+      "2026-06-05",
+      1066.2
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-152a74c7-4d86-5561-8432-b1298d38febe",
+    "pattern_id": "SEC-152a74c7-4d86-5561-8432-b1298d38febe@2022-12-05:PAT:WEDGE_RISING:2023-05-19:2024-03-15:2024-06-14:2024-08-09",
+    "line": "LOWER",
+    "start": [
+     "2023-05-19",
+     -72.68253866666669
+    ],
+    "end": [
+     "2024-08-09",
+     99.0
+    ],
+    "anchor_value": 42.666667,
+    "slope_per_bar": 2.682539666666667,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2023-05-19",
+      69.666667
+     ],
+     [
+      "LOW_2",
+      "2024-03-15",
+      42.666667
+     ],
+     [
+      "HIGH_3",
+      "2024-06-14",
+      122.666667
+     ],
+     [
+      "LOW_4",
+      "2024-08-09",
+      99.0
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-16bfb243-f2bb-5a0e-9249-0b6bc24c11bc",
+    "pattern_id": "SEC-16bfb243-f2bb-5a0e-9249-0b6bc24c11bc@2006-01-02:PAT:WEDGE_RISING:2015-02-12:2015-09-15:2015-11-06:2015-11-20",
+    "line": "LOWER",
+    "start": [
+     "2015-02-12",
+     -1.76593
+    ],
+    "end": [
+     "2015-11-20",
+     4.796906
+    ],
+    "anchor_value": 2.687423,
+    "slope_per_bar": 0.234387,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2015-02-12",
+      4.739112
+     ],
+     [
+      "LOW_2",
+      "2015-09-15",
+      2.687423
+     ],
+     [
+      "HIGH_3",
+      "2015-11-06",
+      7.108669
+     ],
+     [
+      "LOW_4",
+      "2015-11-20",
+      4.796906
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-174dbe3c-a5a3-5ea8-b4e3-f3dfcd32bddf",
+    "pattern_id": "SEC-174dbe3c-a5a3-5ea8-b4e3-f3dfcd32bddf@2006-01-02:PAT:TRIANGLE_ASCENDING:2022-04-13:2023-03-31:2023-09-08:2023-10-27",
+    "line": "LOWER",
+    "start": [
+     "2022-04-13",
+     -52.46666666666664
+    ],
+    "end": [
+     "2023-10-27",
+     434.2
+    ],
+    "anchor_value": 251.7,
+    "slope_per_bar": 6.083333333333333,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2022-04-13",
+      587.0
+     ],
+     [
+      "LOW_2",
+      "2023-03-31",
+      251.7
+     ],
+     [
+      "HIGH_3",
+      "2023-09-08",
+      547.0
+     ],
+     [
+      "LOW_4",
+      "2023-10-27",
+      434.2
+     ]
+    ]
+   },
+   {
+    "security_id": "SEC-175113f5-a6af-5219-a29d-d1b1fbe57ccf",
+    "pattern_id": "SEC-175113f5-a6af-5219-a29d-d1b1fbe57ccf@2008-02-12:PAT:WEDGE_RISING:2008-05-23:2009-04-02:2010-01-08:2010-02-06",
+    "line": "LOWER",
+    "start": [
+     "2008-05-23",
+     -45.29772727272726
+    ],
+    "end": [
+     "2010-02-06",
+     79.1
+    ],
+    "anchor_value": 17.6,
+    "slope_per_bar": 1.3977272727272725,
+    "key_points": [
+     [
+      "HIGH_1",
+      "2008-05-23",
+      65.85
+     ],
+     [
+      "LOW_2",
+      "2009-04-02",
+      17.6
+     ],
+     [
+      "HIGH_3",
+      "2010-01-08",
+      102.125
+     ],
+     [
+      "LOW_4",
+      "2010-02-06",
+      79.1
+     ]
+    ]
+   }
+  ]
+ }
+}
