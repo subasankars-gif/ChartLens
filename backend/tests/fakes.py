@@ -60,6 +60,7 @@ def publish_with_analysis(settings: Any, provider: Any, store: Any, **kw: Any) -
     from chartlens_jobs.analysis_stage import AnalysisStage, StoreSpec
 
     from chartlens_engine.analysis import analysis_version
+    from chartlens_engine.explain import explain_version
     from chartlens_pipeline.serving import ServingPublisher
 
     AnalysisStage(settings, "NSE", StoreSpec("local", root=str(store.root)), workers=1).run()
@@ -68,6 +69,7 @@ def publish_with_analysis(settings: Any, provider: Any, store: Any, **kw: Any) -
         provider,
         store,
         expected_analysis_version=analysis_version(settings.analysis),
+        expected_explain_version=explain_version(),
         **kw,
     ).run()
     return published

@@ -20,6 +20,7 @@ from chartlens_core.config import ChartLensSettings, get_settings
 from chartlens_core.logs import configure_logging
 from chartlens_core.runs import SnapshotOutcome, Stage
 from chartlens_engine.analysis import analysis_version
+from chartlens_engine.explain import explain_version
 from chartlens_jobs.analysis_stage import AnalysisStage, AnalysisStageFailed, StoreSpec
 from chartlens_jobs.production import StageFailed, StageResult
 
@@ -180,6 +181,7 @@ def _production_stages(
             pipeline.publish_serving,
             run_id=run_id,
             analysis_version=analysis_version(settings.analysis),
+            explain_version=explain_version(),
         )
         return StageResult(
             records_processed=(r.get("counts") or {}).get("securities"),

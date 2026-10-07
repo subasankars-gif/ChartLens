@@ -27,6 +27,13 @@ by its SHA-256 in the manifest's ``analysis`` block. The documents and event fil
 names were written by ANALYSIS; publication copies, verifies and points, and never
 re-encodes or derives analytical content.
 
+From serving schema 4 (ADR-0028 §6) it also pins the explanation set: a verbatim copy of
+the explanation manifest, ``v={meta_version}/explanations_manifest.json``, named by its
+SHA-256 in the ``explanations`` block and bound to the analysis manifest by its
+``analysis_set_hash``. Each explanation object is bound to exactly one analysis
+document; publication validates every claim of a new object against that document with
+the shared checker (``chartlens_core.claims``) and never derives ``explain_version``.
+
 Publication order (ADR-0018, ADR-0026 §1.5): validate the inputs and the analysis set
 (checks 1-6) → verify every analysis object the live snapshot does not already cover
 (checks 7-9) → copy the weekly files → write the version's files → read them back →
@@ -63,6 +70,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
+from chartlens_core.claims import validate as validate_claims
 from chartlens_core.config import ChartLensSettings
 from chartlens_core.domain import utc_now
 from chartlens_core.logs import log_event
@@ -73,11 +81,18 @@ from chartlens_pipeline.analysis_store import (
     AnalysisEntry,
     AnalysisManifest,
     AnalysisStoreError,
+    ExplanationEntry,
+    ExplanationManifest,
     analysis_set_hash,
     analysis_universe,
+    explanation_disagreements,
+    explanation_manifest_bytes,
+    explanation_set_hash,
     inspect_document,
     inspect_events,
+    inspect_explanation,
     manifest_bytes,
+    read_explanation_manifest,
     read_manifest,
     universe_sha256,
 )
@@ -88,9 +103,10 @@ from chartlens_pipeline.weekly import bars_from_table
 
 log = logging.getLogger("chartlens.pipeline.serving")
 
-SERVING_SCHEMA_VERSION: Final = 3
+SERVING_SCHEMA_VERSION: Final = 4
 """2: weekly bars are served from immutable content-hashed copies (ADR-0018).
-3: plus the analysis set, pinned by a verbatim copy of its manifest (ADR-0026)."""
+3: plus the analysis set, pinned by a verbatim copy of its manifest (ADR-0026).
+4: plus the explanation set, pinned by a verbatim copy of its manifest (ADR-0028)."""
 SNAPSHOT_FILES: Final = ("securities", "identifiers", "segments", "findings")
 COPY_WORKERS: Final = 16
 
@@ -163,6 +179,24 @@ def analysis_summary(manifest: AnalysisManifest, data: bytes) -> dict[str, Any]:
     }
 
 
+def explanation_summary(manifest: ExplanationManifest, data: bytes) -> dict[str, Any]:
+    """The snapshot's ``explanations`` block, from the manifest it pins (ADR-0028 §6)."""
+    return {
+        "manifest_sha256": _sha(data),
+        "explain_version": manifest.explain_version,
+        "analysis_set_hash": manifest.analysis_set_hash,
+        "explanation_set_hash": manifest.explanation_set_hash,
+        "securities": len(manifest.entries),
+    }
+
+
+def explanation_keys(exchange: str, manifest: ExplanationManifest) -> set[str]:
+    return {
+        DataLakeLayout.serving_explanation_key(exchange, e.explanation_sha256)
+        for e in manifest.entries
+    }
+
+
 def artifact_keys(exchange: str, manifest: AnalysisManifest) -> set[str]:
     """Every object key an analysis manifest names."""
     keys: set[str] = set()
@@ -226,6 +260,7 @@ class ServingPublisher:
         store: ObjectStore,
         *,
         expected_analysis_version: str,
+        expected_explain_version: str,
         history: SnapshotHistory | None = None,
         run_id: str | None = None,
         clock: Callable[[], datetime] = utc_now,
@@ -236,6 +271,8 @@ class ServingPublisher:
         self.expected_analysis_version = expected_analysis_version
         """Supplied by the job layer, which knows the engine; publication never derives or
         substitutes one (ADR-0026 §1.3, check 2)."""
+        self.expected_explain_version = expected_explain_version
+        """Likewise for explanations (ADR-0028 §6, check 10): never derived here."""
         self.history = history
         self.run_id = run_id
         self.clock = clock
@@ -326,6 +363,9 @@ class ServingPublisher:
         # Checks 1-6 (ADR-0026 §1.3): the analysis set against this weekly version.
         analysis_bytes, analysis = self._analysis_set(weekly, status, rows, files)
         summary = analysis_summary(analysis, analysis_bytes)
+        # Checks 10-11 (ADR-0028 §6): the explanation set against this analysis set.
+        explained_bytes, explained = self._explanation_set(analysis)
+        explained_summary = explanation_summary(explained, explained_bytes)
         meta_version = (
             "meta-"
             + _sha(
@@ -336,6 +376,7 @@ class ServingPublisher:
                         "files": {n: _sha(b) for n, b in payloads.items()},
                         "weekly_files": files,
                         "analysis": summary,
+                        "explanations": explained_summary,
                     },
                     sort_keys=True,
                 ).encode()
@@ -359,10 +400,13 @@ class ServingPublisher:
                 "as_of": weekly["as_of"],
                 "versions": versions,
                 "analysis": summary,
+                "explanations": explained_summary,
             }
 
         # Checks 7-9: every artifact not covered by the live, verified snapshot.
-        self.verification = self._verify_artifacts(analysis, self._live_addresses(previous))
+        self.verification = self._verify_artifacts(
+            analysis, explained, self._live_addresses(previous)
+        )
         self._copy_weekly(files)
         analysis_key = DataLakeLayout.serving_analysis_manifest_key(ex, meta_version)
         entries: dict[str, dict[str, Any]] = {}
@@ -374,6 +418,9 @@ class ServingPublisher:
             written[key] = (name, _sha(data))
         store.put(analysis_key, analysis_bytes)  # the analysis manifest, verbatim
         written[analysis_key] = ("analysis_manifest", summary["manifest_sha256"])
+        explained_key = DataLakeLayout.serving_explanations_manifest_key(ex, meta_version)
+        store.put(explained_key, explained_bytes)  # the explanation manifest, verbatim
+        written[explained_key] = ("explanations_manifest", explained_summary["manifest_sha256"])
         counts = {
             "securities": len(rows),
             "analytical": sum(1 for r in rows if r["analytical_universe"]),
@@ -389,6 +436,7 @@ class ServingPublisher:
             "files": entries,
             "weekly_files": files,
             "analysis": {**summary, "manifest_key": analysis_key},
+            "explanations": {**explained_summary, "manifest_key": explained_key},
             "counts": counts,
             "generated_at": self.clock().isoformat(),
             "run_id": self.run_id,
@@ -513,6 +561,43 @@ class ServingPublisher:
                 raise PublicationFailed(f"{e.security_id}: analysed another segment")
         return data, manifest
 
+    def _explanation_set(self, analysis: AnalysisManifest) -> tuple[bytes, ExplanationManifest]:
+        """Checks 10-11 of ADR-0028 §6: the explanation manifest is bound to this analysis
+        set, has the job's expected ``explain_version`` (never derived here), and binds
+        exactly one explanation to each analysed security's document."""
+        key = DataLakeLayout.explanations_manifest_key(self.exchange)
+        if not self.store.exists(key):
+            raise ServingInputsNotReady("no explanation manifest; run the ANALYSIS stage")
+        data = self.store.get(key)
+        try:
+            manifest = ExplanationManifest.model_validate(json.loads(data))
+        except Exception as exc:
+            raise PublicationFailed(f"the explanation manifest is unreadable ({exc})") from None
+        if explanation_manifest_bytes(manifest) != data:
+            raise PublicationFailed("the explanation manifest is not in canonical form")
+        # 10. binding and version
+        if manifest.analysis_set_hash != analysis.analysis_set_hash:
+            raise ServingInputsNotReady(
+                "the explanations describe another analysis set; run the ANALYSIS stage"
+            )
+        if manifest.explain_version != self.expected_explain_version:
+            raise PublicationFailed(
+                f"the explanations are {manifest.explain_version}, the job expects "
+                f"{self.expected_explain_version}"
+            )
+        if explanation_set_hash(manifest.entries) != manifest.explanation_set_hash:
+            raise PublicationFailed("the explanation manifest does not match its set hash")
+        # 11. coverage: one per analysed security, bound to that security's document
+        documents = [(e.security_id, e.document_sha256) for e in analysis.entries]
+        bound = [(e.security_id, e.document_sha256) for e in manifest.entries]
+        if bound != documents:
+            missing = sorted({d[0] for d in documents} - {b[0] for b in bound})[:5]
+            raise PublicationFailed(
+                "the explanations do not bind exactly one explanation to each analysed "
+                f"document (missing {missing})"
+            )
+        return data, manifest
+
     def _live_addresses(self, previous: dict[str, Any] | None) -> set[str]:
         """Object keys covered by the live, previously verified schema-3 snapshot: the
         addresses its verbatim analysis manifest names, trusted only after that copy is
@@ -528,10 +613,28 @@ class ServingPublisher:
             log.warning("the live analysis manifest does not match its pointer; verifying all")
             return set()
         live = AnalysisManifest.model_validate(json.loads(data))
-        return artifact_keys(self.exchange, live)
+        keys = artifact_keys(self.exchange, live)
+        block4 = (
+            previous.get("explanations") if int(previous.get("schema_version", 1)) >= 4 else None
+        )
+        if block4:
+            try:
+                ex_data = self.store.get(str(block4["manifest_key"]))
+            except (KeyError, StorageError):
+                return keys
+            if _sha(ex_data) == block4.get("manifest_sha256"):
+                live_ex = ExplanationManifest.model_validate(json.loads(ex_data))
+                keys |= explanation_keys(self.exchange, live_ex)
+        return keys
 
-    def _verify_artifacts(self, manifest: AnalysisManifest, live: set[str]) -> dict[str, Any]:
-        """Checks 7-9 of ADR-0026 §1.3, in parallel. Raises before anything is written."""
+    def _verify_artifacts(
+        self,
+        manifest: AnalysisManifest,
+        explained: ExplanationManifest,
+        live: set[str],
+    ) -> dict[str, Any]:
+        """Checks 7-9 of ADR-0026 §1.3 and check 12 of ADR-0028 §6, in parallel. Raises
+        before anything is written."""
         started = time.monotonic()
         ex, store = self.exchange, self.store
         # Existence of covered objects: three listings, not thousands of lookups.
@@ -540,8 +643,10 @@ class ServingPublisher:
             for prefix in (
                 DataLakeLayout.serving_analysis_prefix(ex),
                 *(DataLakeLayout.serving_events_prefix(ex, n) for n in EVENT_DATASETS),
+                DataLakeLayout.serving_explanations_prefix(ex),
             ):
                 present |= set(store.list(prefix))
+        explanation_of = {e.security_id: e for e in explained.entries}
 
         def check(entry: AnalysisEntry) -> tuple[list[str], int, int]:
             problems: list[str] = []
@@ -574,7 +679,10 @@ class ServingPublisher:
                 _, problem = inspect_events(store, ex, name, artifact)
                 if problem is not None:
                     problems.append(f"{problem.key}: {problem.kind}: {problem.detail}")
-            return problems, full, existence
+            x_problems, x_full = self._check_explanation(
+                explanation_of[entry.security_id], present, live
+            )
+            return problems + x_problems, full + x_full, existence + (1 - x_full)
 
         with ThreadPoolExecutor(max_workers=COPY_WORKERS) as pool:
             results = list(pool.map(check, manifest.entries))
@@ -588,6 +696,31 @@ class ServingPublisher:
             "objects_existence_only": sum(r[2] for r in results),
             "seconds": round(time.monotonic() - started, 1),
         }
+
+    def _check_explanation(
+        self, x: ExplanationEntry, present: set[str], live: set[str]
+    ) -> tuple[list[str], int]:
+        """Check 12: an explanation the live verified snapshot covers must exist; any
+        other must verify against its address and entry, and every claim must hold
+        against exactly the document it is bound to (ADR-0028 §6). Returns the problems
+        and 1 if fully verified, 0 if existence only."""
+        ex, store = self.exchange, self.store
+        key = DataLakeLayout.serving_explanation_key(ex, x.explanation_sha256)
+        if key in live:
+            return ([] if key in present else [f"{key}: missing"]), 0
+        body, problem = inspect_explanation(store, ex, x.explanation_sha256)
+        if problem is not None or body is None:
+            return [
+                f"{key}: {problem.kind}: {problem.detail}" if problem else f"{key}: unreadable"
+            ], 1
+        problems = explanation_disagreements(x, body)
+        if problems:
+            return problems, 1
+        document, doc_problem = inspect_document(store, ex, x.document_sha256)
+        if doc_problem is not None or document is None:
+            return [f"{x.security_id}: the explained document does not verify"], 1
+        claims = validate_claims(json.loads(body), json.loads(document), x.document_sha256)
+        return [f"{x.security_id}: {c}" for c in claims[:3]], 1
 
     def _copy_weekly(self, files: dict[str, str]) -> None:
         """Copy every weekly file the snapshot refers to into the immutable store, then
@@ -638,6 +771,9 @@ class ServingPublisher:
         latest = read_manifest(store, ex)
         if latest is not None:
             keep_objects |= artifact_keys(ex, latest)
+        latest_explained = read_explanation_manifest(store, ex)
+        if latest_explained is not None:
+            keep_objects |= explanation_keys(ex, latest_explained)
         for key in store.list(prefix + "v="):
             if key[len(prefix) :].split("/", 1)[0] not in keep_versions:
                 store.delete(key)
@@ -650,22 +786,33 @@ class ServingPublisher:
         for analysis_prefix in (
             DataLakeLayout.serving_analysis_prefix(ex),
             *(DataLakeLayout.serving_events_prefix(ex, n) for n in EVENT_DATASETS),
+            DataLakeLayout.serving_explanations_prefix(ex),
         ):
             stale += [key for key in store.list(analysis_prefix) if key not in keep_objects]
         with ThreadPoolExecutor(max_workers=COPY_WORKERS) as pool:
             list(pool.map(store.delete, stale))
 
     def _named_by(self, manifest: dict[str, Any]) -> set[str]:
+        keys: set[str] = set()
         block = manifest.get("analysis")
-        if not block:
-            return set()
-        try:
-            live = AnalysisManifest.model_validate(
-                json.loads(self.store.get(block["manifest_key"]))
-            )
-        except Exception:  # an unreadable copy keeps nothing alive through it
-            return set()
-        return artifact_keys(self.exchange, live)
+        if block:
+            try:
+                live = AnalysisManifest.model_validate(
+                    json.loads(self.store.get(block["manifest_key"]))
+                )
+                keys |= artifact_keys(self.exchange, live)
+            except Exception:  # an unreadable copy keeps nothing alive through it
+                pass
+        block4 = manifest.get("explanations")
+        if block4:
+            try:
+                live_ex = ExplanationManifest.model_validate(
+                    json.loads(self.store.get(block4["manifest_key"]))
+                )
+                keys |= explanation_keys(self.exchange, live_ex)
+            except Exception:
+                pass
+        return keys
 
 
 # ----------------------------------------------------------------------------- reading
@@ -691,6 +838,10 @@ class ServingSnapshot:
     """Schema 3: the snapshot's analysis block (ADR-0026 §1.2); None before schema 3."""
     analysis_entries: dict[str, AnalysisEntry] = field(default_factory=dict)
     """Schema 3: the pinned analysis manifest's entries, by security."""
+    explanations: dict[str, Any] | None = None
+    """Schema 4: the snapshot's explanations block (ADR-0028 §6); None before schema 4."""
+    explanation_entries: dict[str, ExplanationEntry] = field(default_factory=dict)
+    """Schema 4: the pinned explanation manifest's entries, by security."""
 
     @classmethod
     def load(cls, store: ObjectStore, exchange: str) -> ServingSnapshot:
@@ -726,6 +877,19 @@ class ServingSnapshot:
                 raise SnapshotUnavailable("the analysis manifest does not match the snapshot")
             pinned = AnalysisManifest.model_validate(json.loads(data))
             entries = {e.security_id: e for e in pinned.entries}
+        explained = (
+            manifest.get("explanations") if int(manifest.get("schema_version", 1)) >= 4 else None
+        )
+        explanation_entries: dict[str, ExplanationEntry] = {}
+        if explained is not None:
+            try:
+                data = store.get(explained["manifest_key"])
+            except StorageError as exc:
+                raise SnapshotUnavailable(f"explanation manifest: {exc}") from None
+            if _sha(data) != explained["manifest_sha256"]:
+                raise SnapshotUnavailable("the explanation manifest does not match the snapshot")
+            pinned_ex = ExplanationManifest.model_validate(json.loads(data))
+            explanation_entries = {e.security_id: e for e in pinned_ex.entries}
         return cls(
             exchange=exchange,
             meta_version=manifest["meta_version"],
@@ -741,6 +905,8 @@ class ServingSnapshot:
             schema_version=int(manifest.get("schema_version", 1)),
             analysis=analysis,
             analysis_entries=entries,
+            explanations=explained,
+            explanation_entries=explanation_entries,
         )
 
     @staticmethod

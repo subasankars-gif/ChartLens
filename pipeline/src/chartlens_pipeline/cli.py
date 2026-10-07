@@ -628,6 +628,13 @@ def publish_serving(
             "set; publication never derives one)"
         ),
     ] = "",
+    explain_version: Annotated[
+        str,
+        typer.Option(
+            help="The explain_version the job layer expects (schema 4 requires an explanation "
+            "set; publication never derives one)"
+        ),
+    ] = "",
 ) -> None:
     """Publish the versioned serving snapshot the API reads (ADR-0016, ADR-0018, ADR-0026).
 
@@ -645,11 +652,15 @@ def publish_serving(
     if not analysis_version:
         typer.echo("Refusing to run: --analysis-version is required (ADR-0026)", err=True)
         raise typer.Exit(code=5)
+    if not explain_version:
+        typer.echo("Refusing to run: --explain-version is required (ADR-0028)", err=True)
+        raise typer.Exit(code=5)
     publisher = ServingPublisher(
         settings,
         _provider(settings, exchange),
         _store(settings),
         expected_analysis_version=analysis_version,
+        expected_explain_version=explain_version,
         history=_run_store(settings),
         run_id=run_id,
     )

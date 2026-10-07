@@ -22,6 +22,7 @@ from chartlens_api.main import create_app
 from chartlens_core.canonical import canonical_json
 from chartlens_core.config import ApiConfig, ChartLensSettings
 from chartlens_engine.analysis import analysis_version
+from chartlens_engine.explain import explain_version
 from chartlens_pipeline.analysis_store import read_document, read_events
 from chartlens_pipeline.serving import ServingPublisher
 from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
@@ -50,6 +51,7 @@ def analyse_and_publish(store: LocalObjectStore) -> dict[str, Any]:
         SimpleNamespace(exchange_code="NSE"),  # type: ignore[arg-type]
         store,
         expected_analysis_version=analysis_version(settings.analysis),
+        expected_explain_version=explain_version(),
     ).run()
     return published
 
@@ -134,7 +136,7 @@ def test_refusals(env: dict[str, Any]) -> None:
 
 def test_status_reports_the_analysis_summary(env: dict[str, Any]) -> None:
     status = get(env, "/system/status").json()
-    assert status["schema_version"] == 3
+    assert status["schema_version"] == 4
     assert status["analysis"]["securities"] == 2
     assert (
         status["analysis"]["analysis_set_hash"] == env["published"]["analysis"]["analysis_set_hash"]

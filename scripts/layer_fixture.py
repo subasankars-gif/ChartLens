@@ -32,6 +32,7 @@ from chartlens_api.lake import SnapshotProvider  # noqa: E402
 from chartlens_api.main import create_app  # noqa: E402
 from chartlens_core.config import ApiConfig, ChartLensSettings  # noqa: E402
 from chartlens_engine.analysis import analysis_version  # noqa: E402
+from chartlens_engine.explain import explain_version  # noqa: E402
 from chartlens_pipeline.serving import ServingPublisher  # noqa: E402
 from chartlens_pipeline.storage import LocalObjectStore  # noqa: E402
 
@@ -65,6 +66,7 @@ def main(out: Path) -> None:
         SimpleNamespace(exchange_code="NSE"),  # type: ignore[arg-type]
         store,
         expected_analysis_version=analysis_version(settings.analysis),
+        expected_explain_version=explain_version(),
     ).run()
     api = ChartLensSettings.model_construct(
         api=ApiConfig(firebase_project_id="demo-test", admin_emails=("boss@example.com",))

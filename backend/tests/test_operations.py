@@ -278,7 +278,7 @@ def test_snapshot_history_marks_the_live_one(env: dict[str, Any]) -> None:
         "PUBLISHED",
         "gh-1-1",
     )
-    assert snap["schema_version"] == 3 and "weekly_version" in snap["versions"]
+    assert snap["schema_version"] == 4 and "weekly_version" in snap["versions"]
     assert snap["analysis"]["securities"] == snap["counts"]["analysed"]
     assert snap["analysis"]["analysis_version"].startswith("analysis-")
 

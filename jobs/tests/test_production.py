@@ -19,6 +19,7 @@ from typer.testing import CliRunner
 
 from chartlens_core.runs import STAGES, RunRecord, RunStatus, SnapshotOutcome, Stage, start_run
 from chartlens_engine.analysis import analysis_version
+from chartlens_engine.explain import explain_version
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
@@ -180,6 +181,7 @@ def real_stages(lake: Any, history: MemoryRunStore, run_id: str, **broken: Any) 
             provider,
             store,
             expected_analysis_version=analysis_version(settings.analysis),
+            expected_explain_version=explain_version(),
             history=history,
             run_id=run_id,
         ).run()
@@ -232,6 +234,7 @@ def test_only_a_fully_successful_run_moves_the_serving_pointer(lake: Any) -> Non
             provider,
             store,
             expected_analysis_version=analysis_version(settings.analysis),
+            expected_explain_version=explain_version(),
             history=runs,
             run_id="run-2",
         ).run()

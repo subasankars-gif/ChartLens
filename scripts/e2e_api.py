@@ -53,6 +53,7 @@ from chartlens_core.config import ApiConfig, ChartLensSettings  # noqa: E402
 from chartlens_core.domain import utc_now  # noqa: E402
 from chartlens_core.runs import SnapshotOutcome, Stage  # noqa: E402
 from chartlens_engine.analysis import analysis_version  # noqa: E402
+from chartlens_engine.explain import explain_version  # noqa: E402
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides  # noqa: E402
 from chartlens_pipeline.data_quality import DataQualityService  # noqa: E402
 from chartlens_pipeline.identity import IdentityOverrides  # noqa: E402
@@ -105,6 +106,7 @@ def synthetic_lake() -> LocalObjectStore:
         SimpleNamespace(exchange_code="NSE"),  # type: ignore[arg-type]
         store,
         expected_analysis_version=analysis_version(settings.analysis),
+        expected_explain_version=explain_version(),
     ).run()
     return store
 
@@ -128,7 +130,11 @@ def main(port: int, lake: Path | None) -> None:
         WeeklyService(settings, provider, store).run()
         AnalysisStage(settings, "NSE", StoreSpec("local", root=str(store.root)), workers=1).run()
         ServingPublisher(
-            settings, provider, store, expected_analysis_version=analysis_version(settings.analysis)
+            settings,
+            provider,
+            store,
+            expected_analysis_version=analysis_version(settings.analysis),
+            expected_explain_version=explain_version(),
         ).run()
     api = ChartLensSettings.model_construct(
         api=ApiConfig(

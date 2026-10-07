@@ -13,7 +13,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from analysis_fixture import AV, rewrite_manifest, stage_analysis
+from analysis_fixture import AV, EV, rewrite_manifest, stage_analysis
 from test_adjust import SESSIONS, build_lake
 
 from chartlens_core.config import AnalysisConfig, BreakoutsConfig
@@ -60,6 +60,7 @@ def publish(lake: Any, *, av: str = AV, history: Any = None, store: Any = None) 
         provider,
         store or own,
         expected_analysis_version=av,
+        expected_explain_version=EV,
         history=history,
         clock=lambda: T0,
     ).run()
@@ -102,7 +103,7 @@ def test_a_schema_3_snapshot_pins_the_analysis_manifest_verbatim(lake: Any) -> N
     staged = stage_analysis(store, settings)
     history = MemoryRunStore()
     out = publish(lake, history=history)
-    assert out["outcome"] == SnapshotOutcome.PUBLISHED and out["schema_version"] == 3
+    assert out["outcome"] == SnapshotOutcome.PUBLISHED and out["schema_version"] == 4
     block = out["analysis"]
     copy = store.get(block["manifest_key"])
     assert copy == store.get(DataLakeLayout.analysis_manifest_key(EX)) == manifest_bytes(staged)
@@ -111,12 +112,12 @@ def test_a_schema_3_snapshot_pins_the_analysis_manifest_verbatim(lake: Any) -> N
     assert block["universe_sha256"] == staged.universe_sha256
     assert block["securities"] == len(staged.universe) == out["counts"]["analysed"]
     snap = ServingSnapshot.load(store, EX)
-    assert snap.schema_version == 3 and snap.analysis is not None
+    assert snap.schema_version == 4 and snap.analysis is not None
     assert set(snap.analysis_entries) == set(staged.universe)
     record = history.get_snapshot(out["meta_version"])
     assert record is not None and record.analysis is not None
     assert record.analysis["analysis_set_hash"] == staged.analysis_set_hash
-    assert out["verification"]["objects_fully_verified"] == 3 * len(staged.universe)
+    assert out["verification"]["objects_fully_verified"] == 4 * len(staged.universe)
 
 
 def test_publication_is_idempotent(lake: Any) -> None:
@@ -176,7 +177,9 @@ def test_check_2_other_analysis_settings(lake: Any) -> None:
     )
     before = pointer(store)
     with pytest.raises(PublicationFailed, match="other \\[analysis\\] settings"):
-        ServingPublisher(other, provider, store, expected_analysis_version=AV).run()
+        ServingPublisher(
+            other, provider, store, expected_analysis_version=AV, expected_explain_version=EV
+        ).run()
     assert pointer(store) == before
 
 
@@ -294,7 +297,7 @@ def test_only_objects_covered_by_the_live_snapshot_skip_full_verification(lake: 
     stage_analysis(store, settings)
     out = publish(lake)
     assert out["verification"]["objects_fully_verified"] == 0
-    assert out["verification"]["objects_existence_only"] == 3 * len(m.universe)
+    assert out["verification"]["objects_existence_only"] == 4 * len(m.universe)
 
 
 def test_an_orphan_object_gets_full_verification(lake: Any) -> None:
@@ -323,7 +326,7 @@ def test_a_live_copy_that_fails_its_hash_covers_nothing(lake: Any) -> None:
     stage_analysis(store, settings)
     again = publish(lake)
     assert again["verification"]["objects_existence_only"] == 0
-    assert again["verification"]["objects_fully_verified"] == 3 * len(m.universe)
+    assert again["verification"]["objects_fully_verified"] == 4 * len(m.universe)
 
 
 # ----------------------------------------------------------------------------- the commit

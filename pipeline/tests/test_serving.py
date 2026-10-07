@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from analysis_fixture import AV, stage_analysis
+from analysis_fixture import AV, EV, stage_analysis
 from test_adjust import SESSIONS, build_lake
 
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
@@ -29,7 +29,9 @@ WED = SESSIONS[17]
 def publish(settings, provider, store):  # type: ignore[no-untyped-def]
     """The tracked run's last two steps: ANALYSIS (here a stand-in), then publication."""
     stage_analysis(store, settings)
-    return ServingPublisher(settings, provider, store, expected_analysis_version=AV).run()
+    return ServingPublisher(
+        settings, provider, store, expected_analysis_version=AV, expected_explain_version=EV
+    ).run()
 
 
 @pytest.fixture
