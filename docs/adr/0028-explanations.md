@@ -277,7 +277,7 @@ objects only (analysis objects existence-only). API: verbatim and bound; `/chart
 carries it only when asked; schema-3 snapshot and a re-pinned lying binding refused.
 Frontend: binding check (98 vitest); e2e: the panel shows the stored claims verbatim in
 stored order, a claim focuses its pattern with 0 unplaced, its facts are the quoted
-values. `poe check` 1,044+ tests; CI green.
+values. `poe check` 1,049 tests; CI green.
 
 **Real NSE** (throwaway probe, read-only towards the lake; data to 2026-10-07):
 
