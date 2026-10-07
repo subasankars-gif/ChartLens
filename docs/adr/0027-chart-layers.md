@@ -277,3 +277,45 @@ computes a value. Listed so the review can confirm or change them.
 10. **Lint:** adapters may not read stored positions or slopes (`*_index`,
     `slope_per_bar`, `anchor_value`, `anchor_1_price`) and may not use `*`, `/`, `%`,
     `**` or `Math` (ESLint `no-restricted-syntax`, `frontend/eslint.config.mjs`).
+
+## 9. Checkpoint evidence (6d)
+
+**Tests.** API: `/chart` components byte-identical to `/weekly` and `/analysis`, one
+`meta_version` throughout, a read straddling a publication reloads and reads both from
+the new snapshot, bars-only with the reason when not analysed or schema < 3, refusals
+(unknown sections, `as_of`, bad `segments`), static checks that the route neither ranks
+nor accepts analytical-sounding parameters. Frontend (vitest, 93): per layer, over a real
+`/chart` fixture (`scripts/layer_fixture.py`: continuity break, forming week, an active
+and inactive trendlines, measured moves) and seeded mutations of it: every rendered
+coordinate is a stored date and stored number of its object (dots: a sibling pair);
+still true with every stored number randomised (interpolation and extrapolation cannot
+hide); scrambling stored positions and slopes changes nothing; an off-bar date refuses
+the object whole; another segment refuses it; `known_at` after `as_of` or missing
+refuses it and never moves geometry; indicator lines never bridge a null. E2E
+(`E2E_LAKE=synthetic`, 5 tests, in CI): one `/chart` request, patterns with stored
+status and definition-fit components, every layer on with 0 unplaced in the current and
+history views, engine lists as defaults, an unanalysed security.
+
+**Real NSE** (throwaway probe, read-only towards the lake; ANALYSIS and a schema-3
+publish into a local overlay, then the real API in-process):
+
+| | |
+|---|---|
+| Securities analysed / charted | 3,193 / 3,193 (`segments=all`, every section, both breakout datasets) |
+| Snapshot | `meta-b96930290cd1`; components naming another snapshot: **0** |
+| With a continuity break / delisted / forming last week | 371 / 616 / 2,572 |
+| Objects drawn (every layer, widest stored selections) | 6,703,479 |
+| **Unplaced (refused)** | **0** |
+| Timings | ANALYSIS 366 s, publish 158 s, chart dump + count 1,060 s |
+
+The first run counted 8,148 refusals, all `known_at_missing`, all indicator series:
+series with no stored value at all (warm-up longer than the history, e.g. `sma_200`
+over a short listing). They are not objects with a missing date, so the adapter now
+proposes nothing for them (with a test); the rerun drew the same 6,703,479 objects and
+refused 0. That is evidence, not the contract: the contract is that unplaced objects are
+refused and surfaced.
+
+Screenshots (real NSE): KOTHARIPRO history view across an unquantified-corporate-action
+break (overlays only after the break); INDSWFTLTD, delisted, analysis as of its last bar;
+RANEHOLDIN, forming week with an included falling wedge, its stored lines, confirmation
+level, measured-move zone and "recognised" mark; CARYSIL with every layer on.
