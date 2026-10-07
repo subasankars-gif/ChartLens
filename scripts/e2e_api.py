@@ -8,7 +8,11 @@ Production runs (ADR-0018) use the in-memory run store. "GitHub" is simulated: a
 dispatched refresh is claimed and run here, stage by stage, a second per stage, and it
 publishes nothing new (the test lake does not change), so it ends UNCHANGED.
 
-usage: python scripts/e2e_api.py [PORT] [LAKE_DIR | synthetic]   (default: a small test lake)
+usage: python scripts/e2e_api.py [PORT] [LAKE_DIR | synthetic | overlay:DIR]
+       (default: a small test lake)
+
+``overlay:DIR`` reads DIR first and the configured GCS bucket beneath it (read-only
+towards the bucket): a rehearsal's locally published snapshot over the real lake.
 
 ``synthetic`` builds long synthetic histories analysed by the real ANALYSIS stage (the
 chart-layer tests, ADR-0027): SEC-L has a continuity break, a forming week, trendlines
@@ -54,7 +58,7 @@ from chartlens_pipeline.data_quality import DataQualityService  # noqa: E402
 from chartlens_pipeline.identity import IdentityOverrides  # noqa: E402
 from chartlens_pipeline.runs import MemoryRunStore  # noqa: E402
 from chartlens_pipeline.serving import ServingPublisher, ServingSnapshot  # noqa: E402
-from chartlens_pipeline.storage import LocalObjectStore  # noqa: E402
+from chartlens_pipeline.storage import LocalObjectStore, ObjectStore  # noqa: E402
 from chartlens_pipeline.weekly import WeeklyService  # noqa: E402
 
 
@@ -106,8 +110,12 @@ def synthetic_lake() -> LocalObjectStore:
 
 
 def main(port: int, lake: Path | None) -> None:
+    store: ObjectStore
     if lake is not None and str(lake) == "synthetic":
         store = synthetic_lake()
+    elif lake is not None and str(lake).startswith("overlay:"):
+        bucket = ChartLensSettings().storage.gcs_bucket
+        store = StoreSpec("overlay", root=str(lake)[len("overlay:") :], bucket=bucket).open()
     elif lake is not None:  # an existing lake with a published serving snapshot (real data)
         store = LocalObjectStore(lake)
     else:
