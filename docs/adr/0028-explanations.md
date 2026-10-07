@@ -1,8 +1,8 @@
 # ADR-0028: Explanations
 
-**Status:** Accepted · 2026-10-07, with Suba's clarifications 1–11 frozen below before
-any 6e code. §6 (publication) is the decision clarification 11 asked for; it is
-recorded here for confirmation before implementation. It details ADR-0024 §9 and builds
+**Status:** Accepted · 2026-10-07, with Suba's clarifications 1–11 frozen below; §6
+(publication, schema 4) approved as written, with the provenance invariant added there.
+It details ADR-0024 §9 and builds
 on ADR-0025 (job layer), ADR-0026 (publication, API) and ADR-0027 (chart layers).
 
 > **An explanation restates published analytical facts in words. It never adds a fact,
@@ -155,6 +155,13 @@ snapshot v={meta}
       hashes to its address, its internal identity matches the entry, and **every claim
       validates** against the bound document with the `chartlens_core.claims` validator.
       Objects covered by the live verified snapshot: existence (ADR-0026 clarification 2).
+- **Provenance invariant:** *an explanation object may reference only the exact
+  analysis document identified by its `document_sha256`; it may not reference another
+  security's document, another snapshot's document, or a separately reconstructed
+  analytical value.* Every reference and quoted value is resolved in that one document.
+- **Two versions, never substituted:** `analysis_version` is the analytical
+  methodology; `explain_version` is the explanation/template methodology. Publication
+  checks each against the job's expected value.
 - Commit, idempotence and clean-up as ADR-0026 (clean-up also keeps the live and
   previous snapshots' explanation objects and the latest explanation manifest).
 
