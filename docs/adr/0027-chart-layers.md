@@ -1,6 +1,8 @@
 # ADR-0027: Chart layers
 
-**Status:** Proposed · 2026-10-07. For review before any code (phase 6d). It extends
+**Status:** Accepted · 2026-10-07, with the review clarifications frozen below (decisions
+1–5 approved; the `known_at` ≤ snapshot `as_of` invariant, per-component snapshot
+identity, a declarative `/chart`, and the stricter property tests added). It extends
 ADR-0017 (the faithful-visualization rule) and ADR-0023 (the layer toggles), and builds
 on ADR-0026 (the analysis API). The weekly chart semantics, segment boundaries,
 `known_at` and layer authority are settled here first; styling comes after.
@@ -62,8 +64,9 @@ integers are ignored for drawing).
 - Every object is also identified for the reader: `security_id`, segment, and its id
   (`swing_id`, `pattern_id`, `zone_id`, `event_id`, …) in the tooltip and panel.
 - A stored date that matches no bar of the snapshot is **not drawn** and is counted in a
-  visible "unplaced objects" note, never snapped to the nearest bar. (It should never
-  happen; a real-data test checks it.)
+  visible "unplaced objects" note, never snapped to the nearest bar. **This is an absolute
+  invariant.** The contract is "unplaced objects are refused and surfaced"; a real-data
+  count of 0 is checkpoint evidence, not the contract.
 - Missing weeks: x positions are the bars that exist. The frontend never inserts,
   removes or interpolates weeks; a week with no bar has no candle. (Drawing visible gaps
   would need the weekly product to state them; the frontend will not infer a calendar.)
@@ -83,22 +86,22 @@ integers are ignored for drawing).
 
 ### 2.2 Trendlines (decision 1)
 
-- **(a) Recommended for 6d: draw only stored points.** The segment runs through the
+- **(a) Approved for 6d: draw only stored points.** The segment runs through the
   stored touches (first to last), and for an active line on to its stored value at the
   state date. A broken line ends at its last touch. Nothing is extrapolated, and the
   drawing never claims more than the engine recorded.
 - **(b) Later, if wanted: an engine amendment.** The levels layer would publish each
   line's drawable segment (start and end date and value, as pattern lines already do)
   under a new levels version. That is a methodology change with its own review and
-  recompute, not part of 6d.
+  recompute, **not a 6d scope expansion**.
 
 ## 3. One snapshot per chart: a thin envelope (decision 2)
 
 A chart needs bars and analysis **from the same snapshot**. Two separate requests
 (`/weekly`, then `/analysis`) can straddle a publication and mix snapshots A and B.
 
-Proposed: **`GET /api/v1/securities/{id}/chart?sections=…`**, a thin envelope read from
-one snapshot in one request:
+Approved: **`GET /api/v1/securities/{id}/chart?sections=…&segments=valid|all`**, a thin
+envelope read from one snapshot in one request:
 
 ```text
 chart
@@ -108,7 +111,16 @@ chart
 ```
 
 No new model: `bars` is the `/weekly` payload, `document` is the `/analysis` payload,
-both verbatim. Further sections (as the reader turns layers on) are fetched from
+both verbatim.
+
+- **Every component names its snapshot.** The response identifies the exact
+  `meta_version` used for each returned component (envelope, bars, document), so the
+  frontend never infers consistency; it checks that they are equal.
+- **The request is declarative**: the security, the timeframe (weekly), the sections and
+  the segments choice, plus presentation-only options. No analytical-sounding parameters
+  (`sensitivity=major`, `confidence>70`, `pattern=best`, …) unless they are pure filters on
+  a stored attribute. The server does *published document → select requested existing
+  sections → return*, never *calculate a chart-specific analytical subset*. Further sections (as the reader turns layers on) are fetched from
 `/analysis` and accepted only if their `meta_version` equals the chart's; otherwise the
 chart reloads whole. The alternative, comparing `meta_version` across two requests on
 the client, works too but makes every caller responsible for it.
@@ -116,8 +128,18 @@ the client, works too but makes every caller responsible for it.
 ## 4. Time: nothing before it was knowable
 
 **The chart shows the published analysis as of the snapshot's `as_of`, and nothing
-else.** Every object in that document has `known_at` ≤ `as_of`, so nothing in a 6d chart
-is shown before it was knowable. Point-in-time charts (`?as_of`) stay refused (K3).
+else.** Point-in-time charts (`?as_of`) stay refused (K3). Belonging to a snapshot does
+not by itself make an object knowable on its drawing date, so the rule is stated at the
+adapter boundary:
+
+> **The chart may display an object only if that object exists in the selected
+> published snapshot and its own `known_at` is ≤ the snapshot `as_of`. The object's
+> geometry is drawn at its stored formation coordinates; `known_at` affects
+> visibility/annotation, not geometry.**
+
+Each adapter enforces it: an object without a stored `known_at` ≤ the snapshot's
+`data_as_of` is refused and counted (it should never happen; publication guarantees it,
+and the adapter does not rely on that).
 
 - **The lag is visible, never hidden.** An object is drawn where it formed (`bar_date`,
   `start_date`), and it is labelled with when it became known: a swing's tooltip shows
@@ -168,9 +190,15 @@ only shaping (ADR-0026 decision 7).
 ## 7. Testing and checkpoint evidence
 
 - **Adapters are pure** (`frontend/src/lib/layers/*`), one per layer: stored object →
-  chart primitives. A property test for each: **every output coordinate is a stored
-  (date, value) pair of its input object**, so an adapter cannot invent a point.
-- Unplaced objects (no matching bar, another segment) are refused and counted.
+  chart primitives. A property test for each: **every rendered coordinate ∈ stored
+  (date, value) coordinates** of its input object, so an adapter cannot invent a point.
+  The tests also reject, by construction: interpolation (no value between two stored
+  values), extrapolation (no point past the last stored one), nearest-date matching (an
+  off-bar date is refused, not moved), index-based coordinate reconstruction (stored
+  indices are scrambled and the output must not change), and cross-segment coordinates
+  (an object or point outside the current segment is refused).
+- Unplaced objects (no matching bar, another segment, `known_at` missing or after the
+  snapshot's `as_of`) are refused and counted.
 - No adapter reads an array position for drawing (lint rule plus tests).
 - Status and `known_at` labels come from the stored fields (tests).
 - The chart route returns bars and sections from one snapshot, byte-identical to
@@ -182,7 +210,7 @@ only shaping (ADR-0026 decision 7).
   delisted security, a forming week, and patterns with their measured-move zones; plus a
   real-data run of the unplaced-object count (expected 0).
 
-## Decisions for review
+## Decisions (approved 2026-10-07)
 
 1. **Trendlines:** (a) draw only stored points in 6d (touches, plus the stored value at
    the state date for an active line); (b) an engine amendment for drawable segments
@@ -195,3 +223,10 @@ only shaping (ADR-0026 decision 7).
    (`current.included_pattern_ids`), current Fibonacci (`current.fibonacci_ids`). The
    reader may switch to "all" for each, which is still selection by stored attributes.
 5. **Unplaced objects are refused and counted**, never snapped to a nearby bar.
+
+**Excluded from 6d:** trendline extrapolation, replay, historical current-state
+reconstruction, and a second chart model.
+
+**6d checkpoint gate:** real-NSE screenshots of a continuity-break security (history
+view), a delisted security, a forming week and measured-move patterns, plus a real-data
+unplaced-object count (expected 0, as evidence).
