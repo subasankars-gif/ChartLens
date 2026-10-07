@@ -434,6 +434,12 @@ describe("indicators: the section's own pairing, never bridging a gap", () => {
     expect(last).toMatchObject({ kind: "path", dashed: true });
   });
 
+  it("proposes nothing for a series with no stored value (warm-up longer than the history)", () => {
+    const doc = structuredClone(ind);
+    doc.series = [{ ...doc.series[0]!, name: "sma_200", data: doc.series[0]!.data.map(() => null) }];
+    expect(indicatorCandidates(doc, ["sma_200"], "price", () => "average")).toEqual([]);
+  });
+
   it("refuses a series with a value at a date that is not a bar", () => {
     const doc = structuredClone(ind);
     const i = doc.bar_dates.length - 3;

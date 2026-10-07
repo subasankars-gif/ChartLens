@@ -64,6 +64,9 @@ export function indicatorCandidates(
     const series = section.series.find((s) => s.name === name);
     if (!series) continue;
     const dates = section.bar_dates.filter((_, i) => typeof series.data[i] === "number");
+    // A series with no stored value (a warm-up longer than the history) has nothing to
+    // draw: it is not an object with a missing date, so it is neither drawn nor refused.
+    if (!dates.length) continue;
     out.push({
       id: `indicators:${name}`,
       segmentId: section.context.continuity_segment_id,

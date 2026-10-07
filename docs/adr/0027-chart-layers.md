@@ -37,7 +37,7 @@ tests, extends, interpolates, smooths, scores, ranks, merges or decides.
 | Moving averages, Bollinger | `indicators.series` (`sma_*`, `ema_*`, `bollinger_*`) | the section's own `bar_dates[i]` with `data[i]`; null = no point |
 | Oscillator pane (RSI, MACD) | `indicators.series` | as above |
 | Swings | `swings.swings` with `method`, `sensitivity` = `swings.primary_method`, `primary_sensitivity` by default | `bar_date`, `price`; `known_at` in the tooltip |
-| Developing extreme | `swings.pending` | `bar_date`, `price`, hollow (never confirmed) |
+| Developing extreme | `swings.pending` | **not drawn in 6d** (see §8): stored with `known_at` null, so the `known_at` ≤ `as_of` rule refuses it |
 | Market structure | `structure.labels`, `structure.events` | labels: `bar_date`, `price`; BOS/CHoCH: `bar_date`, `level`, `known_at` |
 | Trend state | `structure.trend_history` | each entry's `since` to the next entry's `since` (stored dates) |
 | Support/resistance zones | `levels.zones` (current only, by the engine's definition) | `price_low`, `price_high`, from `first_seen` to `levels.state_date` |
@@ -230,3 +230,50 @@ reconstruction, and a second chart model.
 **6d checkpoint gate:** real-NSE screenshots of a continuity-break security (history
 view), a delisted security, a forming week and measured-move patterns, plus a real-data
 unplaced-object count (expected 0, as evidence).
+
+## 8. As built (6d)
+
+Choices made while building, each a selection or a span between **stored** dates; none
+computes a value. Listed so the review can confirm or change them.
+
+1. **Placement is one function** (`frontend/src/lib/layers/place.ts`, `admit`). Every
+   layer's candidates go through it; an object is drawn **whole or refused whole**
+   (never partly), with the reason counted and listed in the panel ("Not drawn: a chart
+   object is never moved to a nearby bar").
+2. **Developing extremes (`swings.pending`) are not drawn.** The engine stores them with
+   `known_at` null (unconfirmed); the invariant refuses objects without a stored
+   `known_at`. The layer is omitted rather than counted as unplaced on every security.
+   *For review:* keep it out, or have the engine state their knowability.
+3. **Knowability of objects without a `known_at` field:** an indicator value is knowable
+   at its own `bar_date` (the engine's causal contract: computed from bars through that
+   bar); a trend state at its `since` (the engine's definition: the state as of T is the
+   last entry with `since` ≤ T). Both are checked against `as_of` like any `known_at`.
+4. **Spans, all between stored dates:** zones `first_seen` → `levels.state_date`;
+   Fibonacci levels `counter_bar_date` → `fibonacci.state_date` for a structure in
+   `current.fibonacci_ids`, else → its last status entry's date; pattern confirmation and
+   invalidation levels over the pattern's `start_date` → `end_date`; a measured-move zone
+   `target_calculated_at` → the next status entry's `effective_date` (the section's
+   `as_of` for the last); a trend state `since` → the next entry's `since` (the section's
+   `as_of` for the last).
+5. **Indicator lines break at nulls** (a line across a gap would draw values the engine
+   did not compute); values at provisional (forming-week) bars are dashed. Oscillator
+   reference levels (RSI 30/70 and the like) are not drawn: they are not stored.
+6. **Candle evidence** is drawn only when a drawn pattern cites it (`context.evidence_refs`
+   or a status entry's `evidence_refs`), per ADR-0023.
+7. **Breakout events** come from `/breakout-events`, one stored dataset at a time
+   (patterns or levels, never merged), every page checked against the chart's
+   `meta_version`.
+8. **Sections and snapshots:** the chart loads `/chart` (bars plus `identity`,
+   `versions`, `current`, `provenance`, and the sections of any layer already on); later
+   sections come from `/analysis` and are accepted only with the chart's `meta_version`;
+   any mismatch reloads the whole chart.
+9. **Rendering:** one Lightweight Charts series primitive per pane maps stored
+   (date, value) pairs through the chart's own time and price scales and draws straight
+   segments between consecutive stored points. It adds no point, extends nothing, and
+   draws no unbounded price line. Time-only marks (`known_at`, follow-ups, evidence) sit
+   along the bottom of the price pane; trend state is a strip beneath them. Long labels
+   appear for the object under focus only (legibility). The oscillator pane's scale comes
+   from invisible carrier series holding the same stored points.
+10. **Lint:** adapters may not read stored positions or slopes (`*_index`,
+    `slope_per_bar`, `anchor_value`, `anchor_1_price`) and may not use `*`, `/`, `%`,
+    `**` or `Math` (ESLint `no-restricted-syntax`, `frontend/eslint.config.mjs`).
