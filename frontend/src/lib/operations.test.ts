@@ -18,6 +18,7 @@ describe("operations display", () => {
       "Adjustment",
       "Data quality",
       "Weekly bars",
+      "Analysis",
       "Publish",
     ]);
     expect(stageLabel(null)).toBe("—");

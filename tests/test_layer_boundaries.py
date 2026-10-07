@@ -1,14 +1,16 @@
-"""Enforce the package dependency rule (docs/adr/0001-technology-stack.md).
+"""Enforce the package dependency rule (docs/adr/0001-technology-stack.md, as amended
+by ADR-0024 and ADR-0025).
 
-    core  ←  engine
-      ↑
-    pipeline
-      ↑
-    backend (api) → engine, pipeline, core
+    core ◄── engine          core ◄── pipeline
+                ▲                        ▲
+                └──────── jobs ──────────┘
+    backend (api) → pipeline's serving reader, core
 
 * core imports no other ChartLens package and no I/O client.
-* engine imports only core — never pipeline, api, or any I/O client.
-* pipeline never imports engine or api.
+* engine imports only core — never pipeline, jobs, api, or any I/O client.
+* pipeline never imports engine, jobs or api.
+* jobs may import engine and pipeline; nothing imports jobs.
+* the api never imports jobs (serving never computes).
 
 Checked statically from the source, so a violation fails CI even if the
 offending code path is never executed by a test.
@@ -29,11 +31,19 @@ RULES: dict[str, set[str]] = {
     "core/src/chartlens_core": {
         "chartlens_engine",
         "chartlens_pipeline",
+        "chartlens_jobs",
         "chartlens_api",
         *IO_CLIENTS,
     },
-    "engine/src/chartlens_engine": {"chartlens_pipeline", "chartlens_api", *IO_CLIENTS},
-    "pipeline/src/chartlens_pipeline": {"chartlens_engine", "chartlens_api"},
+    "engine/src/chartlens_engine": {
+        "chartlens_pipeline",
+        "chartlens_jobs",
+        "chartlens_api",
+        *IO_CLIENTS,
+    },
+    "pipeline/src/chartlens_pipeline": {"chartlens_engine", "chartlens_jobs", "chartlens_api"},
+    "jobs/src/chartlens_jobs": {"chartlens_api"},
+    "backend/src/chartlens_api": {"chartlens_jobs"},
 }
 
 
@@ -174,7 +184,7 @@ def test_later_layers_consume_structure_and_never_rederive_it(layer: str) -> Non
 
 # ----------------------------------------------------------------------------- ADR-0024
 
-PRODUCTION = ("engine/src", "pipeline/src", "backend/src")
+PRODUCTION = ("engine/src", "pipeline/src", "jobs/src", "backend/src")
 ORCHESTRATOR = "engine/src/chartlens_engine/analysis"
 ASSEMBLY = ("orchestrator.py", "model.py", "serialize.py")
 """The modules that assemble layer outputs. ``canonical.py`` and ``versions.py`` encode

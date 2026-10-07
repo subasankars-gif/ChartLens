@@ -1,6 +1,6 @@
 # ADR-0007: Batch jobs on GitHub-hosted runners behind a CLI
 
-**Status:** Accepted · 2026-09-30
+**Status:** Accepted · 2026-09-30 (the tracked production run and ANALYSIS run as `chartlens-jobs` commands: ADR-0025)
 
 ## Decision
 

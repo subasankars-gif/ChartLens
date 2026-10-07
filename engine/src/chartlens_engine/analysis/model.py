@@ -41,15 +41,23 @@ class _Model(BaseModel):
 
 class AnalysisInputs(_Model):
     """Supplied by the job layer and recorded verbatim. The engine reads no file, so it
-    cannot know these; it never discovers or recomputes them."""
+    cannot know these; it never discovers or recomputes them. Physical provenance (the
+    weekly file's hash) is deliberately absent: it changes every run even when the bars
+    do not, and lives in the analysis manifest (ADR-0025 §1)."""
 
     exchange: str
-    weekly_file_sha256: str
-    """SHA-256 of the security's weekly file the bars were read from (all segments)."""
     weekly_schema_version: str
     weekly_builder_version: str
     usable_from: date | None
     """The security's ``usable_from`` (ADR-0012) in the published data quality."""
+
+
+class InputRecord(AnalysisInputs):
+    """The document's record of its inputs: the supplied ones, plus ``bars_sha256``, the
+    logical identity of the bars, computed by the orchestrator from the frame it was
+    given (never accepted from the caller)."""
+
+    bars_sha256: str
 
 
 class AnalysisIdentity(_Model):
@@ -121,7 +129,7 @@ class SectionProvenance(_Model):
 
 class TechnicalAnalysis(_Model):
     identity: AnalysisIdentity
-    inputs: AnalysisInputs
+    inputs: InputRecord
     versions: AnalysisVersions
     indicators: IndicatorResult
     swings: SwingResult

@@ -59,7 +59,7 @@ def test_queued_running_succeeded_with_stage_timestamps() -> None:
     assert run.current_stage is None and run.error_summary is None
     ingest = run.stage(Stage.INGEST)
     assert (ingest.started_at, ingest.completed_at, ingest.duration_seconds) == (at(2), at(2.5), 30)
-    assert [s.version for s in run.stages] == [f"v{i}" for i in range(6)]
+    assert [s.version for s in run.stages] == [f"v{i}" for i in range(len(STAGES))]
 
 
 def test_queued_running_failed_cancels_the_stages_left() -> None:
@@ -75,6 +75,7 @@ def test_queued_running_failed_cancels_the_stages_left() -> None:
         RunStatus.SUCCEEDED,
         RunStatus.SUCCEEDED,
         RunStatus.FAILED,
+        RunStatus.CANCELLED,
         RunStatus.CANCELLED,
         RunStatus.CANCELLED,
         RunStatus.CANCELLED,
@@ -140,3 +141,34 @@ def test_run_ids_and_error_summaries_are_safe_to_show() -> None:
         assert not valid_run_id(bad)
     summary = one_line("Traceback\n  line 1\n" + "y" * 500)
     assert "\n" not in summary and len(summary) <= 300
+
+
+def test_analysis_runs_between_weekly_and_publication() -> None:
+    from chartlens_core.runs import Stage
+
+    assert STAGES.index(Stage.ANALYSIS) == STAGES.index(Stage.WEEKLY) + 1
+    assert STAGES.index(Stage.PUBLISH_SERVING) == STAGES.index(Stage.ANALYSIS) + 1
+
+
+def test_a_six_stage_record_still_reads_and_a_queued_one_gains_analysis() -> None:
+    """Records written before ANALYSIS existed keep their six stages; a run queued by
+    older code (an API not yet redeployed) gains the stage when it starts."""
+    from datetime import UTC, datetime
+
+    from chartlens_core.runs import RunRecord, Stage, StageRecord, start_run
+
+    now = datetime(2026, 10, 7, tzinfo=UTC)
+    old_stages = [StageRecord(stage=s) for s in STAGES if s != Stage.ANALYSIS]
+    old = RunRecord.model_validate(
+        {
+            "run_id": "run-old",
+            "trigger": "api",
+            "requested_by": "a@b.c",
+            "requested_at": now,
+            "stages": [s.model_dump() for s in old_stages],
+        }
+    )
+    assert old.stage_or_none(Stage.ANALYSIS) is None
+    assert old.stage(Stage.WEEKLY).stage == Stage.WEEKLY
+    started = start_run(old, now, github_run_id="1", github_run_attempt=1)
+    assert [s.stage for s in started.stages] == list(STAGES)

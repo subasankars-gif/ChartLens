@@ -6,7 +6,8 @@ A security's analysis is stored as one **document** and two **event datasets**
 - Every section is the layer's result as Pydantic writes it in JSON mode, unchanged.
 - The ``breakout_events`` section of the document keeps the layer's provenance and, per
   dataset, its schema version, row count and **content hash**: the SHA-256 of the
-  canonical bytes of its rows, in the layer's order. So the document's address pins
+  canonical bytes of its identifying metadata and its rows, in the layer's order
+  (``chartlens_core.canonical.dataset_content_hash``). So the document's address pins
   its events exactly, and the address does not depend on how a Parquet writer lays out
   bytes (the job layer writes the files; their byte hashes live in the manifest).
 - Event rows are the events as the layer produced them, in the layer's order.
@@ -20,7 +21,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Literal
 
-from chartlens_engine.analysis.canonical import canonical_json, content_hash
+from chartlens_core.canonical import DATASET_CONTENT_KEY, canonical_json, dataset_content_hash
 from chartlens_engine.analysis.model import TechnicalAnalysis
 from chartlens_engine.analysis.versions import EVENT_SCHEMA_VERSION
 from chartlens_engine.breakouts.analyzer import BREAKOUTS_VERSION
@@ -52,12 +53,6 @@ class SerializedAnalysis:
     events: dict[Dataset, EventDataset]
 
 
-def event_content_hash(rows: list[JsonObject]) -> str:
-    """The content hash of an event dataset's rows (the job layer and publication
-    recompute it from a written file to validate it)."""
-    return content_hash(rows)
-
-
 def serialize(analysis: TechnicalAnalysis) -> SerializedAnalysis:
     bo = analysis.breakout_events
     identity = analysis.identity
@@ -71,22 +66,22 @@ def serialize(analysis: TechnicalAnalysis) -> SerializedAnalysis:
     }
     events: dict[Dataset, EventDataset] = {}
     for name in DATASETS:
-        digest = event_content_hash(rows[name])
+        identity_meta = {
+            "chartlens.dataset": name,
+            "chartlens.schema_version": EVENT_SCHEMA_VERSION,
+            "chartlens.event_methodology_version": f"breakouts-{BREAKOUTS_VERSION}",
+            "chartlens.source_methodology_version": sources[name],
+            "chartlens.analysis_version": analysis.versions.analysis_version,
+            "chartlens.security_id": identity.security_id,
+            "chartlens.continuity_segment_id": identity.continuity_segment_id,
+            "chartlens.bars_sha256": analysis.inputs.bars_sha256,
+        }
+        digest = dataset_content_hash(identity_meta, rows[name])
         events[name] = EventDataset(
             dataset=name,
             rows=rows[name],
             content_sha256=digest,
-            metadata={
-                "chartlens.dataset": name,
-                "chartlens.schema_version": EVENT_SCHEMA_VERSION,
-                "chartlens.event_methodology_version": f"breakouts-{BREAKOUTS_VERSION}",
-                "chartlens.source_methodology_version": sources[name],
-                "chartlens.analysis_version": analysis.versions.analysis_version,
-                "chartlens.security_id": identity.security_id,
-                "chartlens.continuity_segment_id": identity.continuity_segment_id,
-                "chartlens.weekly_file_sha256": analysis.inputs.weekly_file_sha256,
-                "chartlens.content_sha256": digest,
-            },
+            metadata={**identity_meta, DATASET_CONTENT_KEY: digest},
         )
     document = analysis.model_dump(mode="json", exclude={"breakout_events"})
     document["breakout_events"] = {

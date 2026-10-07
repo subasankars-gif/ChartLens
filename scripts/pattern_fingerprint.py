@@ -48,7 +48,6 @@ try:  # the orchestrator (ADR-0024 phase 6a) exists only on newer commits
 
     INPUTS = AnalysisInputs(
         exchange="NSE",
-        weekly_file_sha256="0" * 64,
         weekly_schema_version="fingerprint",
         weekly_builder_version="fingerprint",
         usable_from=None,

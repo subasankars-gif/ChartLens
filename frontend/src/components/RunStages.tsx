@@ -4,8 +4,10 @@ import type { RunView, StageRecord } from "@/lib/api";
 import { STAGE_ORDER, formatDuration, formatInstant, stageLabel, statusLabel } from "@/lib/operations";
 
 /**
- * A production run's six stages, in order, exactly as the run record has them
- * (ADR-0018). The strip is the run at a glance; the table under it is the evidence.
+ * A production run's stages, in order, exactly as the run record has them (ADR-0018).
+ * Records written before ANALYSIS existed have six stages and are drawn with six; nothing
+ * is invented for a stage the run never had. The strip is the run at a glance; the table
+ * under it is the evidence.
  */
 
 const SEGMENT: Record<StageRecord["status"], string> = {
@@ -18,9 +20,16 @@ const SEGMENT: Record<StageRecord["status"], string> = {
 
 export function StageStrip({ run }: { run: RunView }) {
   const byStage = new Map(run.stages.map((s) => [s.stage, s]));
+  const names = STAGE_ORDER.filter((name) => byStage.has(name));
+  const shown = names.length > 0 ? names : STAGE_ORDER;
   return (
-    <ol className="grid grid-cols-6 gap-1" aria-label="Stages" data-testid="stage-strip">
-      {STAGE_ORDER.map((name) => {
+    <ol
+      className="grid gap-1"
+      style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }}
+      aria-label="Stages"
+      data-testid="stage-strip"
+    >
+      {shown.map((name) => {
         const stage = byStage.get(name);
         const status = stage?.status ?? "QUEUED";
         return (

@@ -1,6 +1,7 @@
-# The production refresh (ADR-0018): the daily chain as one tracked run.
+# The production refresh (ADR-0018, ADR-0025): the daily chain as one tracked run,
+# driven by the job layer (chartlens-jobs).
 #
-#   ingest → corporate actions → adjust → data quality → weekly → publish serving
+#   ingest → corporate actions → adjust → data quality → weekly → analysis → publish serving
 #
 # Started three ways, all recorded in Firestore (runs/{run_id}):
 #   * the ChartLens API (admin "Refresh data"): dispatches with the run_id it created;
@@ -68,7 +69,7 @@ jobs:
           else
             echo "RUN_ID=gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
           fi
-      - run: uv sync --frozen --no-dev --package chartlens-pipeline
+      - run: uv sync --frozen --no-dev --package chartlens-jobs
       - name: Authenticate to GCP (keyless)
         uses: google-github-actions/auth@v2
         with:
@@ -81,16 +82,16 @@ jobs:
           # Re-running a scheduled or manual workflow records a new run (gh-<id>-<attempt>),
           # requested by whoever re-ran it.
           if [ -n "$INPUT_RUN_ID" ]; then
-            uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID"
+            uv run --no-sync chartlens-jobs daily --run-id "$RUN_ID"
           elif [ "$EVENT" = "schedule" ] && [ "$GITHUB_RUN_ATTEMPT" = "1" ]; then
-            uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID" --create \
+            uv run --no-sync chartlens-jobs daily --run-id "$RUN_ID" --create \
               --trigger schedule --requested-by schedule
           else
-            uv run --no-sync chartlens-pipeline daily --run-id "$RUN_ID" --create \
+            uv run --no-sync chartlens-jobs daily --run-id "$RUN_ID" --create \
               --trigger manual --requested-by "github:$ACTOR"
           fi
       - name: Record a run the workflow could not close
         if: always() && job.status != 'success' && env.RUN_ID != ''
         env:
           OUTCOME: ${{ job.status }}
-        run: uv run --no-sync chartlens-pipeline run-finalize --run-id "$RUN_ID" --outcome "$OUTCOME"
+        run: uv run --no-sync chartlens-jobs run-finalize --run-id "$RUN_ID" --outcome "$OUTCOME"

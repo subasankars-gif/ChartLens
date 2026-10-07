@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import inspect
 import json
 import math
@@ -27,6 +26,7 @@ import pytest
 from analysis_chain import context, random_bars, run_chain
 from pydantic import TypeAdapter
 
+from chartlens_core.canonical import dataset_content_hash
 from chartlens_core.config import AnalysisConfig, ChartLensSettings
 from chartlens_core.domain import Timeframe
 from chartlens_engine.analysis import (
@@ -39,8 +39,8 @@ from chartlens_engine.analysis import (
     TechnicalAnalysis,
     analysis_version,
     analyze_security,
+    bars_content_hash,
     canonical_json,
-    event_content_hash,
     serialize,
 )
 from chartlens_engine.analysis.versions import ANALYZER_CLASSES
@@ -48,7 +48,6 @@ from chartlens_engine.breakouts import LevelBreakoutEvent, PatternBreakoutEvent
 
 INPUTS = AnalysisInputs(
     exchange="NSE",
-    weekly_file_sha256="ab" * 32,
     weekly_schema_version="1",
     weekly_builder_version="1",
     usable_from=date(2006, 1, 6),
@@ -228,7 +227,8 @@ def test_every_section_is_for_the_documents_context() -> None:
     assert a.identity.security_id == ctx.security_id
     assert a.identity.continuity_segment_id == ctx.continuity_segment_id
     assert a.versions.data_methodology_hash == ctx.methodology_hash
-    assert a.inputs == INPUTS
+    assert AnalysisInputs(**a.inputs.model_dump(exclude={"bars_sha256"})) == INPUTS
+    assert a.inputs.bars_sha256 == bars_content_hash(bars)
 
 
 def test_identity_reports_a_forming_week() -> None:
@@ -345,7 +345,7 @@ for seed in (0, 6):
     ctx = AnalysisContext(security_id="SEC-EV", timeframe=Timeframe.WEEKLY,
         as_of=bars["bar_date"].iloc[-1].date(), methodology_hash="test",
         continuity_segment_id="SEC-EV@2006-01-06")
-    inputs = AnalysisInputs(exchange="NSE", weekly_file_sha256="ab" * 32,
+    inputs = AnalysisInputs(exchange="NSE",
         weekly_schema_version="1", weekly_builder_version="1", usable_from=date(2006, 1, 6))
     out.append(serialize(analyze_security(bars, ctx, AnalysisConfig(), inputs)).document_sha256)
 print(" ".join(out))
@@ -407,8 +407,7 @@ def test_the_document_pins_its_event_datasets() -> None:
     assert section["analyzer"] == a.breakout_events.analyzer
     for name in DATASETS:
         ds = s.events[name]
-        assert ds.content_sha256 == event_content_hash(ds.rows)
-        assert ds.content_sha256 == hashlib.sha256(canonical_json(ds.rows)).hexdigest()
+        assert ds.content_sha256 == dataset_content_hash(ds.metadata, ds.rows)
         assert section["datasets"][name] == {
             "schema_version": "1",
             "row_count": ds.row_count,
@@ -442,7 +441,7 @@ def test_an_event_change_changes_the_document_address() -> None:
 def test_inputs_change_the_address_and_nothing_else_does() -> None:
     bars = random_bars(500, 0)
     base = serialize(analyse(bars)).document_sha256
-    other = INPUTS.model_copy(update={"weekly_file_sha256": "cd" * 32})
+    other = INPUTS.model_copy(update={"weekly_builder_version": "2"})
     moved = serialize(analyze_security(bars, context(bars), AnalysisConfig(), other))
     assert moved.document_sha256 != base
 
@@ -510,3 +509,55 @@ def test_the_document_carries_its_analytical_provenance() -> None:
     assert v.analysis_methodology_hash == AnalysisConfig().methodology_hash()
     assert [(x.name, x.version) for x in v.analyzers] == list(ANALYZERS)
     assert {v.document_schema_version, v.canonical_serialization_version} == {"1"}
+
+
+# ------------------------------------------------------------------ bars identity (ADR-0025 §1)
+
+
+def test_bars_hash_is_the_hash_of_exactly_what_the_engine_received() -> None:
+    """Computed by the orchestrator from the frame, never accepted from the caller."""
+    bars = random_bars(300, 0)
+    a = analyse(bars)
+    assert a.inputs.bars_sha256 == bars_content_hash(bars)
+    assert "bars_sha256" not in AnalysisInputs.model_fields
+
+
+def test_bars_hash_moves_with_any_bar_value_and_nothing_else() -> None:
+    bars = random_bars(300, 0)
+    base = bars_content_hash(bars)
+    assert bars_content_hash(bars.copy()) == base
+    nudged = bars.copy()
+    nudged.loc[nudged.index[-1], "close"] = float(nudged["close"].iloc[-1]) + 0.01
+    assert bars_content_hash(nudged) != base
+    assert bars_content_hash(bars.iloc[:-1]) != base
+    flagged = bars.assign(is_complete=[True] * (len(bars) - 1) + [False])
+    assert bars_content_hash(flagged) != bars_content_hash(bars.assign(is_complete=True))
+
+
+def test_bars_hash_refuses_what_has_no_canonical_form() -> None:
+    bars = random_bars(50, 0)
+    with pytest.raises(CanonicalError):
+        bars_content_hash(bars.assign(bar_date=bars["bar_date"] + pd.Timedelta(hours=9)))
+    broken = bars.copy()
+    broken.loc[broken.index[3], "volume"] = math.nan
+    with pytest.raises(CanonicalError):
+        bars_content_hash(broken)
+
+
+def test_same_bars_from_a_rewritten_file_give_the_same_address() -> None:
+    """The weekly file's physical bytes are not an input: identical bars, identical
+    supplied inputs → identical document, whatever file they were read from."""
+    bars = random_bars(400, 6)
+    assert (
+        serialize(analyse(bars)).document_sha256 == serialize(analyse(bars.copy())).document_sha256
+    )
+
+
+def test_bars_hash_treats_every_missing_text_marker_as_null() -> None:
+    """pandas may store a missing text value as None, NaN or NA depending on the column's
+    dtype; the identity of the bars must not depend on which."""
+    bars = random_bars(20, 0)
+    as_none = bars.assign(partial_reason=pd.Series([None] * 19 + ["BREAK"], dtype=object))
+    as_nan = bars.assign(partial_reason=pd.Series([math.nan] * 19 + ["BREAK"], dtype=object))
+    as_na = bars.assign(partial_reason=pd.Series([None] * 19 + ["BREAK"], dtype="string"))
+    assert bars_content_hash(as_none) == bars_content_hash(as_nan) == bars_content_hash(as_na)

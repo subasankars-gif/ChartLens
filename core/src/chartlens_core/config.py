@@ -656,6 +656,14 @@ class AnalysisConfig(_Section):
         return _fingerprint({"analysis": self.model_dump(mode="json")})
 
 
+class JobsConfig(_Section):
+    """How the job layer runs (ADR-0025). Outside both methodology hashes: how a stage
+    runs never changes what it computes."""
+
+    analysis_workers: int = Field(default=0, ge=0)
+    """Processes for the ANALYSIS stage; 0 = one per CPU."""
+
+
 class ChartLensSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="CHARTLENS_",
@@ -678,6 +686,7 @@ class ChartLensSettings(BaseSettings):
     identity: IdentityConfig = IdentityConfig()
 
     analysis: AnalysisConfig = AnalysisConfig()
+    jobs: JobsConfig = JobsConfig()
 
     METHODOLOGY_SECTIONS: ClassVar[tuple[str, ...]] = (
         "universe",

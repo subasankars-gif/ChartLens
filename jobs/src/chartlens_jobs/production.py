@@ -1,10 +1,11 @@
-"""The tracked production run: the daily chain, stage by stage (ADR-0018).
+"""The tracked production run: the daily chain, stage by stage (ADR-0018, ADR-0025).
 
-Each stage is one existing pipeline command, called in this process. This module adds
-no pipeline logic. It records each stage's start, end, counts and version, and stops at
-the first failure. Every write goes to the run store, so the record outlives the
-process. Publication is the last stage, so a failed run never reaches the serving
-pointer.
+It lives in the job layer: its stages are the pipeline's commands and the ANALYSIS
+stage, which composes the pipeline's data with the engine. Each stage is called in this
+process; this module adds no pipeline or analytical logic. It records each stage's
+start, end, counts and version, and stops at the first failure. Every write goes to the
+run store, so the record outlives the process. Publication is the last stage, so a
+failed run never reaches the serving pointer.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from chartlens_core.runs import (
 )
 from chartlens_pipeline.runs import RunNotClaimable, RunStore
 
-log = logging.getLogger("chartlens.pipeline.production")
+log = logging.getLogger("chartlens.jobs.production")
 
 
 @dataclass

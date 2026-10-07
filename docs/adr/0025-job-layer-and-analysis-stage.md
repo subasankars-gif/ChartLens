@@ -242,10 +242,18 @@ content is corruption and fails the stage.
 **Documents:** gzip level 6, `mtime=0`, no file name; named by the SHA-256 of the
 uncompressed canonical bytes (ADR-0024 §4.1). Level is physical only.
 
-**Event files (amends ADR-0024 §6):** named by `event_content_sha256`, the SHA-256 of the
-canonical logical rows, the hash the document records: logical identity, stable across
-pyarrow upgrades. The manifest also records `physical_sha256`, the SHA-256 of the
-Parquet bytes: physical integrity, detecting corruption or replacement.
+**Event files (amends ADR-0024 §6):** named by `event_content_sha256`, the hash the
+document records: the canonical SHA-256 of the dataset's **identifying metadata and its
+rows** (`chartlens_core.canonical.dataset_content_hash`; the metadata are amendment D's
+fields, without the content hash itself). Logical identity, stable across pyarrow
+upgrades. The manifest also records `physical_sha256`, the SHA-256 of the Parquet bytes:
+physical integrity, detecting corruption or replacement.
+
+*Found in 6b (the pool-versus-one-process test, intermittently):* hashing the rows alone
+gave every security with no events of a dataset the same address, so they shared one
+file whose metadata named whichever security wrote first, and the recorded byte hash
+depended on the race. The metadata is part of the dataset, so it is part of its
+address; two owners' empty datasets are two files.
 
 - Codec: an explicit Arrow schema per dataset (`date32` dates, `map<string, double>`
   measured values, `list<struct>` history, nullable struct `bar_volume`), zstd, one row
@@ -264,8 +272,9 @@ and only when the stage succeeds:
   `sample_selection_version`;
 - `universe` (sorted ids) and `universe_sha256`;
 - per security: the reuse key, `weekly_file_sha256`, `bars_sha256`, the document hash,
-  and per event dataset the content hash, physical hash and row count; and whether it
-  was computed or reused;
+  and per event dataset the content hash, physical hash and row count. Whether a result
+  was computed or reused is a run fact: it goes to the run record, not the manifest
+  (otherwise a rerun's manifest could not be byte-identical);
 - `analysis_set_hash`: the canonical hash of the entries, by `security_id`.
 
 No timestamp, run id or host: the same inputs give a byte-identical manifest. Run facts

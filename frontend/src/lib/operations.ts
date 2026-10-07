@@ -14,6 +14,7 @@ export const STAGE_ORDER: readonly StageName[] = [
   "ADJUSTMENT",
   "DATA_QUALITY",
   "WEEKLY",
+  "ANALYSIS",
   "PUBLISH_SERVING",
 ];
 
@@ -23,6 +24,7 @@ const STAGE_LABEL: Record<StageName, string> = {
   ADJUSTMENT: "Adjustment",
   DATA_QUALITY: "Data quality",
   WEEKLY: "Weekly bars",
+  ANALYSIS: "Analysis",
   PUBLISH_SERVING: "Publish",
 };
 

@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import hashlib
 
+from chartlens_core.canonical import canonical_json
 from chartlens_core.config import AnalysisConfig
 from chartlens_engine import __version__
-from chartlens_engine.analysis.canonical import canonical_json
 from chartlens_engine.bar_evidence import BAR_VOLUME_VERSION
 from chartlens_engine.breakouts import BreakoutEventAnalyzer
 from chartlens_engine.breakouts.analyzer import BREAKOUTS_VERSION

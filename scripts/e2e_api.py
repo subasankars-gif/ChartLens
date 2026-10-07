@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "pipeline/tests"), str(ROOT / "backend/tests")]
 
 import uvicorn  # noqa: E402
+from chartlens_jobs.production import ProductionRunner, StageResult  # noqa: E402
 from fakes import FakeVerifier, MemoryAppState  # noqa: E402
 from test_adjust import SESSIONS, build_lake  # noqa: E402
 
@@ -42,7 +43,6 @@ from chartlens_core.runs import SnapshotOutcome, Stage  # noqa: E402
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides  # noqa: E402
 from chartlens_pipeline.data_quality import DataQualityService  # noqa: E402
 from chartlens_pipeline.identity import IdentityOverrides  # noqa: E402
-from chartlens_pipeline.production import ProductionRunner, StageResult  # noqa: E402
 from chartlens_pipeline.runs import MemoryRunStore  # noqa: E402
 from chartlens_pipeline.serving import ServingPublisher, ServingSnapshot  # noqa: E402
 from chartlens_pipeline.storage import LocalObjectStore  # noqa: E402

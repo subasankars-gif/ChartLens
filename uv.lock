@@ -13,6 +13,7 @@ members = [
     "chartlens-api",
     "chartlens-core",
     "chartlens-engine",
+    "chartlens-jobs",
     "chartlens-pipeline",
 ]
 
@@ -141,6 +142,7 @@ dependencies = [
     { name = "chartlens-api" },
     { name = "chartlens-core" },
     { name = "chartlens-engine" },
+    { name = "chartlens-jobs" },
     { name = "chartlens-pipeline" },
 ]
 
@@ -161,6 +163,7 @@ requires-dist = [
     { name = "chartlens-api", editable = "backend" },
     { name = "chartlens-core", editable = "core" },
     { name = "chartlens-engine", editable = "engine" },
+    { name = "chartlens-jobs", editable = "jobs" },
     { name = "chartlens-pipeline", editable = "pipeline" },
 ]
 
@@ -237,6 +240,29 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.1" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pydantic", specifier = ">=2.10" },
+]
+
+[[package]]
+name = "chartlens-jobs"
+version = "0.1.0"
+source = { editable = "jobs" }
+dependencies = [
+    { name = "chartlens-core" },
+    { name = "chartlens-engine" },
+    { name = "chartlens-pipeline" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "chartlens-core", editable = "core" },
+    { name = "chartlens-engine", editable = "engine" },
+    { name = "chartlens-pipeline", editable = "pipeline" },
+    { name = "pandas", specifier = ">=2.2" },
+    { name = "pyarrow", specifier = ">=18.0" },
+    { name = "typer", specifier = ">=0.15" },
 ]
 
 [[package]]

@@ -90,8 +90,9 @@ uv run chartlens-pipeline weekly-bars --symbol RELIANCE --as-of 2015-06-30 --all
 uv run chartlens-pipeline publish-serving                             # version-bound snapshot for the API
 uv run poe api                                                        # API on :8080 (needs Firebase config)
 
-# Milestone 7: the tracked production run (ADR-0018)
-uv run chartlens-pipeline daily --run-id local-1 --create             # all six stages, recorded
+# Milestone 7–8: the tracked production run (ADR-0018), in the job layer (ADR-0025)
+uv run chartlens-jobs daily --run-id local-1 --create                 # all seven stages, recorded
+uv run chartlens-jobs analysis                                        # ANALYSIS alone (reuse on)
 ```
 
 Reviewed decisions live in version-controlled files:

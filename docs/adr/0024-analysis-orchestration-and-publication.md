@@ -301,10 +301,10 @@ weekly bars.
 | Item | Decision (with ADR-0022 §19.4) |
 |---|---|
 | Datasets | `pattern_breakouts` and `level_breakouts`: separate schemas, files and validation; never merged |
-| Storage | One Parquet file per security per dataset, immutable: `curated/serving/exchange={EX}/events/{dataset}/{event_content_sha256}.parquet`. *Amended by ADR-0025:* named by the content hash of its rows (logical identity); the manifest also records the SHA-256 of its bytes (physical integrity) |
+| Storage | One Parquet file per security per dataset, immutable: `curated/serving/exchange={EX}/events/{dataset}/{event_content_sha256}.parquet`. *Amended by ADR-0025:* named by the content hash of its identifying metadata and rows (logical identity); the manifest also records the SHA-256 of its bytes (physical integrity) |
 | Security partitioning | Logical, through the manifest (`security_id` → file hash). A path partitioned by `security_id=` would mean rewriting files in place, which schema 2 forbids |
 | Rows | One per event, as the layer produced it, in the layer's order: by `bar_date`, then `event_key` (R3) |
-| Content hash | The SHA-256 of the canonical bytes of the rows (§4). The document records it (R2); publication recomputes it from the file |
+| Content hash | The SHA-256 of the canonical bytes of the identifying metadata and the rows (§4, ADR-0025 §5). The document records it (R2); publication recomputes it from the file |
 | File metadata | dataset, event schema version, event methodology version (`breakouts-N`), source methodology version (`patterns-N` / `levels-N`), `analysis_version`, `security_id`, `continuity_segment_id`, the input weekly file hash, the content hash |
 | Writer | pinned options: explicit schema and column order, zstd, one row group. The bytes are physical only (ADR-0025), so a writer version may change them |
 

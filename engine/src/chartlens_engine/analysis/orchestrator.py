@@ -17,16 +17,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from chartlens_core.canonical import CANONICAL_SERIALIZATION_VERSION
 from chartlens_core.config import AnalysisConfig
 from chartlens_core.domain import Timeframe
 from chartlens_engine import __version__
-from chartlens_engine.analysis.canonical import CANONICAL_SERIALIZATION_VERSION
+from chartlens_engine.analysis.inputs import bars_content_hash
 from chartlens_engine.analysis.model import (
     AnalysisIdentity,
     AnalysisInputs,
     AnalysisVersions,
     CurrentView,
     EvidenceSection,
+    InputRecord,
     NamedVersion,
     SectionProvenance,
     TechnicalAnalysis,
@@ -146,7 +148,7 @@ def analyze_security(
             bar_count=len(ind.bar_dates),
             forming_week_present=any(ind.provisional),
         ),
-        inputs=inputs,
+        inputs=InputRecord(**inputs.model_dump(), bars_sha256=bars_content_hash(bars)),
         versions=AnalysisVersions(
             document_schema_version=DOCUMENT_SCHEMA_VERSION,
             canonical_serialization_version=CANONICAL_SERIALIZATION_VERSION,

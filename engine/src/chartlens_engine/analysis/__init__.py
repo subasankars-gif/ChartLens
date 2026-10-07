@@ -3,18 +3,20 @@
 The orchestrator composes authoritative outputs; it does not reinterpret them.
 """
 
-from chartlens_engine.analysis.canonical import (
+from chartlens_core.canonical import (
     CANONICAL_SERIALIZATION_VERSION,
     CanonicalError,
     canonical_json,
     content_hash,
 )
+from chartlens_engine.analysis.inputs import BARS_ENCODING_VERSION, bars_content_hash
 from chartlens_engine.analysis.model import (
     AnalysisIdentity,
     AnalysisInputs,
     AnalysisVersions,
     CurrentView,
     EvidenceSection,
+    InputRecord,
     SectionProvenance,
     TechnicalAnalysis,
 )
@@ -23,7 +25,6 @@ from chartlens_engine.analysis.serialize import (
     DATASETS,
     EventDataset,
     SerializedAnalysis,
-    event_content_hash,
     serialize,
 )
 from chartlens_engine.analysis.versions import (
@@ -36,6 +37,7 @@ from chartlens_engine.analysis.versions import (
 
 __all__ = [
     "ANALYZERS",
+    "BARS_ENCODING_VERSION",
     "CANONICAL_SERIALIZATION_VERSION",
     "COMPONENTS",
     "DATASETS",
@@ -50,13 +52,14 @@ __all__ = [
     "CurrentView",
     "EventDataset",
     "EvidenceSection",
+    "InputRecord",
     "SectionProvenance",
     "SerializedAnalysis",
     "TechnicalAnalysis",
     "analysis_version",
     "analyze_security",
+    "bars_content_hash",
     "canonical_json",
     "content_hash",
-    "event_content_hash",
     "serialize",
 ]

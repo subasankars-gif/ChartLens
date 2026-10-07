@@ -724,7 +724,7 @@ export interface components {
          * Stage
          * @enum {string}
          */
-        Stage: "INGEST" | "CORPORATE_ACTIONS" | "ADJUSTMENT" | "DATA_QUALITY" | "WEEKLY" | "PUBLISH_SERVING";
+        Stage: "INGEST" | "CORPORATE_ACTIONS" | "ADJUSTMENT" | "DATA_QUALITY" | "WEEKLY" | "ANALYSIS" | "PUBLISH_SERVING";
         /** StageRecord */
         StageRecord: {
             /** Completed At */

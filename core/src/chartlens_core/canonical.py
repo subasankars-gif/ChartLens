@@ -1,4 +1,4 @@
-"""Canonical serialization (ADR-0024 §4, amendment C).
+"""Canonical serialization (ADR-0024 §4, amendment C; in core per ADR-0025).
 
 Content addresses are computed from these bytes, so the encoding is fixed and versioned
 (``CANONICAL_SERIALIZATION_VERSION``):
@@ -23,12 +23,18 @@ belongs to serving, not to the stored form: the stored document stays lossless.
 
 The encoder is the standard library's, pinned by these options; the tests compare it
 with an independent reference encoder written from the rules above.
+
+It lives in ``core`` because the engine (documents), the pipeline (validating stored
+artifacts without importing the engine) and the job layer (reuse keys) all address
+content the same way (ADR-0025). It is generic: it knows JSON values and hashes, and no
+analytical or business rule.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 
 CANONICAL_SERIALIZATION_VERSION = "1"
 
@@ -60,3 +66,16 @@ def canonical_json(value: object) -> bytes:
 def content_hash(value: object) -> str:
     """SHA-256 (hex) of the canonical bytes."""
     return hashlib.sha256(canonical_json(value)).hexdigest()
+
+
+DATASET_CONTENT_KEY = "chartlens.content_sha256"
+"""The metadata key that carries a dataset's content hash; it is never part of the
+hashed metadata itself."""
+
+
+def dataset_content_hash(metadata: Mapping[str, str], rows: Sequence[object]) -> str:
+    """A dataset's logical identity: its identifying metadata and its rows (ADR-0025 §5).
+    Two datasets with the same rows but different owners (say, two securities with no
+    events) are different datasets, so their addresses differ."""
+    identity = {k: v for k, v in metadata.items() if k != DATASET_CONTENT_KEY}
+    return content_hash({"metadata": identity, "rows": list(rows)})

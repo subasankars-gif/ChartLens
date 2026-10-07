@@ -37,6 +37,8 @@ class Stage(StrEnum):
     ADJUSTMENT = "ADJUSTMENT"
     DATA_QUALITY = "DATA_QUALITY"
     WEEKLY = "WEEKLY"
+    ANALYSIS = "ANALYSIS"
+    """Technical analysis of the analytical universe (ADR-0024, ADR-0025)."""
     PUBLISH_SERVING = "PUBLISH_SERVING"
 
 
@@ -134,7 +136,15 @@ class RunRecord(BaseModel):
         return round((self.completed_at - self.started_at).total_seconds(), 1)
 
     def stage(self, stage: Stage) -> StageRecord:
-        return next(s for s in self.stages if s.stage == stage)
+        found = self.stage_or_none(stage)
+        if found is None:
+            raise KeyError(f"run {self.run_id} has no stage {stage}")
+        return found
+
+    def stage_or_none(self, stage: Stage) -> StageRecord | None:
+        """Records written before a stage existed (six-stage runs before ANALYSIS) simply
+        lack it."""
+        return next((s for s in self.stages if s.stage == stage), None)
 
     def last_progress(self) -> datetime:
         return self.heartbeat_at or self.started_at or self.requested_at
@@ -158,12 +168,21 @@ def _with_stage(run: RunRecord, stage: StageRecord, **changes: object) -> RunRec
     return run.model_copy(update={"stages": stages, **changes})
 
 
+def _aligned_stages(stages: list[StageRecord]) -> list[StageRecord]:
+    """The current stage sequence, keeping any record the run already has. A run queued by
+    code that predates a stage (say, the API before ANALYSIS existed) gains it, QUEUED,
+    in its place when it starts."""
+    have = {s.stage: s for s in stages}
+    return [have.get(stage, StageRecord(stage=stage)) for stage in STAGES]
+
+
 def start_run(
     run: RunRecord, now: datetime, *, github_run_id: str | None, github_run_attempt: int | None
 ) -> RunRecord:
     _require(run, RunStatus.QUEUED)
     return run.model_copy(
         update={
+            "stages": _aligned_stages(run.stages),
             "status": RunStatus.RUNNING,
             "started_at": now,
             "heartbeat_at": now,
@@ -175,8 +194,8 @@ def start_run(
 
 def start_stage(run: RunRecord, stage: Stage, now: datetime) -> RunRecord:
     _require(run, RunStatus.RUNNING)
-    index = STAGES.index(stage)
-    if any(s.status != RunStatus.SUCCEEDED for s in run.stages[:index]):
+    ahead = [run.stage_or_none(s) for s in STAGES[: STAGES.index(stage)]]
+    if any(s is None or s.status != RunStatus.SUCCEEDED for s in ahead):
         raise InvalidTransition(f"{stage} cannot start before the stages ahead of it succeed")
     record = run.stage(stage)
     if record.status != RunStatus.QUEUED:

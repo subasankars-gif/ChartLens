@@ -190,6 +190,11 @@ def object_store_from_config(config: StorageConfig) -> ObjectStore:
     return LocalObjectStore(config.local_root)
 
 
+def _require_sha(sha256: str) -> None:
+    if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+        raise StorageError(f"not a SHA-256: {sha256!r}")
+
+
 class DataLakeLayout:
     """Every object key in the lake is built here and nowhere else.
 
@@ -213,6 +218,9 @@ class DataLakeLayout:
         curated/weekly_scan/exchange={EX}/v={version}/part-NNN.parquet (+ _manifest.json)
         curated/serving/exchange={EX}/v={meta_version}/{name}.parquet (+ _manifest.json)
         curated/serving/exchange={EX}/weekly/{sha256}.parquet   immutable weekly copies (ADR-0018)
+        curated/serving/exchange={EX}/analysis/{sha256}.json.gz         analysis (ADR-0025)
+        curated/serving/exchange={EX}/events/{dataset}/{sha256}.parquet breakout events
+        curated/analysis/exchange={EX}/_manifest.json                  latest analysis manifest
 
     Raw keys embed the content hash, so if an exchange re-issues a file for the same
     date, both versions are kept side by side instead of one replacing the other.
@@ -409,9 +417,37 @@ class DataLakeLayout:
     def serving_weekly_key(exchange: str, sha256: str) -> str:
         """An immutable copy of a weekly file, named by its content (ADR-0018). The API
         reads weekly bars only from here, so no later run can change what is served."""
-        if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
-            raise StorageError(f"not a SHA-256: {sha256!r}")
+        _require_sha(sha256)
         return validate_key(f"curated/serving/exchange={exchange.upper()}/weekly/{sha256}.parquet")
+
+    @staticmethod
+    def serving_analysis_prefix(exchange: str) -> str:
+        return f"curated/serving/exchange={exchange.upper()}/analysis/"
+
+    @staticmethod
+    def serving_analysis_key(exchange: str, sha256: str) -> str:
+        """A gzip-compressed analysis document, named by the SHA-256 of its uncompressed
+        canonical bytes (ADR-0024 §4.1, ADR-0025 §5)."""
+        _require_sha(sha256)
+        return validate_key(f"{DataLakeLayout.serving_analysis_prefix(exchange)}{sha256}.json.gz")
+
+    @staticmethod
+    def serving_events_prefix(exchange: str, dataset: str) -> str:
+        if dataset not in ("pattern_breakouts", "level_breakouts"):
+            raise StorageError(f"unknown event dataset {dataset!r}")
+        return f"curated/serving/exchange={exchange.upper()}/events/{dataset}/"
+
+    @staticmethod
+    def serving_events_key(exchange: str, dataset: str, sha256: str) -> str:
+        """An event file, named by the content hash of its rows (ADR-0025 §5)."""
+        _require_sha(sha256)
+        prefix = DataLakeLayout.serving_events_prefix(exchange, dataset)
+        return validate_key(f"{prefix}{sha256}.parquet")
+
+    @staticmethod
+    def analysis_manifest_key(exchange: str) -> str:
+        """The latest complete analysis manifest, written last by the ANALYSIS stage."""
+        return validate_key(f"curated/analysis/exchange={exchange.upper()}/_manifest.json")
 
     @staticmethod
     def serving_manifest_key(exchange: str) -> str:
