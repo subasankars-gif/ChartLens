@@ -362,8 +362,8 @@ class AnalysisManifest(_Model):
     runtime: dict[str, str]
     reuse_key_version: str
     universe_rule_version: str
-    recompute_sample_size: int
-    sample_selection_version: str
+    reuse_validation_sample_size: int
+    reuse_validation_selection_version: str
     universe: list[str]
     universe_sha256: str
     entries: list[AnalysisEntry]

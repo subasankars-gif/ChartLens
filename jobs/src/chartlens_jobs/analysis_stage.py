@@ -81,10 +81,12 @@ from chartlens_pipeline.weekly import bars_from_table
 
 log = logging.getLogger("chartlens.jobs.analysis")
 
-RECOMPUTE_SAMPLE_SIZE: Final = 32
-SAMPLE_SELECTION_VERSION: Final = "1"
-"""Locked verification methodology (ADR-0025 §3.4): recorded in the manifest, not a
-setting, and outside ``analysis_version``."""
+REUSE_VALIDATION_SAMPLE_SIZE: Final = 32
+REUSE_VALIDATION_SELECTION_VERSION: Final = "1"
+"""A locked validation-protocol constant (ADR-0025 §3.4), not a methodology input:
+deterministic, recorded in the manifest, not configurable, outside ``analysis_version``
+and the result identity, and never able to change which results are produced. Raising
+it strengthens the verification; it invalidates no artifact."""
 
 
 class AnalysisStageFailed(RuntimeError):
@@ -378,13 +380,13 @@ class AnalysisSummary:
 
 def sample_of(reused: list[str], weekly_version: str) -> list[str]:
     """ADR-0025 §3.4: the reused securities with the smallest
-    SHA-256(``weekly_version|security_id``), at most ``RECOMPUTE_SAMPLE_SIZE``; chosen from
+    SHA-256(``weekly_version|security_id``), at most ``REUSE_VALIDATION_SAMPLE_SIZE``; chosen from
     the complete reused set, so independent of processing order."""
 
     def rank(sid: str) -> str:
         return hashlib.sha256(f"{weekly_version}|{sid}".encode()).hexdigest()
 
-    return sorted(sorted(set(reused), key=rank)[:RECOMPUTE_SAMPLE_SIZE])
+    return sorted(sorted(set(reused), key=rank)[:REUSE_VALIDATION_SAMPLE_SIZE])
 
 
 class AnalysisStage:
@@ -516,8 +518,8 @@ class AnalysisStage:
             runtime=self.runtime,
             reuse_key_version=REUSE_KEY_VERSION,
             universe_rule_version=UNIVERSE_RULE_VERSION,
-            recompute_sample_size=RECOMPUTE_SAMPLE_SIZE,
-            sample_selection_version=SAMPLE_SELECTION_VERSION,
+            reuse_validation_sample_size=REUSE_VALIDATION_SAMPLE_SIZE,
+            reuse_validation_selection_version=REUSE_VALIDATION_SELECTION_VERSION,
             universe=universe,
             universe_sha256=universe_sha256(universe),
             entries=entries,
@@ -540,8 +542,8 @@ class AnalysisStage:
             "securities": len(universe),
             "computed": summary.computed,
             "reused": summary.reused,
-            "recompute_sample": len(sample),
-            "recompute_mismatches": 0,
+            "reuse_validation_sample": len(sample),
+            "reuse_validation_mismatches": 0,
             "universe_sha256": manifest.universe_sha256[:12],
             "analysis_set_hash": manifest.analysis_set_hash[:12],
             "document_mb_written": summary.document_mb,

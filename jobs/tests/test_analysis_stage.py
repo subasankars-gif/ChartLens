@@ -15,7 +15,7 @@ import pyarrow as pa
 import pytest
 from analysis_lake import EX, Spec, build, manifest, read_bars, republish, with_new_close
 from chartlens_jobs.analysis_stage import (
-    RECOMPUTE_SAMPLE_SIZE,
+    REUSE_VALIDATION_SAMPLE_SIZE,
     AnalysisStage,
     AnalysisStageFailed,
     SecurityOutcome,
@@ -183,7 +183,7 @@ def test_the_pool_gives_the_same_manifest_as_one_process(tmp_path: Path) -> None
 def test_the_sample_is_deterministic_bounded_and_order_free() -> None:
     ids = [f"SEC-{i:04d}" for i in range(200)]
     first = sample_of(ids, "wk-1")
-    assert len(first) == RECOMPUTE_SAMPLE_SIZE == 32
+    assert len(first) == REUSE_VALIDATION_SAMPLE_SIZE == 32
     assert sample_of(list(reversed(ids)), "wk-1") == first
     assert set(first) <= set(ids)
     assert sample_of(ids, "wk-2") != first  # rotates across weekly versions

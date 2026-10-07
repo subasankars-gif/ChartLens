@@ -1,7 +1,8 @@
 # ADR-0025: The job layer and the ANALYSIS stage
 
 **Status:** Accepted · 2026-10-07. Decisions 1–6 approved by Suba with clarifications,
-which are written into the contract below (§3, the frozen part). Builds on ADR-0024,
+which are written into the contract below (§3, the frozen part). Phase 6b **closed**
+2026-10-07 (evidence at the end). Builds on ADR-0024,
 corrects one of its assumptions (§1) and amends its §6 (event file naming).
 
 ADR-0024 fixed what an analysis is, how it is addressed and how it is published. This
@@ -157,9 +158,11 @@ reuses all 3,193.
 It proves: **a deterministic sample of reused results remains byte-identical when
 recomputed from current inputs.** It cannot prove an unsampled security was unaffected.
 
-- **Locked** (stage verification methodology, recorded in the manifest, not a tunable
-  setting and outside `analysis_version`): sample size **32**;
-  `sample_selection_version` 1.
+- **`reuse_validation_sample_size` = 32**, with `reuse_validation_selection_version` 1: a
+  locked validation-protocol constant, not a methodology input. It is deterministic,
+  recorded in the manifest, not configurable, outside `analysis_version` and the result
+  identity, and never able to change which results are produced. Raising it to 64 would
+  strengthen the verification; it would invalidate no artifact.
 - **Selection:** the reused securities with the smallest SHA-256 of
   `weekly_version | security_id`; all reused securities if fewer than 32. Chosen from
   the reused set after all keys are known, so independent of processing order.
@@ -242,6 +245,10 @@ content is corruption and fails the stage.
 **Documents:** gzip level 6, `mtime=0`, no file name; named by the SHA-256 of the
 uncompressed canonical bytes (ADR-0024 §4.1). Level is physical only.
 
+> **Two logically distinct dataset objects must never acquire the same content address
+> merely because their row sets happen to be identical.** Dataset identity is its
+> identifying metadata plus its canonical rows, never the rows alone.
+
 **Event files (amends ADR-0024 §6):** named by `event_content_sha256`, the hash the
 document records: the canonical SHA-256 of the dataset's **identifying metadata and its
 rows** (`chartlens_core.canonical.dataset_content_hash`; the metadata are amendment D's
@@ -269,12 +276,14 @@ and only when the stage succeeds:
 - input versions: `weekly_version`, `dq_version`, `as_of`, data `methodology_hash`;
 - `analysis_version`, `analysis_methodology_hash`, format versions, runtime versions,
   `reuse_key_version`, `universe_rule_version`, recompute sample size and
-  `sample_selection_version`;
+  `reuse_validation_selection_version`;
 - `universe` (sorted ids) and `universe_sha256`;
 - per security: the reuse key, `weekly_file_sha256`, `bars_sha256`, the document hash,
   and per event dataset the content hash, physical hash and row count. Whether a result
   was computed or reused is a run fact: it goes to the run record, not the manifest
-  (otherwise a rerun's manifest could not be byte-identical);
+  (otherwise a rerun's manifest could not be byte-identical). **The analysis manifest
+  says which results constitute the analysis set; the run record says how this run
+  obtained them;**
 - `analysis_set_hash`: the canonical hash of the entries, by `security_id`.
 
 No timestamp, run id or host: the same inputs give a byte-identical manifest. Run facts
