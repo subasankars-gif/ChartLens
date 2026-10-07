@@ -1,0 +1,43 @@
+# Throwaway, read-only towards the lake: census of negative numbers in the real-NSE
+# analysis documents (6e follow-up). Writes only under /tmp. Results → probe-results/pattern-stats.
+name: Pattern stats
+on:
+  push:
+    branches: ["probe/pattern-stats"]
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CHARTLENS_STORAGE__BACKEND: gcs
+      CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+          python-version: "3.12"
+          enable-cache: true
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+      - name: Census
+        run: |
+          mkdir -p /tmp/out
+          git log --oneline -1 > /tmp/out/commit
+          uv sync --frozen --no-dev --all-packages
+          uv run --no-sync python scripts/census_negative_levels.py /tmp/rehearsal /tmp/out > /tmp/out/result.json 2> /tmp/out/log.txt \
+            && echo ok > /tmp/out/status || echo "failed $?" > /tmp/out/status
+          cat /tmp/out/status; head -c 4000 /tmp/out/result.json; tail -5 /tmp/out/log.txt | cut -c1-400
+      - name: Publish
+        if: always()
+        run: |
+          cd /tmp/out
+          git init -q -b probe-results/pattern-stats
+          git -c user.name=stats -c user.email=probe@users.noreply.github.com add -A
+          git -c user.name=stats -c user.email=probe@users.noreply.github.com commit -qm "negative-level census ($GITHUB_RUN_ID)" --allow-empty
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/pattern-stats
