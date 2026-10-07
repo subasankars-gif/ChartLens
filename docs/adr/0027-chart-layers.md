@@ -1,7 +1,8 @@
 # ADR-0027: Chart layers
 
-**Status:** Accepted · 2026-10-07. **Phase 6d CLOSED** (2026-10-07) with two non-blocking
-follow-ups (§10). Review clarifications frozen below (decisions
+**Status:** Accepted · 2026-10-07. **Phase 6d CLOSED** (2026-10-07). Follow-ups (§10):
+10.2 (level knowability) implemented as an accepted as-built correction; 10.1 (spans
+across missing weeks) open. Review clarifications frozen below (decisions
 1–5 approved; the `known_at` ≤ snapshot `as_of` invariant, per-component snapshot
 identity, a declarative `/chart`, and the stricter property tests added). It extends
 ADR-0017 (the faithful-visualization rule) and ADR-0023 (the layer toggles), and builds
@@ -249,13 +250,16 @@ computes a value. Listed so the review can confirm or change them.
    at its own `bar_date` (the engine's causal contract: computed from bars through that
    bar); a trend state at its `since` (the engine's definition: the state as of T is the
    last entry with `since` ≤ T). Both are checked against `as_of` like any `known_at`.
-4. **Spans, all between stored dates:** zones `first_seen` → `levels.state_date`;
-   Fibonacci levels `counter_bar_date` → `fibonacci.state_date` for a structure in
-   `current.fibonacci_ids`, else → its last status entry's date; pattern confirmation and
-   invalidation levels over the pattern's `start_date` → `end_date`; a measured-move zone
-   `target_calculated_at` → the next status entry's `effective_date` (the section's
-   `as_of` for the last); a trend state `since` → the next entry's `since` (the section's
-   `as_of` for the last).
+4. **Spans, all between stored dates** (as amended, §10.2): zones from the later of
+   `first_seen` and the zone's `known_at` → `levels.state_date`; Fibonacci levels from the
+   later of `counter_bar_date` and the structure's `known_at` → `fibonacci.state_date`
+   for a structure in `current.fibonacci_ids`, else → its last status entry's date;
+   pattern confirmation and invalidation levels from the pattern's `known_at` → its next
+   status entry's `effective_date` (the section's `as_of` while there is none); a
+   measured-move zone from the later of `target_calculated_at` and its status entry's
+   `known_at` → the next status entry's `effective_date` (the section's `as_of` for the
+   last); a trend state `since` → the next entry's `since` (the section's `as_of` for the
+   last).
 5. **Indicator lines break at nulls** (a line across a gap would draw values the engine
    did not compute); values at provisional (forming-week) bars are dashed. Oscillator
    reference levels (RSI 30/70 and the like) are not drawn: they are not stored.
@@ -328,7 +332,7 @@ break (overlays only after the break); INDSWFTLTD, delisted, analysis as of its 
 RANEHOLDIN, forming week with an included falling wedge, its stored lines, confirmation
 level, measured-move zone and "recognised" mark; CARYSIL with every layer on.
 
-## 10. Follow-ups recorded at closure (non-blocking; do not reopen 6d)
+## 10. Follow-ups recorded at closure (do not reopen 6d)
 
 ### 10.1 Spans across missing weekly observations
 
@@ -368,8 +372,17 @@ on the fixture; it follows from the engine's definitions, not from the data):
 | Support/resistance zone | `first_seen` → `levels.state_date` | the zone's `known_at` | 2 of 5 begin before `known_at` |
 
 Pattern lines, key points, Fibonacci legs and trendline touches are formation geometry
-(the shape that formed), and stay where they are. The candidate fix keeps every
-coordinate stored and moves only the start of the *level's* visible span to its own
-knowledge date (e.g. a pattern's confirmation level from `known_at` to the end of its
-stored status span), with a regression test that no level is drawn before it was known.
-Proposed as a small, separate amendment for review; not done in 6d.
+(the shape that formed), and stay where they are.
+
+**Amendment accepted and implemented (2026-10-07, before 6e code; an as-built
+correction, not a reopening of 6d).** Rule: `visible_start = later(formation start,
+the object's known_at)`, subject to each object's semantics (§8 item 4): a level is
+authoritative only once known. Every coordinate is still a stored date and value. Level
+primitives (confirmation/invalidation levels, Fibonacci levels, zones, measured-move
+zones) are marked `level`, and placement refuses an object whose level would be drawn
+before its `known_at` (reason `level_before_known`, counted and listed like any refusal).
+A measured-move zone starts at the later of `target_calculated_at` and its status
+entry's `known_at` (a pattern recognised after its breakout has a zone calculated at the
+breakout bar but known later). Regression tests: every rendered level on the real
+fixture starts on or after its object's `known_at`; a level dated earlier is refused;
+formation geometry before `known_at` is still drawn.

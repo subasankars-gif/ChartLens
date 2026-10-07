@@ -377,6 +377,67 @@ describe("known_at: visibility, never geometry", () => {
   });
 });
 
+// --------------------------------------------------------------------------- levels and known_at
+
+describe("a level is never visible before it was known (6d amendment)", () => {
+  const doc = FIXTURE.chart.analysis.document;
+  const run = runLayers(
+    FRAME,
+    doc,
+    { ...ALL_ON, averages: doc.indicators!.series.map((s) => s.name) },
+    FIXTURE.breakouts.rows,
+  );
+
+  it("holds for every rendered level on real engine output", () => {
+    let levels = 0;
+    for (const r of run.results) {
+      for (const d of r.drawn) {
+        for (const p of d.primitives) {
+          if ((p.kind === "path" || p.kind === "box") && p.level) {
+            levels += 1;
+            for (const date of primitiveDates(p)) expect(date >= d.knownAt, `${d.id} ${date} < ${d.knownAt}`).toBe(true);
+          }
+        }
+      }
+    }
+    expect(levels).toBeGreaterThan(50);
+  });
+
+  it("starts pattern levels at the pattern's known_at, Fibonacci levels and zones at the later of formation and known_at", () => {
+    const p = doc.patterns!.patterns.find((x) => x.geometry.confirmation_level !== null || x.geometry.invalidation_level !== null)!;
+    const c = patternCandidates(doc.patterns!, doc.current!, "all").find((x) => x.id === p.pattern_id)!;
+    const levelPaths = c.primitives.filter((x) => x.kind === "path" && x.level);
+    expect(levelPaths.length).toBeGreaterThan(0);
+    for (const x of levelPaths) if (x.kind === "path") expect(x.points[0]!.date).toBe(p.known_at);
+    const f = doc.fibonacci!.structures[0]!;
+    const fc = fibonacciCandidates(doc.fibonacci!, doc.current!, "all").find((x) => x.id === f.fib_id)!;
+    const first = fc.primitives.find((x) => x.kind === "path" && x.level)!;
+    if (first.kind === "path") expect(first.points[0]!.date).toBe(f.known_at > f.counter_bar_date ? f.known_at : f.counter_bar_date);
+    for (const z of doc.levels!.zones) {
+      const box = zoneCandidates(doc.levels!).find((x) => x.id === z.zone_id)!.primitives[0]!;
+      if (box.kind === "box") expect(box.from.date).toBe(z.known_at > z.first_seen ? z.known_at : z.first_seen);
+    }
+  });
+
+  it("refuses an object whose level would be shown before its known_at", () => {
+    const z = doc.levels!.zones[0]!;
+    const early = FIXTURE.chart.weekly.bars.find(
+      (b) => b.continuity_segment_id === FRAME.segmentId && b.last_session_date < z.known_at,
+    )!.last_session_date;
+    const candidate = { ...zoneCandidates(doc.levels!)[0]! };
+    const box = candidate.primitives[0]!;
+    if (box.kind !== "box") throw new Error("not a box");
+    candidate.primitives = [{ ...box, from: { ...box.from, date: early } }];
+    expect(admit(FRAME, "zones", [candidate]).refused[0]?.reason).toBe("level_before_known");
+    // Formation geometry is not a level: a pattern line before known_at is drawn.
+    const p = doc.patterns!.patterns[0]!;
+    const line = patternCandidates(doc.patterns!, doc.current!, "all")
+      .find((x) => x.id === p.pattern_id)!
+      .primitives.find((x) => x.kind === "path" && !x.level)!;
+    if (line.kind === "path") expect(line.points[0]!.date < p.known_at).toBe(true);
+  });
+});
+
 // --------------------------------------------------------------------------- per layer
 
 describe("trendlines: stored points only (decision 1a)", () => {

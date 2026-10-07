@@ -1,8 +1,9 @@
 /**
  * Support/resistance zones and trendlines (levels section).
  *
- * * Zones (current only, by the engine's definition): a band from (`first_seen`,
- *   `price_low`) to (`levels.state_date`, `price_high`).
+ * * Zones (current only, by the engine's definition): a band from (the later of
+ *   `first_seen` and the zone's `known_at`, `price_low`) to (`levels.state_date`,
+ *   `price_high`): a zone is authoritative only once known.
  * * Trendlines (ADR-0027 decision 1a): a line through the stored touches
  *   (`bar_date`, `line_value`) in stored order and, for a line the engine lists in
  *   `active_trendlines`, on to its stored `value` at `levels.state_date`. Any other line
@@ -12,7 +13,7 @@
 
 import { sentence, value4, words } from "./display";
 import type { LevelsSection } from "./document";
-import { admit, at } from "./place";
+import { admit, at, later } from "./place";
 import type { Candidate, Frame, LayerResult } from "./types";
 
 export function zoneCandidates(section: LevelsSection): Candidate[] {
@@ -34,9 +35,10 @@ export function zoneCandidates(section: LevelsSection): Candidate[] {
       {
         kind: "box",
         pane: "price",
-        from: at(z.first_seen, z.price_low),
+        from: at(later(z.first_seen, z.known_at), z.price_low),
         to: at(section.state_date, z.price_high),
         role: z.type === "SUPPORT" ? "support" : "resistance",
+        level: true,
       },
     ],
   }));

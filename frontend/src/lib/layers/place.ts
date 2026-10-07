@@ -9,6 +9,10 @@
  * * **Bars.** Every stored date it would be drawn at must be the `last_session_date` of a
  *   bar of that segment, exactly. A date that is not is never snapped to a nearby bar:
  *   the whole object is refused and counted.
+ * * **Levels.** A level (a confirmation or invalidation level, a Fibonacci level, a zone,
+ *   a measured-move zone) is authoritative only from the object's `known_at`: no date it
+ *   is drawn at may precede that date. Formation geometry (pattern lines, key points,
+ *   legs, touches) stays at its stored formation coordinates.
  * * **Values.** Every value must be a finite stored number.
  *
  * Refused objects are surfaced, never dropped silently.
@@ -69,6 +73,12 @@ function check(frame: Frame, c: Candidate): { reason: RefusalReason; detail: str
     if (known > frame.asOf) return { reason: "known_after_as_of", detail: `known ${known}, as of ${frame.asOf}` };
   }
   for (const p of c.primitives) {
+    if ((p.kind === "path" || p.kind === "box") && p.level) {
+      const early = primitiveDates(p).find((d) => d < (c.knownAt as string));
+      if (early !== undefined) {
+        return { reason: "level_before_known", detail: `level at ${early}, known ${c.knownAt}` };
+      }
+    }
     for (const coord of primitiveCoords(p)) {
       if (typeof coord.value !== "number" || !Number.isFinite(coord.value)) {
         return { reason: "bad_value", detail: `value ${String(coord.value)} at ${coord.date}` };
@@ -93,6 +103,12 @@ export function admit(frame: Frame, layer: LayerId, candidates: readonly Candida
     else drawn.push({ ...c, layer, knownAt: c.knownAt as string });
   }
   return { layer, drawn, refused };
+}
+
+/** The later of two stored ISO dates (a choice between stored dates, not arithmetic):
+ * where a level becomes visible, `later(formation start, known_at)`. */
+export function later(a: string, b: string): string {
+  return a >= b ? a : b;
 }
 
 /** A stored (date, value) pair, unchanged. The only way adapters build coordinates. */

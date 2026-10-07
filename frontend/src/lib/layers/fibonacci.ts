@@ -2,14 +2,15 @@
  * Fibonacci structures (default: the engine's `current.fibonacci_ids`; "all" selects
  * every stored structure). Each is drawn as its stored leg, (`anchor_bar_date`,
  * `anchor_price`) to (`counter_bar_date`, `counter_price`), and each stored level as its
- * stored `price` from `counter_bar_date` to the end of its stored span: the section's
+ * stored `price` from the later of `counter_bar_date` and the structure's `known_at` (a
+ * level is authoritative only once known) to the end of its stored span: the section's
  * `state_date` for a structure the engine lists as current, otherwise the date of its
  * last stored status entry.
  */
 
 import { value4, words } from "./display";
 import type { CurrentSection, FibonacciSection } from "./document";
-import { admit, at } from "./place";
+import { admit, at, later } from "./place";
 import type { Candidate, Frame, LayerResult, Primitive } from "./types";
 
 export type Selection = "current" | "all";
@@ -24,10 +25,11 @@ export function fibonacciCandidates(section: FibonacciSection, current: CurrentS
       const levels: Primitive[] = f.levels.map((l) => ({
         kind: "path",
         pane: "price",
-        points: [at(f.counter_bar_date, l.price), at(end, l.price)],
+        points: [at(later(f.counter_bar_date, f.known_at), l.price), at(end, l.price)],
         role: "fib-level",
         dashed: last?.provisional ?? false,
         label: String(l.ratio),
+        level: true,
       }));
       return {
         id: f.fib_id,

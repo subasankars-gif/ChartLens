@@ -4,10 +4,11 @@
  *
  * * key points at (`bar_date`, `price`), labelled;
  * * lines from (`start_date`, `start_value`) to (`end_date`, `end_value`);
- * * the confirmation and invalidation levels, when stored, over the pattern's own span
- *   (`start_date` to `end_date`);
- * * each stored measured-move zone, `target_low` to `target_high`, from
- *   `target_calculated_at` to the next status entry's `effective_date` (the section's
+ * * the confirmation and invalidation levels, when stored, from the pattern's `known_at`
+ *   (they are authoritative only once the pattern is recognised) to its next stored
+ *   status entry's `effective_date` (the section's `as_of` while there is none);
+ * * each stored measured-move zone, `target_low` to `target_high`, from the later of
+ *   `target_calculated_at` and its status entry's `known_at` to the next status entry's `effective_date` (the section's
  *   `as_of` for the last);
  * * a "recognised" time mark at the pattern's `known_at`.
  *
@@ -17,7 +18,7 @@
 
 import { sentence, value4, words } from "./display";
 import type { CurrentSection, Pattern, PatternsSection } from "./document";
-import { admit, at } from "./place";
+import { admit, at, later } from "./place";
 import type { Candidate, Frame, LayerResult, Primitive } from "./types";
 import type { Selection } from "./fibonacci";
 
@@ -36,24 +37,27 @@ function patternPrimitives(p: Pattern, sectionAsOf: string): Primitive[] {
     });
   }
   const { confirmation_level: confirmation, invalidation_level: invalidation } = p.geometry;
+  const levelEnd = p.status_history[1]?.effective_date ?? sectionAsOf;
   if (confirmation !== null) {
     out.push({
       kind: "path",
       pane: "price",
-      points: [at(p.start_date, confirmation), at(p.end_date, confirmation)],
+      points: [at(p.known_at, confirmation), at(levelEnd, confirmation)],
       role: "pattern-confirmation",
       dashed: true,
       label: "confirmation",
+      level: true,
     });
   }
   if (invalidation !== null) {
     out.push({
       kind: "path",
       pane: "price",
-      points: [at(p.start_date, invalidation), at(p.end_date, invalidation)],
+      points: [at(p.known_at, invalidation), at(levelEnd, invalidation)],
       role: "pattern-invalidation",
       dashed: true,
       label: "invalidation",
+      level: true,
     });
   }
   for (const k of p.geometry.key_points) {
@@ -74,9 +78,12 @@ function patternPrimitives(p: Pattern, sectionAsOf: string): Primitive[] {
     out.push({
       kind: "box",
       pane: "price",
-      from: at(mm.target_calculated_at, mm.target_low),
+      // Visible from when this status entry was known (a pattern recognised after its
+      // breakout has a zone calculated at the breakout bar but known later).
+      from: at(later(mm.target_calculated_at, entry.known_at), mm.target_low),
       to: at(until, mm.target_high),
       role: "measured-move",
+      level: true,
     });
   });
   out.push({ kind: "tick", date: p.known_at, role: "recognised", text: "Recognised" });

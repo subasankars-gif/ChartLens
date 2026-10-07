@@ -64,11 +64,13 @@ export type Role =
   | "evidence";
 
 export type Primitive =
-  /** A polyline through stored points, in the order given; never drawn past its ends. */
-  | { kind: "path"; pane: Pane; points: readonly Coord[]; role: Role; dashed: boolean; label?: string }
+  /** A polyline through stored points, in the order given; never drawn past its ends.
+   * `level`: an analytical level that is authoritative only from the object's
+   * `known_at`, so it is never visible before it (placement enforces this). */
+  | { kind: "path"; pane: Pane; points: readonly Coord[]; role: Role; dashed: boolean; label?: string; level?: true }
   /** A rectangle spanning two stored corners: x from `from.date` to `to.date`, y from
-   * `from.value` to `to.value`. */
-  | { kind: "box"; pane: Pane; from: Coord; to: Coord; role: Role }
+   * `from.value` to `to.value`. `level` as for paths. */
+  | { kind: "box"; pane: Pane; from: Coord; to: Coord; role: Role; level?: true }
   /** A point marker at a stored coordinate. */
   | { kind: "dot"; pane: Pane; at: Coord; role: Role; hollow: boolean; text?: string; above: boolean }
   /** A time-only mark at a stored date (no price: the date is the information). */
@@ -96,7 +98,13 @@ export type Candidate = {
 
 export type Drawn = Candidate & { layer: LayerId; knownAt: string };
 
-export type RefusalReason = "date_not_on_a_bar" | "other_segment" | "known_at_missing" | "known_after_as_of" | "bad_value";
+export type RefusalReason =
+  | "date_not_on_a_bar"
+  | "other_segment"
+  | "known_at_missing"
+  | "known_after_as_of"
+  | "level_before_known"
+  | "bad_value";
 
 export type Refusal = { id: string; layer: LayerId; reason: RefusalReason; detail: string };
 
@@ -115,5 +123,6 @@ export const REFUSAL_TEXT: Record<RefusalReason, string> = {
   other_segment: "it belongs to another continuity segment",
   known_at_missing: "it has no stored known-at date",
   known_after_as_of: "it was known after this snapshot's date",
+  level_before_known: "a level would be shown before the date it became known",
   bad_value: "a stored value is missing or not a number",
 };
