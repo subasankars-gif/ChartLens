@@ -1,12 +1,16 @@
-# Investigation 0001: negative analytical price levels
+# Investigation 0001: analytical price-level outputs outside the valid market-price domain
 
-**Status:** Report for methodology review · 2026-10-07. Read-only. Nothing in ChartLens was
+(Filed as "negative analytical price levels"; retitled at review, §7.)
+
+**Status:** **ACCEPTED FOR METHODOLOGY REVIEW** · 2026-10-07. Split into 0001-A, 0001-B
+and 0001-C (§7); no engine change approved. Read-only. Nothing in ChartLens was
 changed: no analytical behaviour, explanation behaviour, stored value, published
 artifact, 6e, ADR-0028, the claim checker, the API, the chart panel or the publication
 schema.
 
-**Why:** the 6e explanations restated stored values verbatim and made some plainly
-impossible prices readable (ADR-0028 §11; e.g. RANEHOLDIN: a measured-move zone of
+**Why:** the 6e explanations restated stored values verbatim and made readable some
+price levels that fall outside the valid market-price domain, though not outside
+mathematics (ADR-0028 §11; e.g. RANEHOLDIN: a measured-move zone of
 −358.8337 to −234.6086 with the price near 1,536). Suba's instruction: census every
 negative-valued analytical level from the **authoritative analysis documents** (not the
 explanation artifacts), classify, determine the construction behind each, and stop.
@@ -177,3 +181,75 @@ Probe scripts (throwaway branch `probe/pattern-stats`): `scripts/census_negative
 (pass 1, commit 3dfe9fe) and `scripts/census_pass2.py` (pass 2, commit d1a05c3); results
 were pushed to `probe-results/pattern-stats`. Both branches are on the repository
 cleanup list.
+
+## 7. Review outcome (Suba, 2026-10-07)
+
+**Verdict: ACCEPTED FOR METHODOLOGY REVIEW.** None of the §5 options is approved. No
+change to 6e, ADR-0028, explanation artifacts, analysis documents, publication, the API,
+the chart panel, M3 or current engine behaviour.
+
+**Recorded finding:**
+
+> The engine contains mathematically valid linear projections and geometric coordinates
+> that can fall outside the valid market-price domain. This is not, by itself, evidence
+> of an arithmetic defect. Triangle geometry and drawable line extent require separate
+> methodology review.
+
+**Terminology.** The issue is *analytical price-level outputs outside the valid
+market-price domain*, not "negative prices". A negative traded price is impossible in
+the market-price domain; a negative projection is not impossible mathematically. That
+is why the explanation layer was right to report the value. The census also shows the
+explanation layer did not create the behaviour; it surfaced it.
+
+**Decisions by issue:**
+
+| Issue | Decision | Why |
+|---|---|---|
+| Fibonacci extensions outside the domain | no change yet | formula correct; a domain/semantic question |
+| Measured-move zones outside the domain | no change yet | formula correct; triangles reviewed separately |
+| Triangle amplitude | separate methodology question (0001-B) | possibly a genuine pattern-definition issue |
+| Pattern-line coordinates | chart-geometry review (0001-C) | coordinate valid; drawable span may be wrong |
+| Corporate-action correlation | M3 not reopened | not the primary cause; keep the adjusted-span rate as a diagnostic |
+| 6e / explanations | no change | they correctly expose authoritative values |
+
+**Guardrails for the follow-ups.**
+- Exact values are kept. Clamping to zero destroys what the projection was.
+- A share of out-of-domain values (29.8%, 33.9%) is a description, not evidence that a
+  method is wrong.
+- No constraint is added in order to remove awkward outputs. A rule changes only if it
+  fails to implement the definition ChartLens intends.
+
+### 0001-A: Price-domain semantics
+
+Fibonacci extensions, measured-move zones, and any future construct able to produce a
+coordinate outside [0, ∞). Question: *does ChartLens preserve mathematically valid
+projections outside the feasible market-price domain, and how should their domain status
+be represented?* A reusable concept (e.g. `price_domain: IN_DOMAIN | OUTSIDE_DOMAIN`)
+may follow, but nothing is added until the semantics are defined across all level types
+and approved.
+
+### 0001-B: Triangle geometry
+
+Question: *what is the formal definition of a triangle ChartLens intends to implement,
+and does the existing candidate geometry faithfully represent it?* If it does, keep it,
+even where projections cross zero; if not, correct the definition independently of the
+out-of-domain observation. Scope: the width definition (height = width at the first
+defining bar), amplitude relative to price, to ATR and to the base price, duration,
+slope and convergence quality, and `definition_fit`. Method: compare the 537 triangles
+whose zones are outside the domain with the 1,049 that are not, as populations, to decide
+whether the former are the extreme tail of otherwise valid triangles or a qualitatively
+different population. Do not rely on the worst examples alone.
+
+### 0001-C: Drawable line extent
+
+Question: *should a pattern boundary line be drawable before its own first anchor
+touch?* Scope: the pattern's first defining bar against the line's first touch;
+backward extrapolation; 6d rendering; confirmation evaluation (which evaluates the line
+at the deciding bar); and whether changing the drawable extent affects analytical
+identity or only presentation. Decide explicitly whether *geometry* and *drawable span*
+must be separate concepts. This belongs with ADR-0027 (chart geometry) and can be
+evaluated without touching pattern detection.
+
+Each of 0001-A, B and C is a read-only investigation with its own report and review;
+any resulting engine change would need its own approval, a new `analysis_version`, and
+new explanations.
