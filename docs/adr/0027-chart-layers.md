@@ -1,0 +1,197 @@
+# ADR-0027: Chart layers
+
+**Status:** Proposed · 2026-10-07. For review before any code (phase 6d). It extends
+ADR-0017 (the faithful-visualization rule) and ADR-0023 (the layer toggles), and builds
+on ADR-0026 (the analysis API). The weekly chart semantics, segment boundaries,
+`known_at` and layer authority are settled here first; styling comes after.
+
+> **6d may select and render authoritative analytical objects; it must not infer,
+> recompute, rank, merge, or reinterpret them.**
+
+```text
+immutable analysis document ─► API (serves, selects whole sections) ─► frontend
+                                                     (selects objects, maps stored coordinates to pixels)
+```
+
+## 1. What a chart layer is
+
+A chart layer is one of exactly two things:
+
+1. **An existing object of the published `TechnicalAnalysis`**, drawn from its stored
+   fields; or
+2. **A deterministic selection of existing objects** by a stored attribute or an
+   engine-given list: swings of one method and sensitivity; the patterns the engine
+   lists in `current.included_pattern_ids`; the Fibonacci structures in
+   `current.fibonacci_ids`.
+
+A layer is **never** a newly computed analytical object. Nothing in 6d fits, detects,
+tests, extends, interpolates, smooths, scores, ranks, merges or decides.
+
+**Layer authority** (each toggle, its source, and the stored fields that place it):
+
+| Layer | Source (document path) | Placed by (stored fields only) |
+|---|---|---|
+| Candles, volume | `/weekly` bars | `last_session_date`, OHLCV decimals |
+| Moving averages, Bollinger | `indicators.series` (`sma_*`, `ema_*`, `bollinger_*`) | the section's own `bar_dates[i]` with `data[i]`; null = no point |
+| Oscillator pane (RSI, MACD) | `indicators.series` | as above |
+| Swings | `swings.swings` with `method`, `sensitivity` = `swings.primary_method`, `primary_sensitivity` by default | `bar_date`, `price`; `known_at` in the tooltip |
+| Developing extreme | `swings.pending` | `bar_date`, `price`, hollow (never confirmed) |
+| Market structure | `structure.labels`, `structure.events` | labels: `bar_date`, `price`; BOS/CHoCH: `bar_date`, `level`, `known_at` |
+| Trend state | `structure.trend_history` | each entry's `since` to the next entry's `since` (stored dates) |
+| Support/resistance zones | `levels.zones` (current only, by the engine's definition) | `price_low`, `price_high`, from `first_seen` to `levels.state_date` |
+| Trendlines | `levels.trendlines` | the stored touch points (`bar_date`, `line_value`) and, for an active line, `levels.active_trendlines[].value` at `levels.state_date` (§2.2) |
+| Fibonacci | `fibonacci.structures` (default: `current.fibonacci_ids`) | each level's `price`, from `counter_bar_date` to the end of its stored status span |
+| Divergence | `evidence.divergence.divergences` | (`date_start`, `price_1`) to (`date_end`, `price_2`) on price; `indicator_1`, `indicator_2` in the oscillator pane |
+| Patterns | `patterns.patterns` (default: `current.included_pattern_ids`) | `geometry.key_points` (`bar_date`, `price`); `geometry.lines` (`start_date`, `start_value`, `end_date`, `end_value`); confirmation and invalidation levels; the measured-move zone (`target_low`, `target_high` from `target_calculated_at`) |
+| Breakout events | `/breakout-events?source=…` (off by default; level events are many) | `bar_date`, `level_at_break`; follow-ups at their `effective_date` |
+| Volume, volatility, candle evidence | `evidence.volume.events`, `.volatility.events`, `.candles.events` | `bar_date` (markers); candles only when cited (ADR-0023) |
+
+The default chart stays candles and volume only (ADR-0023). The evidence panel lists
+objects in the order the engine stored them; `definition_fit` is shown with its
+components and the wording "definition fit", and is never used to order across families
+(ADR-0022 §18.1).
+
+## 2. Coordinates come from authoritative bars and objects
+
+**Every drawn point is a stored (date, value) pair.** The x coordinate is a stored date
+(`bar_date`, `known_at`, `start_date`, …) mapped to the bar whose `last_session_date`
+equals it; the y coordinate is a stored price, level or value. The frontend never takes
+a date or price from an array position (`bar_index`, `anchor_index` and similar stored
+integers are ignored for drawing).
+
+- Every object is also identified for the reader: `security_id`, segment, and its id
+  (`swing_id`, `pattern_id`, `zone_id`, `event_id`, …) in the tooltip and panel.
+- A stored date that matches no bar of the snapshot is **not drawn** and is counted in a
+  visible "unplaced objects" note, never snapped to the nearest bar. (It should never
+  happen; a real-data test checks it.)
+- Missing weeks: x positions are the bars that exist. The frontend never inserts,
+  removes or interpolates weeks; a week with no bar has no candle. (Drawing visible gaps
+  would need the weekly product to state them; the frontend will not infer a calendar.)
+- Lightweight Charts draws a straight segment between two stored points. That is
+  rendering two authoritative points, not computing a value; a line is never drawn past
+  its last stored point.
+
+### 2.1 What this means for each geometry
+
+- **Pattern lines** are complete: start and end are stored.
+- **Fibonacci levels** are constant prices over a stored span.
+- **Zones** are bands over stored dates.
+- **Trendlines need a decision (decision 1).** The engine stores the first anchor's
+  price, a slope per bar and the touches, but not the second anchor's price or a value
+  at the end of the line's life. Drawing the line to its break or to today would mean
+  the frontend computing `price + slope × bars`.
+
+### 2.2 Trendlines (decision 1)
+
+- **(a) Recommended for 6d: draw only stored points.** The segment runs through the
+  stored touches (first to last), and for an active line on to its stored value at the
+  state date. A broken line ends at its last touch. Nothing is extrapolated, and the
+  drawing never claims more than the engine recorded.
+- **(b) Later, if wanted: an engine amendment.** The levels layer would publish each
+  line's drawable segment (start and end date and value, as pattern lines already do)
+  under a new levels version. That is a methodology change with its own review and
+  recompute, not part of 6d.
+
+## 3. One snapshot per chart: a thin envelope (decision 2)
+
+A chart needs bars and analysis **from the same snapshot**. Two separate requests
+(`/weekly`, then `/analysis`) can straddle a publication and mix snapshots A and B.
+
+Proposed: **`GET /api/v1/securities/{id}/chart?sections=…`**, a thin envelope read from
+one snapshot in one request:
+
+```text
+chart
+ ├── envelope    meta_version, data_as_of, versions, analysis provenance, document_sha256
+ ├── bars        exactly what /weekly returns for the same segments choice
+ └── document    the requested whole sections, exactly what /analysis returns
+```
+
+No new model: `bars` is the `/weekly` payload, `document` is the `/analysis` payload,
+both verbatim. Further sections (as the reader turns layers on) are fetched from
+`/analysis` and accepted only if their `meta_version` equals the chart's; otherwise the
+chart reloads whole. The alternative, comparing `meta_version` across two requests on
+the client, works too but makes every caller responsible for it.
+
+## 4. Time: nothing before it was knowable
+
+**The chart shows the published analysis as of the snapshot's `as_of`, and nothing
+else.** Every object in that document has `known_at` ≤ `as_of`, so nothing in a 6d chart
+is shown before it was knowable. Point-in-time charts (`?as_of`) stay refused (K3).
+
+- **The lag is visible, never hidden.** An object is drawn where it formed (`bar_date`,
+  `start_date`), and it is labelled with when it became known: a swing's tooltip shows
+  its confirmation date; a pattern carries a "recognised" marker at its `known_at`; a
+  BOS/CHoCH is marked at its `known_at`. The chart never implies an object was known at
+  its formation bar.
+- **Status is the stored history, read as stored.** A pattern's, divergence's or
+  Fibonacci structure's displayed status is the last entry of its stored
+  `status_history`, the engine's own definition of current status. It is never derived
+  from prices.
+- **Provisional is shown as provisional**: the forming week is hollow (as today), and
+  objects flagged `provisional` (confirmed by a week closing on a non-regular session)
+  are drawn dashed with that reason.
+
+**Replay is out of 6d (decision 3).** Scrubbing the chart back to a date T would mean
+showing, at T, only objects with `known_at` ≤ T and only the history entries known by T.
+That is a selection by stored fields and would be sound for objects with complete
+histories (swings, structure events, patterns, divergences, breakout events). It is
+**not** sound for state the engine keeps only as of `as_of`: current zones, active
+trendlines, current Fibonacci, current relevance and the trend snapshot have no history
+to filter. A replay that showed today's zones at T would leak the future. So: no replay in
+6d. If it comes later, it either uses published historical analyses or replays only the
+complete-history layers, with the others hidden, under its own review.
+
+## 5. Segments: no structure across a continuity break
+
+- **Analysis covers the current segment only** (K2), so every analytical object belongs
+  to it. The frontend checks each drawn object's `continuity_segment_id` (or, for
+  indicators, the section's context segment) against the current segment and refuses to
+  draw any other, counting it as unplaced.
+- **The default chart is the current segment** (`segments=valid`), so overlays and bars
+  cover the same span.
+- **"All segments" (history) view:** earlier segments are drawn as today: muted, each its
+  own series, with a hatched break band and its cause at every boundary (ADR-0014,
+  ADR-0017). **Analytical overlays are drawn only over the current segment,** and the
+  break band stays visible, so no line, zone, level or indicator ever spans a break, and
+  nothing implies continuous structure across one.
+- `usable_from` equals the current segment's start (ADR-0025); delisted securities show
+  their last segment up to their last bar, with its analysis as of that bar.
+
+## 6. Layer loading and size
+
+Documents average 1.7 MB (5.4 MB at most). The chart first loads `bars` plus the small
+sections (`identity`, `versions`, `current`, `provenance`) and fetches heavier sections
+when their layer is turned on, cached per `meta_version`. Section selection is the API's
+only shaping (ADR-0026 decision 7).
+
+## 7. Testing and checkpoint evidence
+
+- **Adapters are pure** (`frontend/src/lib/layers/*`), one per layer: stored object →
+  chart primitives. A property test for each: **every output coordinate is a stored
+  (date, value) pair of its input object**, so an adapter cannot invent a point.
+- Unplaced objects (no matching bar, another segment) are refused and counted.
+- No adapter reads an array position for drawing (lint rule plus tests).
+- Status and `known_at` labels come from the stored fields (tests).
+- The chart route returns bars and sections from one snapshot, byte-identical to
+  `/weekly` and `/analysis` (API tests); a cross-snapshot section is rejected by the
+  client.
+- End to end: an admin turns layers on, and a fixture pattern renders with its lines,
+  status and "recognised" marker.
+- Screenshots on real data: a security with a continuity break (history view), a
+  delisted security, a forming week, and patterns with their measured-move zones; plus a
+  real-data run of the unplaced-object count (expected 0).
+
+## Decisions for review
+
+1. **Trendlines:** (a) draw only stored points in 6d (touches, plus the stored value at
+   the state date for an active line); (b) an engine amendment for drawable segments
+   later, if wanted.
+2. **A thin `/chart` envelope** reading bars and sections from one snapshot, rather than
+   two requests checked on the client.
+3. **No replay in 6d**, for the reasons in §4.
+4. **Default layer selections** come from the engine: primary swings
+   (`primary_method`/`primary_sensitivity`), included patterns
+   (`current.included_pattern_ids`), current Fibonacci (`current.fibonacci_ids`). The
+   reader may switch to "all" for each, which is still selection by stored attributes.
+5. **Unplaced objects are refused and counted**, never snapped to a nearby bar.

@@ -1,7 +1,7 @@
 # ADR-0026: Schema-3 publication and the analysis API
 
 **Status:** Accepted · 2026-10-07. Decisions 1–8 approved by Suba with clarifications,
-frozen below before any 6c code. It builds on ADR-0024 (§5 publication, §7 API) and
+frozen below before any 6c code. Phase 6c **closed** 2026-10-07 (evidence at the end). It builds on ADR-0024 (§5 publication, §7 API) and
 ADR-0025, and supersedes the storage and API parts of ADR-0023 where stated.
 
 | # | Decision | Clarification (frozen) |
