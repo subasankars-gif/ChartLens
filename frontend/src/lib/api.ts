@@ -29,6 +29,7 @@ export type RefreshAccepted = Schemas["RefreshAccepted"];
 export type ChartResponse = Schemas["ChartResponse"];
 export type AnalysisResponse = Schemas["AnalysisResponse"];
 export type EventsResponse = Schemas["EventsResponse"];
+export type ExplanationResponse = Schemas["ExplanationResponse"];
 
 export type ApiErrorKind =
   | "signed_out"
@@ -131,7 +132,7 @@ export const api = {
   // One chart, one snapshot (ADR-0027 §3): bars and whole analysis sections together.
   chart: (t: TokenSource, id: string, segments: "valid" | "all", sections: readonly string[]) =>
     apiRequest<ChartResponse>(`/securities/${encodeURIComponent(id)}/chart`, t, {
-      query: { segments, sections: sections.join(",") },
+      query: { segments, sections: sections.join(","), explanations: "true" },
     }),
   analysis: (t: TokenSource, id: string, sections: readonly string[]) =>
     apiRequest<AnalysisResponse>(`/securities/${encodeURIComponent(id)}/analysis`, t, {

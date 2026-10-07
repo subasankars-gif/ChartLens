@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { ExplanationPanel } from "@/components/Explanations";
 import { AnalysisPanel, LayerControls } from "@/components/Layers";
 import { WeeklyChart } from "@/components/WeeklyChart";
 import { ApiError, api, type DataQuality, type SecurityDetail } from "@/lib/api";
@@ -138,6 +139,18 @@ function Security() {
           />
         ) : (
           <div className="h-[660px] rounded-lg border border-line bg-surface" />
+        )}
+        {chart?.explanations && (
+          <ExplanationPanel
+            explanation={chart.explanations}
+            focused={focused}
+            onFocus={(target, layer) => {
+              setFocused(target);
+              if (layer && !settings.enabled.has(layer)) {
+                setSettings({ ...settings, enabled: new Set([...settings.enabled, layer]) });
+              }
+            }}
+          />
         )}
         {run && doc && <AnalysisPanel run={run} doc={doc} focused={focused} onFocus={setFocused} />}
       </section>

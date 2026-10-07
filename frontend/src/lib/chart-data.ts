@@ -33,6 +33,13 @@ export function acceptFrom(chartMeta: string, componentMeta: string): void {
 export function checkChart(chart: ChartResponse): void {
   acceptFrom(chart.meta_version, chart.weekly.meta_version);
   if (chart.analysis) acceptFrom(chart.meta_version, chart.analysis.envelope.meta_version);
+  if (chart.explanations) {
+    acceptFrom(chart.meta_version, chart.explanations.envelope.meta_version);
+    // ADR-0028 §6: an explanation is shown only with the document it is bound to.
+    if (chart.analysis && chart.explanations.envelope.document_sha256 !== chart.analysis.envelope.document_sha256) {
+      throw new Error("The explanation is not bound to this chart's analysis document.");
+    }
+  }
 }
 
 export function useChartData(token: TokenSource, id: string, segments: "valid" | "all", settings: LayerSettings) {

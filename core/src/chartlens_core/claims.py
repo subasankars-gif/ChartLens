@@ -82,8 +82,8 @@ TEMPLATES: Final[Mapping[str, str]] = {
     "DATA_CONTEXT_AS_OF": "Weekly analysis as of {as_of}.",
     "FORMING_WEEK": "The last week is still forming, and nothing is confirmed by it.",
     "TREND_STATE": (
-        "Market structure: {state} since {since}, set by a {kind} {direction} on "
-        "{event_date} at the level {level}."
+        "Market structure: {state} since {since}; the last structure event is a {kind} "
+        "{direction} on {event_date} at the level {level}."
     ),
     "TREND_STATE_NO_EVENT": "Market structure: {state} since {since}.",
     "ZONE": (

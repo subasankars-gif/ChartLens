@@ -112,3 +112,28 @@ test("a security outside the analysed universe shows bars and says why", async (
   await expect(page.getByTestId("layer-controls")).toHaveCount(0);
   await expect(page.getByTestId("weekly-chart").locator("canvas").first()).toBeVisible();
 });
+
+test("the explanation panel shows the stored claims, in order, and their facts (ADR-0028)", async ({ page }) => {
+  await signInAs(page, ADMIN);
+  const stored = await apiGet("/securities/SEC-P/explanations");
+  const claims = stored.explanation.claims as { rendered_text: string; claim_type: string; quoted_values: unknown[] }[];
+  expect(claims.length).toBeGreaterThan(3);
+  await page.goto("/security/?id=SEC-P");
+  const shown = page.getByTestId("claims").getByTestId("claim-text");
+  await expect(shown).toHaveCount(claims.length);
+  await expect(shown).toHaveText(claims.map((c) => c.rendered_text)); // verbatim, stored order
+
+  // A pattern claim focuses its pattern and turns the patterns layer on.
+  const index = claims.findIndex((c) => c.claim_type === "PATTERN");
+  expect(index).toBeGreaterThanOrEqual(0);
+  await shown.nth(index).click();
+  await expect(page.getByTestId("layer-patterns")).toBeChecked();
+  await page.waitForLoadState("networkidle");
+  await expect(page.getByTestId("unplaced")).toContainText("0 not drawn");
+
+  // Its facts are the quoted stored values.
+  const claim = page.getByTestId("claims").getByTestId("claim").nth(index);
+  await claim.getByTestId("claim-facts-toggle").click();
+  await expect(claim.getByTestId("claim-facts").locator("tr")).toHaveCount(claims[index]!.quoted_values.length);
+  await page.screenshot({ path: "test-results/m8-explanations.png", fullPage: true });
+});
