@@ -1,8 +1,20 @@
 # ADR-0026: Schema-3 publication and the analysis API
 
-**Status:** Proposed · 2026-10-07. For review before any code (phase 6c). It builds on
-ADR-0024 (§5 publication, §7 API) and ADR-0025, and supersedes the storage and API
-parts of ADR-0023 where stated.
+**Status:** Accepted · 2026-10-07. Decisions 1–8 approved by Suba with clarifications,
+frozen below before any 6c code. It builds on ADR-0024 (§5 publication, §7 API) and
+ADR-0025, and supersedes the storage and API parts of ADR-0023 where stated.
+
+| # | Decision | Clarification (frozen) |
+|---|---|---|
+| 1 | Verbatim copy of the analysis manifest, pinned by hash | the snapshot's summary fields are verified equal to the copy's |
+| 2 | Incremental verification depth | existence-only applies **only** to an address the currently live, previously verified snapshot references; an orphan or any other object gets full verification (§1.3) |
+| 3 | Corrupt objects are repaired, not reused | quarantine the corrupt physical artifact, then recompute and write the expected object; the store is never treated as mutable (§1.4) |
+| 4 | The job layer supplies the expected `analysis_version` | publication never derives or substitutes one (§1.3) |
+| 5 | Schema 3 mandatory | after 6c the live pointer only ever names a schema-3 snapshot (§1.5) |
+| 6 | K7 amendment | the contract is that API serialization preserves the stored value's canonical numeric representation; float round-trips are an implementation check, not the contract (§2.3) |
+| 7 | Whole-section selection only | a requested section means the existing named section, never a filtered one |
+| 8 | Events API as proposed | `source` required; stored-field predicates; content-hash-bound cursor |
+| — | Added | the publication transaction boundary, the commit primitive's semantics, and idempotence (§1.5) |
 
 6b produces immutable candidate artifacts and a complete analysis manifest. 6c decides
 what becomes live, and how the API serves it.
@@ -81,7 +93,7 @@ fact. Any failure raises `PublicationFailed`, and the pointer never moves.
 | # | Check | How |
 |---|---|---|
 | 1 | Inputs in step | the analysis manifest's `weekly_version`, `dq_version`, `as_of` and data `methodology_hash` equal the weekly manifest's (as schema 2 checks weekly against data quality) |
-| 2 | Methodology | `analysis_methodology_hash` equals the settings' (`AnalysisConfig.methodology_hash()`, computable in the pipeline); `analysis_version` equals the expected one, which the job layer supplies (decision 4) |
+| 2 | Methodology | `analysis_methodology_hash` equals the settings' (`AnalysisConfig.methodology_hash()`, the pipeline's own config responsibility); `analysis_version` equals the one the job layer supplies. **The analysis manifest's `analysis_version` must equal the job's expected `analysis_version`; publication never derives or substitutes one** (decision 4) |
 | 3 | Manifest integrity | the manifest parses; its `analysis_set_hash` recomputes from its entries |
 | 4 | Universe set | re-derived from the published data-quality status with `analysis_universe` (pipeline, rule version 1); must equal the manifest's `universe` exactly, and `universe_sha256` must recompute from it |
 | 5 | Coverage | entry ids equal the universe, unique, in order |
@@ -90,25 +102,45 @@ fact. Any failure raises `PublicationFailed`, and the pointer never moves.
 | 8 | Events, logical | each file decodes; its identifying metadata and rows hash to its address (`dataset_content_hash`); its row count equals the entry's |
 | 9 | Events, physical | the SHA-256 of its bytes equals the entry's `physical_sha256` |
 
-**Depth (decision 2).** Checks 7–9 read every object whose address is **not** named by
-the live snapshot: today, about 2,577 documents and 5,154 event files a day (~700 MB).
-An address the live snapshot already names was fully verified when that snapshot was
-published, and is immutable (create-only writes), so it is checked for existence only.
-The alternative, verifying all 3,193 every time, costs more reading, and 6c will measure
-both on real data.
+**Depth (decision 2).** The optimization rests on one boundary:
+
+> **Existence-only applies only when the object's content address is already covered by
+> the currently live, previously verified snapshot.** Any other object, including an
+> orphan that merely exists in the serving store, receives full verification before
+> publication.
+
+"Covered" means named by the analysis manifest copy of the live schema-3 snapshot, and
+that copy is itself verified against the hash the live pointer records before its
+addresses are trusted. Such an object was fully verified when that snapshot was
+published and is immutable (create-only writes). Everything else (today about 2,577
+documents and 5,154 event files a day, ~700 MB) gets checks 7–9 in full. 6c measures
+both paths on real data.
 
 ### 1.4 Missing or corrupted objects
 
 - **At publication:** publication fails before anything is written, naming the
   securities and objects. The old snapshot stays live; the run is FAILED at
   PUBLISH_SERVING.
-- **Recovery must not loop.** Today a corrupted object at an address would be reused by
-  the next ANALYSIS run (reuse checks existence) and fail publication again. **6b
-  amendment (decision 3):** a reuse candidate's artifacts are verified logically
-  (decompress or decode, hash) before reuse; a security whose artifact fails is
-  computed, and the corrupt object (one whose content does not match its own address,
-  so no valid snapshot can be served from it) is deleted and rewritten with the correct
-  content. The run record counts repairs. Nothing else is ever deleted by ANALYSIS.
+- **Recovery must not loop.** Without a check, a corrupted object at an address would be
+  reused by the next ANALYSIS run (reuse checked existence) and fail publication again.
+
+> **A corrupt object must never be reused or published. The job may remove or
+> quarantine the corrupt physical artifact and recompute the expected
+> content-addressed object.**
+
+  **6b amendment (decision 3):** a reuse candidate's artifacts are verified before reuse,
+  logically (decompress or decode, hash to the address) and physically (event bytes
+  hash to the recorded `physical_sha256`). If any check fails:
+
+  1. the corrupt bytes are **quarantined**: copied, unchanged, to
+     `quarantine/serving/exchange={EX}/…/{address}.{sha256 of the corrupt bytes}` and
+     only then removed from the content address;
+  2. the security is computed;
+  3. the expected object is written to its content address (create-only, as always).
+
+  This is the only path that removes an analysis object outside clean-up, and only for
+  an object proven not to match its own address. The store is never updated in place.
+  The run record counts repairs.
 
 ### 1.5 The sequence, and the exact moment the pointer moves
 
@@ -124,15 +156,46 @@ both on real data.
 9. Clean up (separate)          best effort, after the pointer moved (§1.6)
 ```
 
+**The transaction boundary:**
+
+> **Before the live pointer moves, every object and every manifest needed by the new
+> snapshot has been completely verified and written. After the pointer moves, the
+> snapshot is immutable.**
+
 The pointer moves at step 7 and only if steps 1–6 all succeeded. A failure at any step
 before 7 leaves the previous snapshot live; no step before 7 removes or changes anything
-the previous snapshot names.
+the previous snapshot names. Files under `v={meta_version}/` of a snapshot that never
+became live may be rewritten by a retry; once that `meta_version` is live, publication
+returns UNCHANGED before any write, so nothing under it is written again.
+
+**The commit primitive (semantics, not a file operation).** Committing a snapshot is a
+single conditional replacement of one small pointer object
+(`curated/serving/exchange={EX}/_manifest.json`):
+
+- **atomic:** a reader observes the previous pointer or the new one, never a mixture
+  (GCS replaces an object atomically and reads are strongly consistent);
+- **conditional (compare-and-swap):** the replacement succeeds only if the pointer is
+  still the one publication read at its start (GCS generation precondition; a lock
+  and comparison for the local store). If another publisher moved it meanwhile,
+  publication fails with nothing changed rather than overwriting it;
+- **the only live-state change:** everything the new pointer names already exists and
+  is verified.
+
+**Idempotence.** The same analysis manifest, weekly inputs, event objects, metadata and
+schema give the same `meta_version`, so a repeated publication (a same-day rerun, or a
+different job executing the same inputs) is UNCHANGED: no new logical snapshot, no
+write. A process that died between the pointer and the record has its record completed
+by the next UNCHANGED publication.
 
 - **Schema 3 is mandatory once 6c ships** (decision 5). Publication refuses to publish
   without an analysis manifest for this weekly version: a snapshot with bars but no
-  analysis would make analysis vanish from the API. The standalone
-  `chartlens-pipeline publish-serving` therefore needs the ANALYSIS stage to have run;
-  the tracked run always does.
+  analysis would make analysis vanish from the API. After 6c the live pointer only ever
+  names a schema-3 snapshot. Earlier snapshots stay readable as history; while a
+  schema-2 snapshot is still live (before the first schema-3 publication), the analysis
+  routes say so explicitly (`no_analysis_in_snapshot`) and never present it as a current
+  analytical snapshot. The standalone `chartlens-pipeline publish-serving` therefore
+  needs the ANALYSIS stage to have run and the expected `analysis_version`; the tracked
+  run always supplies both.
 
 ### 1.6 Clean-up (garbage collection), a separate concern
 
@@ -217,16 +280,20 @@ values to 4 decimals. R1 (approved) already moved formatting out of the stored f
 Doing it in the API would need a field-by-field map of which values are bar prices and
 which are derived: a second schema of the document, the thing this ADR forbids.
 
-Proposed instead:
+Instead (approved):
 
-- **The API returns stored values exactly** (the canonical JSON numbers).
-- **Bar prices keep their exact decimal digits anyway.** A weekly price is a decimal of
-  at most 15 significant digits (6 decimal places); converting it to a float and back
-  with the shortest round-trip representation returns the same decimal (checked on
-  200,000 random 6-decimal prices; 6c adds a real-data test that every swing and key
-  point price equals its bar's stored decimal).
-- **Rounding derived values to 4 decimals becomes a display rule in the frontend,** next
-  to where it draws them, never a change to served values.
+> **API serialization preserves the stored value's canonical numeric representation.**
+
+- The API writes the selected sections with the canonical encoder, so every number is
+  the stored canonical text (tested: the full `document` re-encodes to the stored
+  bytes).
+- **Rounding derived values to 4 decimals is a display rule in the frontend,** next to
+  where it draws them, never a change to served values. How a client represents numbers
+  (a JavaScript `number`, say) is a presentation-layer concern.
+- Bar prices: a 6-decimal weekly price survives the engine's float with its decimal
+  digits intact today (200,000 random prices; 6c adds a real-data check that swing
+  prices equal their bars' stored decimals). That check validates the current
+  implementation; it is **not** the contract. The contract is the line above.
 
 ### 2.4 Boundaries
 
@@ -250,15 +317,15 @@ does not return it, the chart does not compute it.
   live pointer), with verification timing for both depths in decision 2; the
   real-data K7 check.
 
-## Decisions for review
+## Decisions (as proposed; approved with the clarifications in the table at the top)
 
 1. **The snapshot pins a verbatim copy of the analysis manifest** under its version
    directory; no second listing of the entries.
-2. **Verification depth:** full logical and physical checks for every object not named
-   by the live snapshot; existence only for addresses it already names (immutable, and
-   verified when first published). The alternative is to verify everything, every time.
-3. **6b amendment:** reuse requires the artifacts to verify; a corrupt object is deleted
-   and rewritten correctly, so a corruption cannot fail publication run after run.
+2. **Verification depth:** full logical and physical checks for every object not covered
+   by the live, verified snapshot; existence only for addresses it covers.
+3. **6b amendment:** reuse requires the artifacts to verify; a corrupt object is
+   quarantined and the expected object recomputed and written, so a corruption cannot
+   fail publication run after run.
 4. **The job layer supplies the expected `analysis_version`** to publication (the
    pipeline cannot import the engine to compute it); the pipeline checks
    `analysis_methodology_hash` itself.
