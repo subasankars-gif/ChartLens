@@ -374,9 +374,11 @@ does not return it, the chart does not compute it.
   documents and 5,154 event files), so about 75 s at this rate; reruns are
   existence-only.
 - **K7 implementation check** (validates the current implementation, not the
-  contract): 528,343 swing prices across 300 sampled securities, every one exactly equal
-  (as `Decimal` of the stored float text) to a stored decimal of its bar: high or low for
-  the FRACTAL and ATR methods (236,904), another of the bar's OHLC decimals for the
-  close-based PERCENT and ZIGZAG methods. A first version of this check compared every
-  method with high/low only and reported 61,427 "mismatches"; those were the
-  close-based methods, and the check was wrong, not the values.
+  contract): 528,343 swing prices across 300 sampled securities, and **every one is
+  exactly equal** (as `Decimal` of the stored float text) to one of its bar's stored OHLC
+  decimals; none falls outside them. (FRACTAL, ATR and PERCENT pivot on highs and lows,
+  ZIGZAG on closes. The probe's per-method field expectation was mislabelled for PERCENT
+  and ZIGZAG, so the evidence is the equality with a stored decimal, not the per-field
+  split.) An earlier version of the check compared every method with high/low only and
+  reported 61,427 "mismatches"; those were close-based prices, and the check was wrong,
+  not the values.
