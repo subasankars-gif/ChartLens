@@ -169,6 +169,8 @@ class BreakoutEventAnalyzer:
                         level_source_type=lv.source_type,
                     )
                 )
+        # The layer's own order for both datasets (ADR-0024 §4): by break date, then key.
+        pattern_events.sort(key=lambda e: (e.bar_date, e.event_key))
         level_events.sort(key=lambda e: (e.bar_date, e.event_key))
         return BreakoutResult(
             analyzer=self.name,

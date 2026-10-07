@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import time
 from typing import Any
 
 import pandas as pd
@@ -41,6 +42,19 @@ try:  # the breakout-event layer exists only on newer commits
     from chartlens_engine.breakouts import BreakoutEventAnalyzer
 except ImportError:  # pragma: no cover
     BreakoutEventAnalyzer = None  # type: ignore[assignment,misc]
+
+try:  # the orchestrator (ADR-0024 phase 6a) exists only on newer commits
+    from chartlens_engine.analysis import AnalysisInputs, analyze_security, serialize
+
+    INPUTS = AnalysisInputs(
+        exchange="NSE",
+        weekly_file_sha256="0" * 64,
+        weekly_schema_version="fingerprint",
+        weekly_builder_version="fingerprint",
+        usable_from=None,
+    )
+except ImportError:  # pragma: no cover
+    analyze_security = None  # type: ignore[assignment]
 
 
 def strip(obj: Any) -> Any:
@@ -96,6 +110,15 @@ def main() -> None:
     patterns = breakouts = 0
     classes: dict[str, int] = {}
     level_hash: dict[str, str] = {}
+    docs: dict[str, Any] = {
+        "hashes": {},
+        "bytes": [],
+        "event_rows": 0,
+        "analyze_s": 0.0,
+        "serialize_s": 0.0,
+        "recomputed": 0,
+        "mismatches": 0,
+    }
     scale: dict[str, Any] = {
         "level_events": [],
         "pattern_events": [],
@@ -118,28 +141,46 @@ def main() -> None:
             methodology_hash="fingerprint",
             continuity_segment_id=seg,
         )
-        ind = run_analyzer(IndicatorAnalyzer(cfg.indicators), frame, ctx)
-        sw = run_analyzer(SwingAnalyzer(cfg.swings, ind), frame, ctx)
-        st = run_analyzer(StructureAnalyzer(cfg.structure, ind, sw), frame, ctx)
-        fib = run_analyzer(FibonacciAnalyzer(cfg.fibonacci, ind, sw), frame, ctx)
-        lv = run_analyzer(LevelsAnalyzer(cfg.levels, ind, sw, st, fib), frame, ctx)
-        div = run_analyzer(DivergenceAnalyzer(cfg.divergence, ind, sw, st), frame, ctx)
-        vty = run_analyzer(VolatilityAnalyzer(cfg.volatility, ind), frame, ctx)
-        pat = run_analyzer(
-            PatternAnalyzer(
-                cfg.patterns,
-                ind,
-                sw,
-                structure=st,
-                levels=lv,
-                fibonacci=fib,
-                divergence=div,
-                volatility=vty,
-            ),
-            frame,
-            ctx,
-        )
-        rel = run_analyzer(RelevanceAnalyzer(cfg.patterns, ind, pat, st), frame, ctx)
+        bo = None
+        if analyze_security is not None:
+            t0 = time.perf_counter()
+            a = analyze_security(frame, ctx, cfg, INPUTS)
+            t1 = time.perf_counter()
+            stored = serialize(a)
+            t2 = time.perf_counter()
+            lv, pat, rel, bo = a.levels, a.patterns, a.relevance, a.breakout_events
+            docs["hashes"][sid] = stored.document_sha256
+            docs["bytes"].append(len(stored.document))
+            docs["event_rows"] += sum(d.row_count for d in stored.events.values())
+            docs["analyze_s"] += t1 - t0
+            docs["serialize_s"] += t2 - t1
+            if len(docs["bytes"]) % 50 == 1:  # determinism on real data, every 50th security
+                again = serialize(analyze_security(frame, ctx, cfg, INPUTS)).document_sha256
+                docs["recomputed"] += 1
+                docs["mismatches"] += again != stored.document_sha256
+        else:
+            ind = run_analyzer(IndicatorAnalyzer(cfg.indicators), frame, ctx)
+            sw = run_analyzer(SwingAnalyzer(cfg.swings, ind), frame, ctx)
+            st = run_analyzer(StructureAnalyzer(cfg.structure, ind, sw), frame, ctx)
+            fib = run_analyzer(FibonacciAnalyzer(cfg.fibonacci, ind, sw), frame, ctx)
+            lv = run_analyzer(LevelsAnalyzer(cfg.levels, ind, sw, st, fib), frame, ctx)
+            div = run_analyzer(DivergenceAnalyzer(cfg.divergence, ind, sw, st), frame, ctx)
+            vty = run_analyzer(VolatilityAnalyzer(cfg.volatility, ind), frame, ctx)
+            pat = run_analyzer(
+                PatternAnalyzer(
+                    cfg.patterns,
+                    ind,
+                    sw,
+                    structure=st,
+                    levels=lv,
+                    fibonacci=fib,
+                    divergence=div,
+                    volatility=vty,
+                ),
+                frame,
+                ctx,
+            )
+            rel = run_analyzer(RelevanceAnalyzer(cfg.patterns, ind, pat, st), frame, ctx)
         patterns += len(pat.patterns)
         breakouts += sum(
             e.status in ("CONFIRMED", "RECOGNISED_AFTER_BREAKOUT")
@@ -153,12 +194,11 @@ def main() -> None:
                     key = str(v.classification)
                     classes[key] = classes.get(key, 0) + 1
         level_hash[sid] = hashlib.sha256(canonical_levels(lv).encode()).hexdigest()
-        if BreakoutEventAnalyzer is not None:
-            import time
-
+        if bo is None and BreakoutEventAnalyzer is not None:
             t0 = time.perf_counter()
-            bo = run_analyzer(BreakoutEventAnalyzer(cfg, ind, lv, pat), frame, ctx)
+            bo = run_analyzer(BreakoutEventAnalyzer(cfg, ind, lv, pat), frame, ctx)  # pyright: ignore[reportPossiblyUnbound]
             scale["seconds"] += time.perf_counter() - t0
+        if bo is not None:
             scale["level_events"].append(len(bo.level_events))
             scale["pattern_events"].append(len(bo.pattern_events))
             for key, events in (("level", bo.level_events), ("pattern", bo.pattern_events)):
@@ -182,9 +222,32 @@ def main() -> None:
                 "p90": xs[int(len(xs) * 0.9)],
                 "max": xs[-1],
             }
-        scale["ms_per_security"] = round(1000 * scale.pop("seconds") / max(len(per), 1), 2)
+        seconds = scale.pop("seconds")
+        if seconds:  # timed here only when the layers are composed by hand
+            scale["ms_per_security"] = round(1000 * seconds / max(len(per), 1), 2)
     else:
         scale = {}
+    analysis: dict[str, Any] = {}
+    if docs["bytes"]:
+        xs = sorted(docs["bytes"])
+        n_docs = len(xs)
+        analysis = {
+            "documents_overall": hashlib.sha256(
+                json.dumps(sorted(docs["hashes"].items())).encode()
+            ).hexdigest(),
+            "document_mb": {
+                "total": round(sum(xs) / 1e6, 1),
+                "mean": round(sum(xs) / n_docs / 1e6, 3),
+                "median": round(xs[n_docs // 2] / 1e6, 3),
+                "p90": round(xs[int(n_docs * 0.9)] / 1e6, 3),
+                "max": round(xs[-1] / 1e6, 3),
+            },
+            "event_rows": docs["event_rows"],
+            "ms_analyze_per_security": round(1000 * docs["analyze_s"] / n_docs, 1),
+            "ms_serialize_per_security": round(1000 * docs["serialize_s"] / n_docs, 1),
+            "recomputed": docs["recomputed"],
+            "recompute_mismatches": docs["mismatches"],
+        }
     print(
         json.dumps(
             {
@@ -196,6 +259,7 @@ def main() -> None:
                 "levels_overall": levels_overall,
                 "per_security_levels": level_hash,
                 "breakout_scale": scale,
+                "analysis": analysis,
                 "per_security": per,
             }
         )

@@ -649,6 +649,12 @@ class AnalysisConfig(_Section):
     patterns: PatternsConfig = PatternsConfig()
     breakouts: BreakoutsConfig = BreakoutsConfig()
 
+    def methodology_hash(self) -> str:
+        """The ``analysis_methodology_hash`` of these settings: the same fingerprint as
+        :meth:`ChartLensSettings.analysis_methodology_hash`, computable by the engine,
+        which receives only this section (ADR-0024)."""
+        return _fingerprint({"analysis": self.model_dump(mode="json")})
+
 
 class ChartLensSettings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -717,7 +723,7 @@ class ChartLensSettings(BaseSettings):
     def analysis_methodology_hash(self) -> str:
         """Fingerprint of the analysis settings only: an analysis threshold never changes
         ``methodology_hash``, and a data setting never changes this one."""
-        return _fingerprint(self.analysis_methodology())
+        return self.analysis.methodology_hash()
 
 
 def _fingerprint(payload: dict[str, object]) -> str:

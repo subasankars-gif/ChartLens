@@ -1,6 +1,6 @@
 # ADR-0001: Technology stack and repository layout
 
-**Status:** Accepted · 2026-09-30
+**Status:** Accepted · 2026-09-30 (dependency graph amended by ADR-0024: the job layer)
 
 ## Decision
 
@@ -22,17 +22,21 @@
 ### Package dependency rule
 
 ```
-core  ←  engine
-  ↑
-pipeline
-  ↑
-api  →  engine, pipeline, core
+core ◄── engine          core ◄── pipeline
+            ▲                        ▲
+            └──────── jobs ──────────┘
+                        ▲
+                     backend (api)
 ```
 
 * `core` imports no other ChartLens package and no I/O client.
 * `engine` imports only `core`; it never reads the clock (`as_of` is always passed in).
-* `pipeline` never imports `engine`. Orchestration that needs both (run the engine
-  after building bars) lives in the job layer introduced in Milestone 7.
+* `pipeline` never imports `engine`.
+* `jobs` (`chartlens_jobs`, ADR-0024) orchestrates work that needs both, such as the
+  tracked production run and its ANALYSIS stage. It may import `engine` and
+  `pipeline`; neither may import `jobs`.
+* `backend` serves. It reads the published snapshot only (ADR-0016) and never imports
+  the engine.
 
 Enforced statically by `tests/test_layer_boundaries.py`.
 

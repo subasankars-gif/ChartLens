@@ -146,7 +146,7 @@ def test_structure_consumes_swings_and_never_finds_pivots() -> None:
             assert forbidden not in text, f"{py.name}: {forbidden}"
 
 
-LATER_LAYERS = ("fibonacci", "levels", "evidence", "patterns", "breakouts")
+LATER_LAYERS = ("fibonacci", "levels", "evidence", "patterns", "breakouts", "analysis")
 METHOD_NAMES = ('"ATR"', '"FRACTAL"', '"PERCENT"', '"ZIGZAG"', '"INTERMEDIATE"', '"MAJOR"')
 
 
@@ -165,8 +165,105 @@ def test_later_layers_consume_structure_and_never_rederive_it(layer: str) -> Non
             for m, names in imported
             if m.startswith("chartlens_engine")
             for n in names
-            if n.startswith("_")
+            if n.startswith("_") and not n.startswith("__")
         ]
         assert not private, f"{py.name}: {private}"
         for forbidden in (*METHOD_NAMES, "fractal(", "zigzag(", '"BOS"', '"CHoCH"'):
             assert forbidden not in text, f"{py.name}: {forbidden}"
+
+
+# ----------------------------------------------------------------------------- ADR-0024
+
+PRODUCTION = ("engine/src", "pipeline/src", "backend/src")
+ORCHESTRATOR = "engine/src/chartlens_engine/analysis"
+ASSEMBLY = ("orchestrator.py", "model.py", "serialize.py")
+"""The modules that assemble layer outputs. ``canonical.py`` and ``versions.py`` encode
+and hash bytes; they read no analytical value."""
+NUMERIC = {"numpy", "pandas", "math", "statistics", "decimal", "fractions", "scipy", "cmath"}
+ARITHMETIC = (
+    ast.Add,
+    ast.Sub,
+    ast.Mult,
+    ast.Div,
+    ast.FloorDiv,
+    ast.Mod,
+    ast.Pow,
+    ast.MatMult,
+)
+ORDERING = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+SELECTING = {"sorted", "sort", "min", "max", "sum", "round", "abs", "filter", "model_copy"}
+
+
+def _calls(tree: ast.AST) -> list[str]:
+    names: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Name):
+                names.append(f.id)
+            elif isinstance(f, ast.Attribute):
+                names.append(f.attr)
+    return names
+
+
+def test_only_the_orchestrator_instantiates_analyzers() -> None:
+    """ADR-0024 §1: no layer constructs or calls another layer, and no production code
+    composes layers except ``chartlens_engine.analysis`` (tests and scripts may)."""
+    offenders: list[str] = []
+    for root in PRODUCTION:
+        for py in (ROOT / root).rglob("*.py"):
+            rel = str(py.relative_to(ROOT))
+            if rel.startswith(ORCHESTRATOR):
+                continue
+            tree = ast.parse(py.read_text(), filename=rel)
+            offenders += [f"{rel}: {n}()" for n in _calls(tree) if n.endswith("Analyzer")]
+    assert not offenders, offenders
+    orchestrator = ast.parse((ROOT / ORCHESTRATOR / "orchestrator.py").read_text())
+    assert sum(n.endswith("Analyzer") for n in _calls(orchestrator)) == 12
+
+
+@pytest.mark.parametrize("module", ASSEMBLY)
+def test_the_orchestrator_contains_no_analytics(module: str) -> None:
+    """Amendment A: assembly may reference layer outputs but never transform, score,
+    reinterpret, filter or recalculate them. So these modules import no numeric library
+    at run time, do no arithmetic, make no ordering comparison, filter no comprehension,
+    and call nothing that sorts, selects, aggregates or rewrites a layer's object."""
+    path = ROOT / ORCHESTRATOR / module
+    tree = ast.parse(path.read_text(), filename=str(path))
+    type_checking = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.If) and isinstance(n.test, ast.Name) and n.test.id == "TYPE_CHECKING"
+    ]
+    guarded = {id(x) for block in type_checking for x in ast.walk(block)}
+    runtime_imports = {
+        name.split(".")[0]
+        for n in ast.walk(tree)
+        if id(n) not in guarded
+        for name in (
+            [a.name for a in n.names]
+            if isinstance(n, ast.Import)
+            else [n.module or ""]
+            if isinstance(n, ast.ImportFrom)
+            else []
+        )
+    }
+    assert not runtime_imports & NUMERIC, runtime_imports & NUMERIC
+    arithmetic = [
+        ast.dump(n)
+        for n in ast.walk(tree)
+        if (isinstance(n, ast.BinOp) and isinstance(n.op, ARITHMETIC))
+        or isinstance(n, ast.AugAssign)
+    ]
+    assert not arithmetic, arithmetic
+    ordering = [
+        ast.dump(n)
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Compare) and any(isinstance(op, ORDERING) for op in n.ops)
+    ]
+    assert not ordering, ordering
+    filtered = [
+        ast.dump(g) for n in ast.walk(tree) if isinstance(n, ast.comprehension) for g in n.ifs
+    ]
+    assert not filtered, filtered
+    assert not set(_calls(tree)) & SELECTING, set(_calls(tree)) & SELECTING

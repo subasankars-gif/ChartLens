@@ -117,21 +117,27 @@ July 2023) has no 200-week SMA. That is the methodology, not missing data.
   - A result is identified by (`analysis_version`, `weekly_version` of its input, its
     security and segment). Changing a definition without changing a version is a bug;
     the golden tests catch it.
-- **Every result records:** `as_of`, `analysis_version`, `analysis_methodology_hash`,
-  the data `methodology_hash`, `weekly_version`, `data_version`, the serving
-  `meta_version` it was published in, and the engine and analyzer versions.
-  `analysis_timestamp` is the publication time recorded by the pipeline. It is never
-  read inside the engine.
+- **Every result records** its analytical provenance: `as_of`, `analysis_version`,
+  `analysis_methodology_hash`, the data `methodology_hash`, the weekly input file hash,
+  and the engine and analyzer versions. *Amended by ADR-0024 (decision 3):* the serving
+  `meta_version`, `weekly_version` and the publication time are not in the result,
+  because they would break content addressing; the snapshot records them and API
+  responses carry them. Nothing time-dependent is ever read inside the engine.
 
 ## Where it runs (K3, K9)
 
-- **Precomputed in the pipeline.** A new tracked stage, `ANALYSIS`, runs between
-  `WEEKLY` and `PUBLISH_SERVING` (amends ADR-0018: seven stages). For each security it:
+- **Precomputed in a tracked stage.** *Amended by ADR-0024 (decision 1):* the
+  production run is orchestrated by the job layer (`chartlens_jobs`); ANALYSIS is a
+  tracked job stage that consumes the weekly-build output and invokes the pure engine
+  orchestrator. It runs between `WEEKLY` and `PUBLISH_SERVING` (amends ADR-0018: seven
+  stages). It is not part of the pipeline, which never imports the engine. For each
+  security it:
   - reads the valid-segment weekly bars from the weekly files;
   - runs the engine;
   - writes the result.
 
-  A result is reused when its key (weekly file hash, `analysis_version`) is unchanged.
+  A result is reused when its key (weekly file hash, `analysis_version`, document format
+  versions) is unchanged (ADR-0024 §3).
 - **Published with the snapshot.** Results are content-addressed and published with the
   serving snapshot (ADR-0023), so the API serves analysis exactly as it serves bars:
   only what the pointer names.

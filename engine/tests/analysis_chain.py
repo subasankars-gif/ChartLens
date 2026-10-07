@@ -1,5 +1,11 @@
-"""Test helper: run layers A–F in order, as the orchestrator will (ADR-0019), and collect
-every object that carries ``known_at`` for the causal-composition checks."""
+"""Test helper: run every layer in the orchestrator's order, with hand-placed swings when a
+test needs them, and collect every object that carries ``known_at`` for the
+causal-composition checks.
+
+Production composes the layers only through ``chartlens_engine.analysis.analyze_security``.
+This chain exists so unit tests can inject swings and keep rejected-candidate
+diagnostics; ``test_analysis_orchestrator`` asserts that, without those, it is exactly
+the orchestrator's composition."""
 
 from __future__ import annotations
 
@@ -75,6 +81,7 @@ def run_chain(
     bars: pd.DataFrame,
     cfg: AnalysisConfig | None = None,
     swings: SwingResult | None = None,
+    diagnostics: bool = True,
 ) -> Chain:
     cfg = cfg or AnalysisConfig()
     ctx = context(
@@ -99,7 +106,7 @@ def run_chain(
             fibonacci=fib,
             divergence=div,
             volatility=vty,
-            diagnostics=True,
+            diagnostics=diagnostics,
         ),
         bars,
         ctx,
