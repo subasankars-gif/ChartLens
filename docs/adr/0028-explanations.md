@@ -211,3 +211,46 @@ against (ADR-0024 §9); an LLM never produces or decides an analytical fact.
 
 Prerequisite done before 6e code: the 6d level-visibility amendment (ADR-0027 §10.2).
 Not in 6e: ADR-0027 §10.1 (spans across missing weeks), channels, replay.
+
+## 10. As built (6e)
+
+Choices made while building, each within the clarifications; listed for the review.
+
+1. **Where the code lives.** `chartlens_core.claims` holds the claim model, the template
+   set (21 templates), the renderer, the resolver (RFC 6901 pointers) and the validator;
+   `chartlens_engine.explain` only selects subjects and fields; the ANALYSIS stage
+   (`chartlens_jobs`) generates, validates and writes; the publisher validates new
+   objects with the same `validate`; the API serves verbatim. No layer re-implements
+   another's check.
+2. **One claim per stored aspect.** A pattern gives `PATTERN` (type, formation span,
+   recognition date, last status), then one claim each for its stored confirmation and
+   invalidation condition, its latest stored measured-move zone, its definition fit and
+   each relevance tag; a Fibonacci structure gives one claim plus one per stored level; a
+   reversed zone adds `ZONE_ROLE_REVERSED`; a forming last week adds `FORMING_WEEK`.
+   Short sentences keep every number traceable to one quoted value.
+3. **Conditions:** the stored level when there is one, otherwise the stored boundary line
+   the pattern names (by its endpoints), otherwise nothing. When the engine stores both a
+   level and a line, only the level is quoted.
+4. **Display kinds:** stored swing prices (Fibonacci anchors, a structure event's level)
+   are rendered as their exact stored text; zone bounds, line values, Fibonacci level
+   prices and measured-move bounds (derived values) to 4 decimals; dates as ISO text;
+   stored codes as lower-case words (`STRONG_DOWNTREND` → "strong downtrend"), event kinds
+   verbatim (BOS, CHoCH). The renderer upper-cases the first character of a sentence.
+5. **`known_at` and `provisional` are themselves quoted values** (named so), so they are
+   resolved and checked like any other fact; a trend state's knowability is its `since`
+   (ADR-0027 §8.3).
+6. **Static guards:** templates hold no digit and no forbidden word (test); the explain
+   module imports no numeric library, sorts or aggregates nothing, makes no ordering
+   comparison, and its only arithmetic is the position of a stored list's last entry
+   (`_last`, test).
+7. **Review finding fixed during 6e:** the first trend template read "… since {since},
+   set by a {kind} …". On data where the state changed after its last structure event
+   (the engine records the last event, not a causal link), that wording implied a cause
+   the analysis does not state. It now reads "… since {since}; the last structure event
+   is a {kind} {direction} on {date} at the level {level}." — exactly the stored
+   `last_event_id`.
+8. **Serving:** the chart requests the explanation with every `/chart` call
+   (`explanations=true`; one small object) and refuses one that is not bound to the
+   chart's own document or snapshot. The panel shows the claims verbatim, in order; a
+   claim's "Facts" lists each quoted value with its document pointer; pointing at a claim
+   focuses the drawn object it is about and turns that layer on.
