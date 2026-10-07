@@ -282,6 +282,7 @@ def test_the_orchestrator_contains_no_analytics(module: str) -> None:
 
 API_ANALYSIS = (
     "backend/src/chartlens_api/routers/analysis.py",
+    "backend/src/chartlens_api/routers/chart.py",
     "backend/src/chartlens_api/lake.py",
 )
 NEVER_IN_SERVING = {"sorted", "sort", "min", "max", "sum", "round", "rank", "nlargest", "nsmallest"}
@@ -297,3 +298,6 @@ def test_the_analysis_api_never_sorts_ranks_or_computes(module: str) -> None:
     text = path.read_text()
     for word in ("definition_fit", "fit_rank", "relevance_score", "chartlens_engine"):
         assert word not in text, word
+    # ADR-0027 §3: the request is declarative; no analytical-sounding parameters.
+    for word in ("sensitivity", "confidence", "best", "strong", "major", "min_fit"):
+        assert f"{word}:" not in text and f'"{word}"' not in text, word

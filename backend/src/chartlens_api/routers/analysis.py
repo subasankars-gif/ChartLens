@@ -30,6 +30,7 @@ from pydantic import BaseModel
 from chartlens_api.deps import CurrentUser, Snapshots
 from chartlens_api.lake import LakeUnavailable, NoAnalysisInSnapshot, NotAnalysed
 from chartlens_core.canonical import canonical_json, content_hash
+from chartlens_pipeline.analysis_store import AnalysisEntry
 from chartlens_pipeline.serving import ServingSnapshot
 
 router = APIRouter(prefix="/securities", tags=["analysis"])
@@ -136,6 +137,14 @@ def analysis(
         raise _not_found(exc) from None
     except LakeUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    return _json(analysis_payload(snap, entry, document, sections))
+
+
+def analysis_payload(
+    snap: ServingSnapshot, entry: AnalysisEntry, document: dict[str, Any], sections: str | None
+) -> dict[str, Any]:
+    """The ``/analysis`` body: whole named sections, verbatim (shared by ``/chart``).
+    Unknown sections are refused, never ignored."""
     chosen = list(document) if sections is None else [s for s in sections.split(",") if s]
     unknown = [s for s in chosen if s not in document]
     if unknown or not chosen:
@@ -145,14 +154,14 @@ def analysis(
         )
     analysis_block = snap.analysis or {}
     envelope = {
-        **_base(snap, security_id),
+        **_base(snap, entry.security_id),
         "weekly_version": snap.versions["weekly_version"],
         "methodology_hash": snap.versions["methodology_hash"],
         "analysis_methodology_hash": analysis_block.get("analysis_methodology_hash"),
         "document_sha256": entry.document_sha256,
         "sections": chosen,
     }
-    return _json({"envelope": envelope, "document": {s: document[s] for s in chosen}})
+    return {"envelope": envelope, "document": {s: document[s] for s in chosen}}
 
 
 # ----------------------------------------------------------------------------- events

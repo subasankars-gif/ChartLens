@@ -282,3 +282,122 @@ def test_a_schema_2_snapshot_says_it_has_no_analysis(tmp_path: Path) -> None:
     snapshots = SnapshotProvider(store, "NSE")
     with pytest.raises(NoAnalysisInSnapshot):
         snapshots.analysis_document("SEC-A")
+
+
+# ----------------------------------------------------------------------------- chart (ADR-0027 §3)
+
+
+def test_chart_components_are_the_existing_payloads_from_one_snapshot(env: dict[str, Any]) -> None:
+    sections = "current,patterns,levels"
+    r = get(env, "/securities/SEC-A/chart", sections=sections)
+    assert r.status_code == 200
+    body = r.json()
+    weekly = get(env, "/securities/SEC-A/weekly").json()
+    analysis = get(env, "/securities/SEC-A/analysis", sections=sections).json()
+    # Byte-identical components: no second model, nothing reinterpreted.
+    assert canonical_json(body["weekly"]) == canonical_json(weekly)
+    assert canonical_json(body["analysis"]) == canonical_json(analysis)
+    # Every component names the snapshot it came from, and it is the same one.
+    meta = env["published"]["meta_version"]
+    assert body["meta_version"] == body["weekly"]["meta_version"] == meta
+    assert body["analysis"]["envelope"]["meta_version"] == meta
+    assert body["analysis_status"] == "analysed"
+    assert body["data_as_of"] == body["weekly"]["as_of"]
+
+
+def test_chart_defaults_and_history_view(env: dict[str, Any]) -> None:
+    body = get(env, "/securities/SEC-A/chart").json()
+    assert body["analysis"]["envelope"]["sections"] == [
+        "identity",
+        "versions",
+        "current",
+        "provenance",
+    ]
+    assert body["segments"] == "valid"
+    history = get(env, "/securities/SEC-A/chart", segments="all").json()
+    assert canonical_json(history["weekly"]) == canonical_json(
+        get(env, "/securities/SEC-A/weekly", segments="all").json()
+    )
+
+
+def test_chart_of_an_unanalysed_security_is_bars_with_the_reason(env: dict[str, Any]) -> None:
+    r = get(env, "/securities/SEC-X/chart", sections="patterns")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["analysis"] is None and body["analysis_status"] == "not_analysed"
+    assert canonical_json(body["weekly"]) == canonical_json(
+        get(env, "/securities/SEC-X/weekly").json()
+    )
+
+
+def test_chart_refusals(env: dict[str, Any]) -> None:
+    assert get(env, "/securities/NOPE/chart").status_code == 404
+    assert get(env, "/securities/SEC-A/chart", as_of="2015-01-02").status_code == 400
+    r = get(env, "/securities/SEC-A/chart", sections="patterns,best_patterns")
+    assert r.status_code == 400 and "best_patterns" in r.json()["detail"]
+    assert get(env, "/securities/SEC-A/chart", segments="some").status_code == 422
+    assert env["client"].get("/api/v1/securities/SEC-A/chart").status_code == 401
+
+
+def _client(store: LocalObjectStore, snapshots: SnapshotProvider) -> TestClient:
+    api = ChartLensSettings.model_construct(
+        api=ApiConfig(firebase_project_id="demo-test", admin_emails=("boss@example.com",))
+    )
+    app = create_app(api)
+    appstate = MemoryAppState()
+    app.dependency_overrides.update(
+        {
+            settings_dep: lambda: api,
+            verifier_dep: FakeVerifier,
+            appstate_dep: lambda: appstate,
+            snapshots_dep: lambda: snapshots,
+        }
+    )
+    return TestClient(app)
+
+
+def test_a_chart_never_mixes_snapshots(tmp_path: Path) -> None:
+    """The provider holds snapshot A; B is published and A's document is cleaned up.
+    The chart read fails on A's document, reloads, and reads bars *and* analysis from B
+    together: never A's bars with B's analysis."""
+    store = LocalObjectStore(tmp_path / "lake")
+    build(store, SPECS[:1])
+    first = analyse_and_publish(store)
+    clock = Clock()
+    snapshots = SnapshotProvider(store, "NSE", refresh_seconds=60, clock=clock)
+    client = _client(store, snapshots)
+    path = "/api/v1/securities/SEC-A/chart"
+    a = client.get(path, headers=ADMIN).json()
+    assert a["meta_version"] == first["meta_version"]
+    old_doc = snapshots.get().analysis_entries["SEC-A"].document_sha256
+    bars = read_bars(store, "SEC-A")
+    republish(store, "wk-2", {"SEC-A": with_new_close(bars, bars[-1].close * 2)})
+    second = analyse_and_publish(store)
+    store.delete(DataLakeLayout.serving_analysis_key("NSE", old_doc))
+    snapshots._analysis.clear()  # pyright: ignore[reportPrivateUsage]
+    b = client.get(path, headers=ADMIN).json()  # clock not advanced: the provider still holds A
+    assert b["meta_version"] == second["meta_version"] != first["meta_version"]
+    assert (
+        b["weekly"]["meta_version"]
+        == b["analysis"]["envelope"]["meta_version"]
+        == b["meta_version"]
+    )
+    assert b["weekly"]["bars"][-1]["close"] != a["weekly"]["bars"][-1]["close"]
+
+
+def test_a_schema_2_chart_is_bars_with_the_reason(tmp_path: Path) -> None:
+    store = LocalObjectStore(tmp_path / "lake")
+    build(store, SPECS[:1])
+    analyse_and_publish(store)
+    key = DataLakeLayout.serving_manifest_key("NSE")
+    legacy = json.loads(store.get(key))
+    legacy["schema_version"] = 2
+    del legacy["analysis"]
+    store.put(key, json.dumps(legacy).encode())
+    body = (
+        _client(store, SnapshotProvider(store, "NSE"))
+        .get("/api/v1/securities/SEC-A/chart", headers=ADMIN)
+        .json()
+    )
+    assert body["analysis"] is None and body["analysis_status"] == "no_analysis_in_snapshot"
+    assert body["weekly"]["bars"]

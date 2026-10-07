@@ -82,6 +82,64 @@
         "title": "AnalysisResponse",
         "type": "object"
       },
+      "ChartResponse": {
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_status": {
+            "enum": [
+              "analysed",
+              "not_analysed",
+              "no_analysis_in_snapshot"
+            ],
+            "title": "Analysis Status",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "segments": {
+            "enum": [
+              "valid",
+              "all"
+            ],
+            "title": "Segments",
+            "type": "string"
+          },
+          "weekly": {
+            "$ref": "#/components/schemas/WeeklyResponse"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "data_as_of",
+          "segments",
+          "analysis_status",
+          "weekly",
+          "analysis"
+        ],
+        "title": "ChartResponse",
+        "type": "object"
+      },
       "ComponentVersions": {
         "properties": {
           "api": {
@@ -2867,6 +2925,94 @@
         "summary": "Breakout Events",
         "tags": [
           "analysis"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/chart": {
+      "get": {
+        "description": "Bars and requested analysis sections of one security, from one snapshot.",
+        "operationId": "chart_api_v1_securities__security_id__chart_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "segments",
+            "required": false,
+            "schema": {
+              "default": "valid",
+              "enum": [
+                "valid",
+                "all"
+              ],
+              "title": "Segments",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated whole sections of the published document",
+            "in": "query",
+            "name": "sections",
+            "required": false,
+            "schema": {
+              "default": "identity,versions,current,provenance",
+              "description": "Comma-separated whole sections of the published document",
+              "title": "Sections",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "unknown security"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chart",
+        "tags": [
+          "chart"
         ]
       }
     },

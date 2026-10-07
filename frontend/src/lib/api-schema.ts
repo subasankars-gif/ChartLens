@@ -269,6 +269,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/securities/{security_id}/chart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart
+         * @description Bars and requested analysis sections of one security, from one snapshot.
+         */
+        get: operations["chart_api_v1_securities__security_id__chart_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/securities/{security_id}/data-quality": {
         parameters: {
             query?: never;
@@ -402,6 +422,30 @@ export interface components {
                 [key: string]: unknown;
             };
             envelope: components["schemas"]["AnalysisEnvelope"];
+        };
+        /** ChartResponse */
+        ChartResponse: {
+            analysis: components["schemas"]["AnalysisResponse"] | null;
+            /**
+             * Analysis Status
+             * @enum {string}
+             */
+            analysis_status: "analysed" | "not_analysed" | "no_analysis_in_snapshot";
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Meta Version */
+            meta_version: string;
+            /** Security Id */
+            security_id: string;
+            /**
+             * Segments
+             * @enum {string}
+             */
+            segments: "valid" | "all";
+            weekly: components["schemas"]["WeeklyResponse"];
         };
         /** ComponentVersions */
         ComponentVersions: {
@@ -1539,6 +1583,50 @@ export interface operations {
             };
             /** @description the snapshot changed between pages; restart without a cursor */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_api_v1_securities__security_id__chart_get: {
+        parameters: {
+            query?: {
+                segments?: "valid" | "all";
+                /** @description Comma-separated whole sections of the published document */
+                sections?: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChartResponse"];
+                };
+            };
+            /** @description unknown security */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
