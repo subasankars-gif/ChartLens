@@ -30,7 +30,7 @@ jobs:
           mkdir -p /tmp/out
           git log --oneline -1 > /tmp/out/commit
           uv sync --frozen --no-dev --all-packages
-          uv run --no-sync python scripts/census_negative_levels.py /tmp/rehearsal /tmp/out > /tmp/out/result.json 2> /tmp/out/log.txt \
+          uv run --no-sync python scripts/census_pass2.py /tmp/rehearsal /tmp/out > /tmp/out/result.json 2> /tmp/out/log.txt \
             && echo ok > /tmp/out/status || echo "failed $?" > /tmp/out/status
           cat /tmp/out/status; head -c 4000 /tmp/out/result.json; tail -5 /tmp/out/log.txt | cut -c1-400
       - name: Publish
@@ -39,5 +39,5 @@ jobs:
           cd /tmp/out
           git init -q -b probe-results/pattern-stats
           git -c user.name=stats -c user.email=probe@users.noreply.github.com add -A
-          git -c user.name=stats -c user.email=probe@users.noreply.github.com commit -qm "negative-level census ($GITHUB_RUN_ID)" --allow-empty
+          git -c user.name=stats -c user.email=probe@users.noreply.github.com commit -qm "negative-level census pass 2 ($GITHUB_RUN_ID)" --allow-empty
           git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe-results/pattern-stats
