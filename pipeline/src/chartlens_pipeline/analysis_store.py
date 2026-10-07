@@ -495,6 +495,104 @@ def write_manifest(store: ObjectStore, manifest: AnalysisManifest) -> None:
     store.put(DataLakeLayout.analysis_manifest_key(manifest.exchange), manifest_bytes(manifest))
 
 
+# ----------------------------------------------------------------------------- explanations
+
+
+def write_explanation(store: ObjectStore, exchange: str, canonical: bytes) -> str:
+    """Store an explanation object like a document: gzip, named by the SHA-256 of its
+    uncompressed canonical bytes (ADR-0028 §4). Returns the address."""
+    address = _sha(canonical)
+
+    def same(existing: bytes) -> bool:
+        return _sha(decompress_document(existing)) == address
+
+    key = DataLakeLayout.serving_explanation_key(exchange, address)
+    _put_logical(store, key, compress_document(canonical), same)
+    return address
+
+
+def inspect_explanation(
+    store: ObjectStore, exchange: str, address: str
+) -> tuple[bytes | None, ArtifactProblem | None]:
+    """The explanation's canonical bytes if it is present and matches its address."""
+    key = DataLakeLayout.serving_explanation_key(exchange, address)
+    try:
+        data = store.get(key)
+    except StorageError:
+        return None, ArtifactProblem(key, "missing", "no object")
+    try:
+        canonical = decompress_document(data)
+    except (OSError, EOFError, zlib.error) as exc:
+        return None, ArtifactProblem(key, "corrupt", f"not gzip ({exc})")
+    if _sha(canonical) != address:
+        return None, ArtifactProblem(key, "corrupt", "content does not hash to its address")
+    return canonical, None
+
+
+def explanation_disagreements(entry: ExplanationEntry, canonical: bytes) -> list[str]:
+    """The object says what its entry says: security, bound document and key."""
+    body = json.loads(canonical)
+    sid = entry.security_id
+    return [
+        f"{sid}: the explanation's {k} is {body.get(k)}, its entry says {v}"
+        for k, v in (
+            ("security_id", entry.security_id),
+            ("document_sha256", entry.document_sha256),
+            ("explanation_key", entry.explanation_key),
+        )
+        if body.get(k) != v
+    ]
+
+
+class ExplanationEntry(_Model):
+    security_id: str
+    document_sha256: str
+    """The exact analysis document the explanation is bound to."""
+    explanation_key: str
+    """``hash(key_version, security_id, document_sha256, explain_version)``."""
+    explanation_sha256: str
+
+
+class ExplanationManifest(_Model):
+    manifest_schema_version: int = MANIFEST_SCHEMA_VERSION
+    exchange: str
+    explain_version: str
+    analysis_set_hash: str
+    """The analysis manifest these explanations describe (ADR-0028 §5)."""
+    entries: list[ExplanationEntry]
+    explanation_set_hash: str
+
+
+def explanation_set_hash(entries: list[ExplanationEntry]) -> str:
+    return content_hash([e.model_dump(mode="json") for e in entries])
+
+
+def explanation_manifest_bytes(manifest: ExplanationManifest) -> bytes:
+    return canonical_json(manifest.model_dump(mode="json"))
+
+
+def read_explanation_manifest(store: ObjectStore, exchange: str) -> ExplanationManifest | None:
+    key = DataLakeLayout.explanations_manifest_key(exchange)
+    if not store.exists(key):
+        return None
+    manifest = ExplanationManifest.model_validate(json.loads(store.get(key)))
+    if explanation_set_hash(manifest.entries) != manifest.explanation_set_hash:
+        raise AnalysisStoreError("the explanation manifest does not match its set hash")
+    return manifest
+
+
+def write_explanation_manifest(store: ObjectStore, manifest: ExplanationManifest) -> None:
+    ids = [e.security_id for e in manifest.entries]
+    if ids != sorted(set(ids)):
+        raise AnalysisStoreError("explanation entries must be unique and ordered by security")
+    if explanation_set_hash(manifest.entries) != manifest.explanation_set_hash:
+        raise AnalysisStoreError("explanation_set_hash does not match the entries")
+    store.put(
+        DataLakeLayout.explanations_manifest_key(manifest.exchange),
+        explanation_manifest_bytes(manifest),
+    )
+
+
 # ----------------------------------------------------------------------------- inputs
 
 

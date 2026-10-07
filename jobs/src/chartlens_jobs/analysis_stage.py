@@ -15,6 +15,12 @@ that is written last and only if the stage succeeded in full.
 - **Recompute check** (§3.4). The reused securities with the smallest
   ``SHA-256(weekly_version | security_id)`` (at most 32) are recomputed and must match
   the stored canonical bytes exactly.
+- **Explanations** (ADR-0028 §5). Each security's explanation is generated from the
+  verified bytes of exactly the document it describes, validated claim by claim with the
+  shared checker (``chartlens_core.claims``), and stored as its own content-addressed
+  object. It is reused only when its key (security, document hash, ``explain_version``)
+  matches and the object verifies. The explanation manifest, bound to the analysis
+  manifest by its ``analysis_set_hash``, is written right after it.
 - **Failure** (amendment F). Anything wrong fails the whole stage: pending work is
   cancelled and no manifest is written, so the previous one and the live snapshot stay
   as they were. Written artifacts are inert until a published manifest names them.
@@ -23,6 +29,7 @@ that is written last and only if the stage succeeded in full.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import multiprocessing
 import os
@@ -38,6 +45,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from chartlens_core.canonical import CANONICAL_SERIALIZATION_VERSION, canonical_json
+from chartlens_core.claims import explanation_bytes, explanation_key, validate
 from chartlens_core.config import AnalysisConfig, ChartLensSettings
 from chartlens_core.domain import SecurityId, Timeframe
 from chartlens_core.logs import log_event
@@ -52,6 +60,7 @@ from chartlens_engine.analysis import (
     bars_content_hash,
     serialize,
 )
+from chartlens_engine.explain import explain, explain_version
 from chartlens_engine.interfaces import AnalysisContext
 from chartlens_jobs.fingerprint import REUSE_KEY_VERSION, DependencyFingerprint, runtime_versions
 from chartlens_pipeline.analysis_store import (
@@ -61,15 +70,24 @@ from chartlens_pipeline.analysis_store import (
     AnalysisManifest,
     AnalysisStoreError,
     EventArtifact,
+    ExplanationEntry,
+    ExplanationManifest,
     analysis_set_hash,
     entry_problems,
+    explanation_disagreements,
+    explanation_set_hash,
+    inspect_document,
+    inspect_explanation,
     quarantine,
     read_document,
     read_events,
+    read_explanation_manifest,
     read_manifest,
     universe_sha256,
     write_document,
     write_events,
+    write_explanation,
+    write_explanation_manifest,
     write_manifest,
 )
 from chartlens_pipeline.storage import (
@@ -181,6 +199,8 @@ class SecurityTask:
     weekly_builder_version: str
     previous: AnalysisEntry | None
     """The previous manifest's entry, when every artifact it names still exists."""
+    previous_explanation: ExplanationEntry | None = None
+    """The previous explanation manifest's entry, when its object still exists."""
 
 
 @dataclass(frozen=True)
@@ -190,6 +210,9 @@ class SecurityOutcome:
     document_bytes: int = 0
     quarantined: tuple[str, ...] = ()
     """Corrupt objects moved to quarantine before this security was recomputed."""
+    explanation: ExplanationEntry | None = None
+    explained: bool = False
+    """True when the explanation was generated in this run, False when reused."""
 
 
 @dataclass
@@ -199,6 +222,7 @@ class _Worker:
     analysis_version: str
     runtime: dict[str, str]
     allow_reuse: bool
+    explain_version: str
 
 
 _worker_state: _Worker | None = None
@@ -210,10 +234,16 @@ def _init_worker(
     version: str,
     runtime: dict[str, str],
     allow_reuse: bool,
+    explain_version: str,
 ) -> None:
     global _worker_state
     _worker_state = _Worker(
-        spec.open(), AnalysisConfig.model_validate(config), version, runtime, allow_reuse
+        spec.open(),
+        AnalysisConfig.model_validate(config),
+        version,
+        runtime,
+        allow_reuse,
+        explain_version,
     )
 
 
@@ -294,6 +324,55 @@ def _compute(task: SecurityTask, p: _Prepared) -> tuple[Any, Any]:
     return analysis, serialize(analysis)
 
 
+def _generate_explanation(task: SecurityTask, document_sha256: str, canonical: bytes) -> bytes:
+    """Explain exactly these document bytes and validate every claim against them."""
+    doc = json.loads(canonical)
+    try:
+        explanation = explain(doc, document_sha256)
+    except Exception as exc:
+        raise _fail(task, f"explanation failed ({type(exc).__name__}: {exc})") from exc
+    problems = validate(explanation, doc, document_sha256)
+    if problems:
+        raise _fail(task, f"an explanation claim does not hold: {'; '.join(problems[:3])}")
+    return explanation_bytes(explanation)
+
+
+def _explanation(
+    task: SecurityTask, entry: AnalysisEntry, canonical: bytes | None
+) -> tuple[ExplanationEntry, bool, tuple[str, ...]]:
+    """Reuse or generate the explanation of ``entry``'s document (ADR-0028 §5). Returns
+    the entry, whether it was generated, and anything quarantined."""
+    w = _worker()
+    key = explanation_key(task.security_id, entry.document_sha256, w.explain_version)
+    prev = task.previous_explanation
+    quarantined: tuple[str, ...] = ()
+    if w.allow_reuse and prev is not None and prev.explanation_key == key:
+        stored, problem = inspect_explanation(w.store, task.exchange, prev.explanation_sha256)
+        if problem is None and stored is not None and not explanation_disagreements(prev, stored):
+            return prev, False, ()
+        if problem is not None and problem.kind == "corrupt":
+            quarantined = (quarantine(w.store, problem.key),)
+    if canonical is None:
+        canonical, problem = inspect_document(w.store, task.exchange, entry.document_sha256)
+        if problem is not None or canonical is None:
+            raise _fail(task, "the document to explain does not verify")
+    body = _generate_explanation(task, entry.document_sha256, canonical)
+    try:
+        address = write_explanation(w.store, task.exchange, body)
+    except (AnalysisStoreError, StorageError) as exc:
+        raise _fail(task, f"writing the explanation failed ({exc})") from exc
+    return (
+        ExplanationEntry(
+            security_id=task.security_id,
+            document_sha256=entry.document_sha256,
+            explanation_key=key,
+            explanation_sha256=address,
+        ),
+        True,
+        quarantined,
+    )
+
+
 def analyse_security(task: SecurityTask) -> SecurityOutcome:
     """Reuse or compute one security (runs in a worker)."""
     w = _worker()
@@ -306,7 +385,14 @@ def analyse_security(task: SecurityTask) -> SecurityOutcome:
         problems = entry_problems(w.store, task.exchange, prev)
         if not problems:
             entry = prev.model_copy(update={"weekly_file_sha256": task.weekly_file_sha256})
-            return SecurityOutcome(entry, computed=False)
+            explanation, explained, held = _explanation(task, entry, None)
+            return SecurityOutcome(
+                entry,
+                computed=False,
+                quarantined=held,
+                explanation=explanation,
+                explained=explained,
+            )
         quarantined = tuple(
             quarantine(w.store, problem.key) for problem in problems if problem.kind == "corrupt"
         )
@@ -342,12 +428,20 @@ def analyse_security(task: SecurityTask) -> SecurityOutcome:
         document_sha256=address,
         events=events,
     )
+    explanation, explained, held = _explanation(task, entry, stored.document)
     return SecurityOutcome(
-        entry, computed=True, document_bytes=len(stored.document), quarantined=quarantined
+        entry,
+        computed=True,
+        document_bytes=len(stored.document),
+        quarantined=quarantined + held,
+        explanation=explanation,
+        explained=explained,
     )
 
 
-def recompute_security(task: SecurityTask, entry: AnalysisEntry) -> str | None:
+def recompute_security(
+    task: SecurityTask, entry: AnalysisEntry, explanation: ExplanationEntry | None = None
+) -> str | None:
     """Recompute a reused result and compare it with the stored artifacts byte for byte:
     the stored document's canonical bytes against the fresh ones, the stored events'
     canonical rows against the fresh rows, and so the content hashes. Returns a
@@ -372,6 +466,14 @@ def recompute_security(task: SecurityTask, entry: AnalysisEntry) -> str | None:
             return f"the recomputed {name} differ from the stored ones"
         if fresh.events[name].content_sha256 != entry.events[name].content_sha256:
             return f"the recomputed {name} content hash differs"  # pragma: no cover
+    if explanation is not None:
+        stored_explanation, problem = inspect_explanation(
+            w.store, task.exchange, explanation.explanation_sha256
+        )
+        if problem is not None or stored_explanation is None:
+            return "its stored explanation cannot be read back"
+        if _generate_explanation(task, entry.document_sha256, stored) != stored_explanation:
+            return "the regenerated explanation differs from the stored one"
     return None
 
 
@@ -385,9 +487,11 @@ def guarded_analyse(task: SecurityTask) -> SecurityOutcome:
         raise _fail(task, f"{type(exc).__name__}: {exc}") from exc
 
 
-def guarded_recompute(task: SecurityTask, entry: AnalysisEntry) -> str | None:
+def guarded_recompute(
+    task: SecurityTask, entry: AnalysisEntry, explanation: ExplanationEntry | None = None
+) -> str | None:
     try:
-        return recompute_security(task, entry)
+        return recompute_security(task, entry, explanation)
     except AnalysisStageFailed:
         raise
     except Exception as exc:
@@ -437,6 +541,7 @@ class AnalysisStage:
         self.allow_reuse = allow_reuse
         self.config = settings.analysis
         self.analysis_version = analysis_version(self.config)
+        self.explain_version = explain_version()
         self.runtime = runtime_versions()
 
     # -- the parts a test may replace -------------------------------------------------
@@ -448,6 +553,7 @@ class AnalysisStage:
             self.analysis_version,
             self.runtime,
             self.allow_reuse,
+            self.explain_version,
         )
 
     def _execute(
@@ -459,11 +565,13 @@ class AnalysisStage:
         return list(self._gather(pool, {pool.submit(guarded_analyse, t): t for t in tasks}))
 
     def _recompute(
-        self, pool: ProcessPoolExecutor | None, items: list[tuple[SecurityTask, AnalysisEntry]]
+        self,
+        pool: ProcessPoolExecutor | None,
+        items: list[tuple[SecurityTask, AnalysisEntry, ExplanationEntry | None]],
     ) -> dict[str, str | None]:
         if pool is None:
-            return {t.security_id: guarded_recompute(t, e) for t, e in items}
-        futures = {pool.submit(guarded_recompute, t, e): t for t, e in items}
+            return {t.security_id: guarded_recompute(t, e, x) for t, e, x in items}
+        futures = {pool.submit(guarded_recompute, t, e, x): t for t, e, x in items}
         out: dict[str, str | None] = {}
         for fut in as_completed(futures):
             out[futures[fut].security_id] = self._result(pool, fut, futures[fut])
@@ -519,7 +627,8 @@ class AnalysisStage:
             mismatches = {
                 sid: why
                 for sid, why in self._recompute(
-                    pool, [(task_of[sid], by_id[sid].entry) for sid in sample]
+                    pool,
+                    [(task_of[sid], by_id[sid].entry, by_id[sid].explanation) for sid in sample],
                 ).items()
                 if why is not None
             }
@@ -555,8 +664,20 @@ class AnalysisStage:
             entries=entries,
             analysis_set_hash=analysis_set_hash(entries),
         )
+        explained = [by_id[sid].explanation for sid in sorted(by_id)]
+        if any(x is None for x in explained):  # pragma: no cover - every outcome has one
+            raise AnalysisStageFailed("a security has no explanation")
+        explanation_entries = [x for x in explained if x is not None]
+        explanations = ExplanationManifest(
+            exchange=ex,
+            explain_version=self.explain_version,
+            analysis_set_hash=manifest.analysis_set_hash,
+            entries=explanation_entries,
+            explanation_set_hash=explanation_set_hash(explanation_entries),
+        )
         try:
             write_manifest(store, manifest)
+            write_explanation_manifest(store, explanations)
         except AnalysisStoreError as exc:  # pragma: no cover - validated above
             raise AnalysisStageFailed(str(exc)) from exc
         computed = sum(1 for o in by_id.values() if o.computed)
@@ -578,6 +699,10 @@ class AnalysisStage:
             "universe_sha256": manifest.universe_sha256[:12],
             "analysis_set_hash": manifest.analysis_set_hash[:12],
             "document_mb_written": summary.document_mb,
+            "explain_version": self.explain_version,
+            "explanations_generated": sum(1 for o in by_id.values() if o.explained),
+            "explanations_reused": sum(1 for o in by_id.values() if not o.explained),
+            "explanation_set_hash": explanations.explanation_set_hash[:12],
             "workers": self.workers,
         }
         log_event(log, "analysis.completed", details=summary.details, seconds=summary.seconds)
@@ -590,6 +715,7 @@ class AnalysisStage:
         weekly = inputs.weekly
         files = inputs.files
         previous = self._previous(store)
+        previous_explanations = self._previous_explanations(store)
         tasks: list[SecurityTask] = []
         for sid in expected:
             if sid not in files:
@@ -615,6 +741,7 @@ class AnalysisStage:
                     weekly_schema_version=str(weekly["schema_version"]),
                     weekly_builder_version=str(weekly["builder_version"]),
                     previous=previous.get(sid),
+                    previous_explanation=previous_explanations.get(sid),
                 )
             )
         return tasks
@@ -646,6 +773,26 @@ class AnalysisStage:
             )
 
         return {e.security_id: e for e in manifest.entries if present(e)}
+
+    def _previous_explanations(self, store: ObjectStore) -> dict[str, ExplanationEntry]:
+        """The latest explanation manifest's entries whose objects still exist; reuse
+        additionally needs the key to match and the object to verify."""
+        if not self.allow_reuse:
+            return {}
+        try:
+            manifest = read_explanation_manifest(store, self.exchange)
+        except Exception:
+            log.exception("the previous explanation manifest is unreadable; regenerating")
+            return {}
+        if manifest is None:
+            return {}
+        present = set(store.list(DataLakeLayout.serving_explanations_prefix(self.exchange)))
+        return {
+            e.security_id: e
+            for e in manifest.entries
+            if DataLakeLayout.serving_explanation_key(self.exchange, e.explanation_sha256)
+            in present
+        }
 
     @staticmethod
     def _covering(

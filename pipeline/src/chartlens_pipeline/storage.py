@@ -505,6 +505,34 @@ class DataLakeLayout:
         return validate_key(f"curated/analysis/exchange={exchange.upper()}/_manifest.json")
 
     @staticmethod
+    def serving_explanations_prefix(exchange: str) -> str:
+        return f"curated/serving/exchange={exchange.upper()}/explanations/"
+
+    @staticmethod
+    def serving_explanation_key(exchange: str, sha256: str) -> str:
+        """A gzip-compressed explanation object, named by the SHA-256 of its uncompressed
+        canonical bytes (ADR-0028 §4)."""
+        _require_sha(sha256)
+        prefix = DataLakeLayout.serving_explanations_prefix(exchange)
+        return validate_key(f"{prefix}{sha256}.json.gz")
+
+    @staticmethod
+    def explanations_manifest_key(exchange: str) -> str:
+        """The latest complete explanation manifest, written after the analysis manifest
+        by the ANALYSIS stage (ADR-0028 §5)."""
+        return validate_key(
+            f"curated/analysis/exchange={exchange.upper()}/_explanations_manifest.json"
+        )
+
+    @staticmethod
+    def serving_explanations_manifest_key(exchange: str, meta_version: str) -> str:
+        """The verbatim copy of the explanation manifest a schema-4 snapshot pins."""
+        return validate_key(
+            f"curated/serving/exchange={exchange.upper()}/v={meta_version}/"
+            "explanations_manifest.json"
+        )
+
+    @staticmethod
     def serving_manifest_key(exchange: str) -> str:
         """Points at the current serving snapshot; written last (ADR-0016)."""
         return validate_key(f"curated/serving/exchange={exchange.upper()}/_manifest.json")

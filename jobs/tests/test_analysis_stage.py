@@ -379,3 +379,97 @@ def test_a_missing_reusable_artifact_is_recomputed_without_quarantine(
     again = stage(lake).run()
     assert again.computed == 1 and again.details["quarantined"] == 0
     assert lake.list("quarantine/") == []
+
+
+# ----------------------------------------------------------------------------- explanations (ADR-0028)
+
+
+def explanation_manifest_bytes(store: LocalObjectStore) -> bytes | None:
+    key = DataLakeLayout.explanations_manifest_key(EX)
+    return store.get(key) if store.exists(key) else None
+
+
+def test_every_analysed_security_has_one_validated_bound_explanation(
+    lake: LocalObjectStore,
+) -> None:
+    from chartlens_core.claims import validate
+    from chartlens_engine.explain import explain_version
+    from chartlens_pipeline.analysis_store import inspect_explanation, read_explanation_manifest
+
+    summary = stage(lake).run()
+    ex = read_explanation_manifest(lake, EX)
+    assert ex is not None
+    assert ex.analysis_set_hash == summary.manifest.analysis_set_hash
+    assert ex.explain_version == explain_version()
+    assert [e.security_id for e in ex.entries] == UNIVERSE
+    documents = {e.security_id: e.document_sha256 for e in summary.manifest.entries}
+    for e in ex.entries:
+        assert e.document_sha256 == documents[e.security_id]
+        body, problem = inspect_explanation(lake, EX, e.explanation_sha256)
+        assert problem is None and body is not None
+        doc = json.loads(read_document(lake, EX, e.document_sha256))
+        assert validate(json.loads(body), doc, e.document_sha256) == []
+    assert summary.details["explanations_generated"] == 4
+
+
+def test_explanations_are_reused_and_rechecked_in_the_sample(lake: LocalObjectStore) -> None:
+    stage(lake).run()
+    first = explanation_manifest_bytes(lake)
+    again = stage(lake).run()
+    assert again.details["explanations_reused"] == 4
+    assert again.details["explanations_generated"] == 0
+    assert explanation_manifest_bytes(lake) == first
+
+
+def test_a_wording_change_regenerates_explanations_only(
+    lake: LocalObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-0028 §4: a template change makes new explanation objects and a new explanation
+    manifest; the analysis manifest, documents and event files stay byte-identical."""
+    from chartlens_core import claims
+
+    stage(lake).run()
+    analysis = manifest_bytes(lake)
+    explanations = explanation_manifest_bytes(lake)
+    analysis_objects = sorted(lake.list(DataLakeLayout.serving_analysis_prefix(EX)))
+    monkeypatch.setitem(
+        claims.TEMPLATES,  # type: ignore[arg-type]
+        "DATA_CONTEXT",
+        "Weekly analysis on {as_of}, from the history usable since {usable_from}.",
+    )
+    summary = stage(lake).run()
+    assert summary.details["explanations_generated"] == 4
+    assert summary.reused == 4  # no analysis recomputed
+    assert manifest_bytes(lake) == analysis
+    assert sorted(lake.list(DataLakeLayout.serving_analysis_prefix(EX))) == analysis_objects
+    assert explanation_manifest_bytes(lake) != explanations
+
+
+def test_a_corrupt_explanation_is_quarantined_and_regenerated(lake: LocalObjectStore) -> None:
+    from chartlens_pipeline.analysis_store import read_explanation_manifest
+
+    stage(lake).run()
+    entry = read_explanation_manifest(lake, EX).entries[0]  # type: ignore[union-attr]
+    key = DataLakeLayout.serving_explanation_key(EX, entry.explanation_sha256)
+    lake.delete(key)
+    lake.put_immutable(key, gzip.compress(b'{"forged":true}'))
+    summary = stage(lake).run()
+    assert summary.details["explanations_generated"] == 1
+    assert summary.details["quarantined"] == 1
+    assert read_explanation_manifest(lake, EX).entries[0] == entry  # type: ignore[union-attr]
+
+
+def test_an_explanation_whose_claims_do_not_hold_fails_the_stage(
+    lake: LocalObjectStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = stage_module.explain
+
+    def lying(doc: Any, sha: str) -> Any:
+        out = real(doc, sha)
+        claim = out.claims[0]
+        forged = claim.model_copy(update={"rendered_text": claim.rendered_text + " Buy now."})
+        return out.model_copy(update={"claims": [forged, *out.claims[1:]]})
+
+    monkeypatch.setattr(stage_module, "explain", lying)
+    fails(lake, "an explanation claim does not hold")
+    assert explanation_manifest_bytes(lake) is None
