@@ -385,4 +385,7 @@ A measured-move zone starts at the later of `target_calculated_at` and its statu
 entry's `known_at` (a pattern recognised after its breakout has a zone calculated at the
 breakout bar but known later). Regression tests: every rendered level on the real
 fixture starts on or after its object's `known_at`; a level dated earlier is refused;
-formation geometry before `known_at` is still drawn.
+formation geometry before `known_at` is still drawn. Real NSE after the amendment (same
+read-only probe, 3,193 charts, every layer at its widest stored selection): 6,703,479
+objects drawn, **0 refused** (none `level_before_known`), 0 snapshot mismatches; the
+screenshot gate passes again.
