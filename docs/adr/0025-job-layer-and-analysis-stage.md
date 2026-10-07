@@ -311,3 +311,30 @@ go to the run record.
 - Real NSE: read the live lake, write to a local store on the runner (read-only towards
   the lake): timing, sizes, computed and reused counts, a same-day rerun that reuses
   everything.
+
+## 6b evidence (2026-10-07, at the checkpoint)
+
+- **Tests:** 945 pass (`poe check`), CI green on `aea5460` including the new `jobs`
+  image. The stage tests cover a full run, the same-day rerun (all reused, identical
+  manifest bytes), a rewritten weekly file with the same bars (reused, new physical
+  hash recorded), one changed security (only it computed), `--no-reuse` (same
+  manifest), a missing artifact (recomputed), the pool against one process (identical
+  manifest), and every hard failure (no manifest written, the previous one untouched).
+- **Found by the pool test:** event content hashes over rows alone let empty datasets of
+  different securities share one file (§5); fixed by hashing identifying metadata with
+  the rows.
+- **Real NSE rehearsal** (live lake read-only, artifacts written on the runner; weekly
+  `wk-cc82a2aff239`, as of 2026-10-06; 4 CPUs):
+
+| | First run | Same-day rerun |
+|---|---|---|
+| Securities | 3,193 computed | 3,193 reused |
+| Recompute sample | none to check | 32, 0 mismatches |
+| Wall time | 286 s | 133 s |
+| `analysis_set_hash` | `79eff90b38a2…` | identical |
+
+  Stored: 3,193 documents, 707 MB compressed (5,554 MB canonical, 7.9×); 6,386 event
+  files, 164 MB (111 MB level, 53 MB pattern) holding 501,782 level and 15,718 pattern
+  events, the same counts as the 6a fingerprint; manifest 3.0 MB. Every hard check
+  (weekly hash, current segment, `usable_from` equals the segment start, the segment's
+  first bar) held for all 3,193.
