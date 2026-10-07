@@ -260,3 +260,20 @@ def test_snapshots_are_deduplicated_by_content(store: ObjectStore) -> None:
         artifact(b"list-v2", day=None, at=datetime(2024, 3, 1, tzinfo=UTC)), parser_version="v1"
     )
     assert raw.latest_snapshot("NSE", "bhavcopy") == s3
+
+
+def test_swap_replaces_only_what_was_read(tmp_path: Path) -> None:
+    """ADR-0026 §1.5: the commit primitive is a compare-and-swap."""
+    import hashlib
+
+    from chartlens_pipeline.storage import SwapConflict
+
+    store = LocalObjectStore(tmp_path)
+    store.swap("p/_manifest.json", b"one", None)
+    with pytest.raises(SwapConflict):
+        store.swap("p/_manifest.json", b"two", None)  # it exists now
+    first = hashlib.sha256(b"one").hexdigest()
+    store.swap("p/_manifest.json", b"two", first)
+    with pytest.raises(SwapConflict):
+        store.swap("p/_manifest.json", b"three", first)  # someone moved it meanwhile
+    assert store.get("p/_manifest.json") == b"two"

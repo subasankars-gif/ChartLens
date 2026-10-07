@@ -16,8 +16,10 @@ Two write modes, on purpose:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import tempfile
+import threading
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol
@@ -34,6 +36,14 @@ class StorageError(RuntimeError):
 
 class ImmutableObjectError(StorageError):
     """Attempt to replace an immutable object with different content."""
+
+
+class SwapConflict(StorageError):
+    """A conditional replacement found the object changed since it was read."""
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 class ObjectStore(Protocol):
@@ -55,6 +65,13 @@ class ObjectStore(Protocol):
         """Remove a derived object. Raw (immutable source) objects can never be deleted."""
         ...
 
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        """Replace ``key`` atomically, and only if its current content hashes to
+        ``expected_sha256`` (``None``: only if it does not exist). Otherwise
+        :class:`SwapConflict`, with nothing changed. The commit primitive of a publication
+        (ADR-0026 §1.5): a reader sees the old object or the new one, never a mixture."""
+        ...
+
 
 def check_deletable(key: str) -> str:
     validate_key(key)
@@ -68,6 +85,9 @@ def validate_key(key: str) -> str:
     if not key or key.startswith("/") or ".." in path.parts or "\\" in key:
         raise StorageError(f"invalid object key: {key!r}")
     return key
+
+
+_SWAP_LOCK = threading.Lock()
 
 
 class LocalObjectStore:
@@ -129,6 +149,14 @@ class LocalObjectStore:
     def delete(self, key: str) -> None:
         self._path(check_deletable(key)).unlink(missing_ok=True)
 
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        path = self._path(key)
+        with _SWAP_LOCK:  # one process: a lock, a comparison, then an atomic rename
+            current = _sha256(path.read_bytes()) if path.is_file() else None
+            if current != expected_sha256:
+                raise SwapConflict(f"{key} changed since it was read")
+            self._write_atomic(path, data)
+
 
 class GcsObjectStore:
     """Google Cloud Storage-backed store.
@@ -180,6 +208,26 @@ class GcsObjectStore:
 
         with contextlib.suppress(NotFound):
             self._bucket.blob(check_deletable(key)).delete()
+
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        """Compare-and-swap on the object's generation: GCS replaces an object atomically,
+        and the precondition makes the write fail if anyone replaced it meanwhile."""
+        from google.api_core.exceptions import PreconditionFailed
+
+        blob = self._bucket.get_blob(validate_key(key))
+        if blob is None:
+            if expected_sha256 is not None:
+                raise SwapConflict(f"{key} no longer exists")
+            generation = 0
+        else:
+            generation = int(blob.generation)
+            current = bytes(blob.download_as_bytes(if_generation_match=generation))
+            if _sha256(current) != expected_sha256:
+                raise SwapConflict(f"{key} changed since it was read")
+        try:
+            self._bucket.blob(key).upload_from_string(data, if_generation_match=generation)
+        except PreconditionFailed:
+            raise SwapConflict(f"{key} was replaced during the swap") from None
 
 
 def object_store_from_config(config: StorageConfig) -> ObjectStore:
@@ -400,6 +448,13 @@ class DataLakeLayout:
         """Snapshot files live under their version: a published snapshot never changes."""
         return validate_key(
             f"curated/serving/exchange={exchange.upper()}/v={meta_version}/{name}.parquet"
+        )
+
+    @staticmethod
+    def serving_analysis_manifest_key(exchange: str, meta_version: str) -> str:
+        """The verbatim copy of the analysis manifest a schema-3 snapshot pins (ADR-0026)."""
+        return validate_key(
+            f"curated/serving/exchange={exchange.upper()}/v={meta_version}/analysis_manifest.json"
         )
 
     @staticmethod

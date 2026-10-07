@@ -21,11 +21,21 @@ last, ``curated/serving/exchange={EX}/_manifest.json`` points at it, with every 
 version (weekly, data, adjustment, identity, dq, calendar, methodology) and the SHA-256
 of each snapshot file and of every weekly file.
 
-Publication order (ADR-0018): validate the inputs → copy the weekly files → check every
-copy exists → write the version's files → record the snapshot as STAGED → move the
-pointer → mark it PUBLISHED → remove what neither this snapshot nor the previous one
-refers to. Any failure before the pointer moves leaves the live snapshot untouched, and
-nothing a later run writes can change what a published snapshot serves.
+From serving schema 3 (ADR-0026) the snapshot also pins the analysis set: a verbatim
+copy of the ANALYSIS stage's manifest, ``v={meta_version}/analysis_manifest.json``, named
+by its SHA-256 in the manifest's ``analysis`` block. The documents and event files it
+names were written by ANALYSIS; publication copies, verifies and points, and never
+re-encodes or derives analytical content.
+
+Publication order (ADR-0018, ADR-0026 §1.5): validate the inputs and the analysis set
+(checks 1-6) → verify every analysis object the live snapshot does not already cover
+(checks 7-9) → copy the weekly files → write the version's files → read them back →
+record the snapshot as STAGED → **commit: a compare-and-swap of the pointer** → mark it
+PUBLISHED → remove what neither this snapshot, the previous one nor the latest analysis
+manifest refers to. Before the commit, everything the new snapshot needs is verified and
+written; any failure leaves the live snapshot untouched. After it, the snapshot is
+immutable: the same inputs give the same ``meta_version``, which returns UNCHANGED
+before any write.
 
 :class:`ServingSnapshot` is the read side. It verifies every hash it reads, so a snapshot
 is either served whole or not at all. A schema-1 snapshot (published before ADR-0018)
@@ -41,6 +51,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -57,15 +68,29 @@ from chartlens_core.domain import utc_now
 from chartlens_core.logs import log_event
 from chartlens_core.runs import SnapshotOutcome, SnapshotRecord
 from chartlens_core.weekly import WeeklyBar
+from chartlens_pipeline.analysis_store import (
+    EVENT_DATASETS,
+    AnalysisEntry,
+    AnalysisManifest,
+    AnalysisStoreError,
+    analysis_set_hash,
+    analysis_universe,
+    inspect_document,
+    inspect_events,
+    manifest_bytes,
+    read_manifest,
+    universe_sha256,
+)
 from chartlens_pipeline.daily import to_parquet_bytes
 from chartlens_pipeline.providers.base import ExchangeProvider
-from chartlens_pipeline.storage import DataLakeLayout, ObjectStore, StorageError
+from chartlens_pipeline.storage import DataLakeLayout, ObjectStore, StorageError, SwapConflict
 from chartlens_pipeline.weekly import bars_from_table
 
 log = logging.getLogger("chartlens.pipeline.serving")
 
-SERVING_SCHEMA_VERSION: Final = 2
-"""2: weekly bars are served from immutable content-hashed copies (ADR-0018)."""
+SERVING_SCHEMA_VERSION: Final = 3
+"""2: weekly bars are served from immutable content-hashed copies (ADR-0018).
+3: plus the analysis set, pinned by a verbatim copy of its manifest (ADR-0026)."""
 SNAPSHOT_FILES: Final = ("securities", "identifiers", "segments", "findings")
 COPY_WORKERS: Final = 16
 
@@ -126,6 +151,66 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def analysis_summary(manifest: AnalysisManifest, data: bytes) -> dict[str, Any]:
+    """The snapshot's ``analysis`` block, from the manifest it pins (ADR-0026 §1.2)."""
+    return {
+        "manifest_sha256": _sha(data),
+        "analysis_version": manifest.analysis_version,
+        "analysis_methodology_hash": manifest.analysis_methodology_hash,
+        "universe_sha256": manifest.universe_sha256,
+        "analysis_set_hash": manifest.analysis_set_hash,
+        "securities": len(manifest.universe),
+    }
+
+
+def artifact_keys(exchange: str, manifest: AnalysisManifest) -> set[str]:
+    """Every object key an analysis manifest names."""
+    keys: set[str] = set()
+    for e in manifest.entries:
+        keys.add(DataLakeLayout.serving_analysis_key(exchange, e.document_sha256))
+        for name, artifact in e.events.items():
+            keys.add(
+                DataLakeLayout.serving_events_key(exchange, name, artifact.content_sha256)  # type: ignore[arg-type]
+            )
+    return keys
+
+
+def _document_disagreements(
+    entry: AnalysisEntry, manifest: AnalysisManifest, canonical: bytes
+) -> list[str]:
+    """Check 7: the document says what its entry says (identity, segment, bars,
+    analysis version, event content hashes and row counts)."""
+    doc = json.loads(canonical)
+    sid = entry.security_id
+    found = {
+        "security_id": doc["identity"]["security_id"],
+        "continuity_segment_id": doc["identity"]["continuity_segment_id"],
+        "bars_sha256": doc["inputs"]["bars_sha256"],
+        "analysis_version": doc["versions"]["analysis_version"],
+        **{
+            f"{name}.content_sha256": doc["breakout_events"]["datasets"][name]["content_sha256"]
+            for name in EVENT_DATASETS
+        },
+        **{
+            f"{name}.row_count": doc["breakout_events"]["datasets"][name]["row_count"]
+            for name in EVENT_DATASETS
+        },
+    }
+    expected = {
+        "security_id": sid,
+        "continuity_segment_id": entry.continuity_segment_id,
+        "bars_sha256": entry.bars_sha256,
+        "analysis_version": manifest.analysis_version,
+        **{f"{n}.content_sha256": entry.events[n].content_sha256 for n in EVENT_DATASETS},
+        **{f"{n}.row_count": entry.events[n].row_count for n in EVENT_DATASETS},
+    }
+    return [
+        f"{sid}: the document's {k} is {found[k]}, its entry says {expected[k]}"
+        for k in expected
+        if found[k] != expected[k]
+    ]
+
+
 def _table(store: ObjectStore, key: str) -> pa.Table:
     return pq.read_table(pa.BufferReader(store.get(key)))
 
@@ -140,6 +225,7 @@ class ServingPublisher:
         provider: ExchangeProvider,
         store: ObjectStore,
         *,
+        expected_analysis_version: str,
         history: SnapshotHistory | None = None,
         run_id: str | None = None,
         clock: Callable[[], datetime] = utc_now,
@@ -147,9 +233,13 @@ class ServingPublisher:
         self.settings = settings
         self.exchange = provider.exchange_code
         self.store = store
+        self.expected_analysis_version = expected_analysis_version
+        """Supplied by the job layer, which knows the engine; publication never derives or
+        substitutes one (ADR-0026 §1.3, check 2)."""
         self.history = history
         self.run_id = run_id
         self.clock = clock
+        self.verification: dict[str, Any] = {}
 
     def run(self) -> dict[str, Any]:
         ex, store = self.exchange, self.store
@@ -233,6 +323,9 @@ class ServingPublisher:
                 "methodology_hash",
             )
         }
+        # Checks 1-6 (ADR-0026 §1.3): the analysis set against this weekly version.
+        analysis_bytes, analysis = self._analysis_set(weekly, status, rows, files)
+        summary = analysis_summary(analysis, analysis_bytes)
         meta_version = (
             "meta-"
             + _sha(
@@ -242,16 +335,19 @@ class ServingPublisher:
                         "versions": versions,
                         "files": {n: _sha(b) for n, b in payloads.items()},
                         "weekly_files": files,
+                        "analysis": summary,
                     },
                     sort_keys=True,
                 ).encode()
             )[:12]
         )
         pointer_key = DataLakeLayout.serving_manifest_key(ex)
+        previous_bytes = store.get(pointer_key) if store.exists(pointer_key) else None
         previous: dict[str, Any] | None = (
-            json.loads(store.get(pointer_key)) if store.exists(pointer_key) else None
+            json.loads(previous_bytes) if previous_bytes is not None else None
         )
         if previous is not None and previous.get("meta_version") == meta_version:
+            # Idempotent: the same inputs are the same snapshot; nothing is written.
             log_event(log, "serving.unchanged", meta_version=meta_version)
             if self.history is not None:  # a process that died between pointer and record
                 record = self.history.get_snapshot(meta_version)
@@ -262,17 +358,26 @@ class ServingPublisher:
                 "meta_version": meta_version,
                 "as_of": weekly["as_of"],
                 "versions": versions,
+                "analysis": summary,
             }
 
+        # Checks 7-9: every artifact not covered by the live, verified snapshot.
+        self.verification = self._verify_artifacts(analysis, self._live_addresses(previous))
         self._copy_weekly(files)
+        analysis_key = DataLakeLayout.serving_analysis_manifest_key(ex, meta_version)
         entries: dict[str, dict[str, Any]] = {}
+        written: dict[str, tuple[str, str]] = {}
         for name, data in payloads.items():
             key = DataLakeLayout.serving_file_key(ex, meta_version, name)
             store.put(key, data)
             entries[name] = {"key": key, "sha256": _sha(data), "rows": tables[name].num_rows}
+            written[key] = (name, _sha(data))
+        store.put(analysis_key, analysis_bytes)  # the analysis manifest, verbatim
+        written[analysis_key] = ("analysis_manifest", summary["manifest_sha256"])
         counts = {
             "securities": len(rows),
             "analytical": sum(1 for r in rows if r["analytical_universe"]),
+            "analysed": int(summary["securities"]),
             "weekly_bars": weekly["row_count"],
         }
         manifest = {
@@ -283,12 +388,19 @@ class ServingPublisher:
             "versions": versions,
             "files": entries,
             "weekly_files": files,
+            "analysis": {**summary, "manifest_key": analysis_key},
             "counts": counts,
             "generated_at": self.clock().isoformat(),
             "run_id": self.run_id,
         }
         body = json.dumps(manifest, indent=1, sort_keys=True).encode()
-        store.put(DataLakeLayout.serving_version_manifest_key(ex, meta_version), body)
+        version_key = DataLakeLayout.serving_version_manifest_key(ex, meta_version)
+        store.put(version_key, body)
+        written[version_key] = ("manifest", _sha(body))
+        # Step 5: what was written is what was meant to be written.
+        for key, (name, digest) in written.items():
+            if _sha(store.get(key)) != digest:
+                raise PublicationFailed(f"{name} did not read back as written")
 
         if self.history is not None:
             self.history.stage_snapshot(
@@ -302,9 +414,15 @@ class ServingPublisher:
                     data_as_of=date.fromisoformat(weekly["as_of"]),
                     versions=versions,
                     counts=counts,
+                    analysis={k: v for k, v in summary.items() if k != "manifest_sha256"},
                 )
             )
-        store.put(pointer_key, body)  # the snapshot goes live here, and only here
+        # Step 7: the commit. A compare-and-swap of the pointer read at the start: if
+        # anyone moved it meanwhile, nothing changes and publication fails.
+        try:
+            store.swap(pointer_key, body, None if previous_bytes is None else _sha(previous_bytes))
+        except SwapConflict as exc:
+            raise PublicationFailed(f"the live pointer moved during publication ({exc})") from None
         if self.history is not None:
             try:
                 self.history.publish_snapshot(meta_version, self.clock())
@@ -314,10 +432,161 @@ class ServingPublisher:
             self._remove_unreferenced(manifest, previous)
         except Exception:
             log.exception("clean-up after publishing %s failed; the next run retries", meta_version)
-        log_event(log, "serving.published", meta_version=meta_version, securities=len(rows))
+        log_event(
+            log,
+            "serving.published",
+            meta_version=meta_version,
+            securities=len(rows),
+            verification=self.verification,
+        )
         return {
             "outcome": SnapshotOutcome.PUBLISHED,
+            "verification": self.verification,
             **{k: v for k, v in manifest.items() if k != "weekly_files"},
+        }
+
+    # ------------------------------------------------------------------ analysis set
+
+    def _analysis_set(
+        self,
+        weekly: dict[str, Any],
+        status: list[dict[str, Any]],
+        rows: list[dict[str, Any]],
+        files: dict[str, str],
+    ) -> tuple[bytes, AnalysisManifest]:
+        """Checks 1-6 of ADR-0026 §1.3 on the ANALYSIS stage's manifest. Nothing it
+        claims is trusted: each fact is re-derived from the published inputs."""
+        key = DataLakeLayout.analysis_manifest_key(self.exchange)
+        if not self.store.exists(key):
+            raise ServingInputsNotReady("no analysis manifest; run the ANALYSIS stage")
+        data = self.store.get(key)
+        try:
+            manifest = AnalysisManifest.model_validate(json.loads(data))
+        except Exception as exc:
+            raise PublicationFailed(f"the analysis manifest is unreadable ({exc})") from None
+        if manifest_bytes(manifest) != data:
+            raise PublicationFailed("the analysis manifest is not in canonical form")
+        # 1. inputs in step
+        for name, expected in (
+            ("weekly_version", weekly["weekly_version"]),
+            ("dq_version", weekly["dq_version"]),
+            ("as_of", str(weekly["as_of"])),
+            ("methodology_hash", weekly["methodology_hash"]),
+        ):
+            if getattr(manifest, name) != expected:
+                raise ServingInputsNotReady(
+                    f"the analysis was built on {name} {getattr(manifest, name)}, the weekly "
+                    f"data is {expected}; run the ANALYSIS stage"
+                )
+        # 2. methodology: never derived or substituted here
+        if manifest.analysis_methodology_hash != self.settings.analysis.methodology_hash():
+            raise PublicationFailed("the analysis was built with other [analysis] settings")
+        if manifest.analysis_version != self.expected_analysis_version:
+            raise PublicationFailed(
+                f"the analysis is {manifest.analysis_version}, the job expects "
+                f"{self.expected_analysis_version}"
+            )
+        # 3. integrity
+        if analysis_set_hash(manifest.entries) != manifest.analysis_set_hash:
+            raise PublicationFailed("the analysis manifest does not match its set hash")
+        # 4. universe, re-derived
+        try:
+            universe = analysis_universe(status, str(weekly["dq_version"]))
+        except AnalysisStoreError as exc:
+            raise ServingInputsNotReady(str(exc)) from None
+        if universe != manifest.universe or universe_sha256(universe) != manifest.universe_sha256:
+            missing = sorted(set(universe) - set(manifest.universe))[:5]
+            extra = sorted(set(manifest.universe) - set(universe))[:5]
+            raise PublicationFailed(
+                f"the analysed universe differs from the published one "
+                f"(missing {missing}, unexpected {extra})"
+            )
+        # 5. coverage
+        if [e.security_id for e in manifest.entries] != universe:
+            raise PublicationFailed("the analysis entries do not cover exactly the universe")
+        # 6. inputs per security
+        current = {r["security_id"]: r["current_segment_id"] for r in rows}
+        for e in manifest.entries:
+            if files.get(e.security_id) != e.weekly_file_sha256:
+                raise PublicationFailed(f"{e.security_id}: analysed from a stale weekly file")
+            if current.get(e.security_id) != e.continuity_segment_id:
+                raise PublicationFailed(f"{e.security_id}: analysed another segment")
+        return data, manifest
+
+    def _live_addresses(self, previous: dict[str, Any] | None) -> set[str]:
+        """Object keys covered by the live, previously verified schema-3 snapshot: the
+        addresses its verbatim analysis manifest names, trusted only after that copy is
+        verified against the hash the live pointer records (ADR-0026 §1.3)."""
+        if previous is None or int(previous.get("schema_version", 1)) < 3:
+            return set()
+        block = previous.get("analysis") or {}
+        try:
+            data = self.store.get(str(block["manifest_key"]))
+        except (KeyError, StorageError):
+            return set()
+        if _sha(data) != block.get("manifest_sha256"):
+            log.warning("the live analysis manifest does not match its pointer; verifying all")
+            return set()
+        live = AnalysisManifest.model_validate(json.loads(data))
+        return artifact_keys(self.exchange, live)
+
+    def _verify_artifacts(self, manifest: AnalysisManifest, live: set[str]) -> dict[str, Any]:
+        """Checks 7-9 of ADR-0026 §1.3, in parallel. Raises before anything is written."""
+        started = time.monotonic()
+        ex, store = self.exchange, self.store
+        # Existence of covered objects: three listings, not thousands of lookups.
+        present: set[str] = set()
+        if live:
+            for prefix in (
+                DataLakeLayout.serving_analysis_prefix(ex),
+                *(DataLakeLayout.serving_events_prefix(ex, n) for n in EVENT_DATASETS),
+            ):
+                present |= set(store.list(prefix))
+
+        def check(entry: AnalysisEntry) -> tuple[list[str], int, int]:
+            problems: list[str] = []
+            full = existence = 0
+            doc_key = DataLakeLayout.serving_analysis_key(ex, entry.document_sha256)
+            if doc_key in live:
+                existence += 1
+                if doc_key not in present:
+                    problems.append(f"{doc_key}: missing")
+            else:
+                full += 1
+                canonical, problem = inspect_document(store, ex, entry.document_sha256)
+                if problem is not None:
+                    problems.append(f"{problem.key}: {problem.kind}: {problem.detail}")
+                else:
+                    assert canonical is not None
+                    problems += _document_disagreements(entry, manifest, canonical)
+            for name in EVENT_DATASETS:
+                artifact = entry.events.get(name)
+                if artifact is None:
+                    problems.append(f"{entry.security_id}: no {name} entry")
+                    continue
+                key = DataLakeLayout.serving_events_key(ex, name, artifact.content_sha256)
+                if key in live:
+                    existence += 1
+                    if key not in present:
+                        problems.append(f"{key}: missing")
+                    continue
+                full += 1
+                _, problem = inspect_events(store, ex, name, artifact)
+                if problem is not None:
+                    problems.append(f"{problem.key}: {problem.kind}: {problem.detail}")
+            return problems, full, existence
+
+        with ThreadPoolExecutor(max_workers=COPY_WORKERS) as pool:
+            results = list(pool.map(check, manifest.entries))
+        found = [p for problems, _, _ in results for p in problems]
+        if found:
+            raise PublicationFailed(
+                f"{len(found)} analysis artifacts failed verification: {'; '.join(found[:5])}"
+            )
+        return {
+            "objects_fully_verified": sum(r[1] for r in results),
+            "objects_existence_only": sum(r[2] for r in results),
+            "seconds": round(time.monotonic() - started, 1),
         }
 
     def _copy_weekly(self, files: dict[str, str]) -> None:
@@ -354,14 +623,21 @@ class ServingPublisher:
     def _remove_unreferenced(
         self, manifest: dict[str, Any], previous: dict[str, Any] | None
     ) -> None:
-        """Keep this snapshot and the one before it (the API may hold it for a minute)."""
+        """Keep this snapshot, the one before it (the API may hold it for a minute) and,
+        for analysis objects, the latest analysis manifest (tomorrow's reuse) too
+        (ADR-0026 §1.6). Everything else in the serving store is removed."""
         ex, store = self.exchange, self.store
         prefix = DataLakeLayout.serving_prefix(ex)
         keep_versions = {f"v={manifest['meta_version']}"}
         keep_hashes = set(manifest["weekly_files"].values())
+        keep_objects = self._named_by(manifest)
         if previous is not None:
             keep_versions.add(f"v={previous['meta_version']}")
             keep_hashes |= set(previous.get("weekly_files", {}).values())
+            keep_objects |= self._named_by(previous)
+        latest = read_manifest(store, ex)
+        if latest is not None:
+            keep_objects |= artifact_keys(ex, latest)
         for key in store.list(prefix + "v="):
             if key[len(prefix) :].split("/", 1)[0] not in keep_versions:
                 store.delete(key)
@@ -371,8 +647,25 @@ class ServingPublisher:
             for key in store.list(weekly_prefix)
             if key[len(weekly_prefix) :].removesuffix(".parquet") not in keep_hashes
         ]
+        for analysis_prefix in (
+            DataLakeLayout.serving_analysis_prefix(ex),
+            *(DataLakeLayout.serving_events_prefix(ex, n) for n in EVENT_DATASETS),
+        ):
+            stale += [key for key in store.list(analysis_prefix) if key not in keep_objects]
         with ThreadPoolExecutor(max_workers=COPY_WORKERS) as pool:
             list(pool.map(store.delete, stale))
+
+    def _named_by(self, manifest: dict[str, Any]) -> set[str]:
+        block = manifest.get("analysis")
+        if not block:
+            return set()
+        try:
+            live = AnalysisManifest.model_validate(
+                json.loads(self.store.get(block["manifest_key"]))
+            )
+        except Exception:  # an unreadable copy keeps nothing alive through it
+            return set()
+        return artifact_keys(self.exchange, live)
 
 
 # ----------------------------------------------------------------------------- reading
@@ -394,6 +687,10 @@ class ServingSnapshot:
     weekly_files: dict[str, str]
     counts: dict[str, int] = field(default_factory=dict)
     schema_version: int = 1
+    analysis: dict[str, Any] | None = None
+    """Schema 3: the snapshot's analysis block (ADR-0026 §1.2); None before schema 3."""
+    analysis_entries: dict[str, AnalysisEntry] = field(default_factory=dict)
+    """Schema 3: the pinned analysis manifest's entries, by security."""
 
     @classmethod
     def load(cls, store: ObjectStore, exchange: str) -> ServingSnapshot:
@@ -418,6 +715,17 @@ class ServingSnapshot:
                 out[r["security_id"]].append(r)
             return dict(out)
 
+        analysis = manifest.get("analysis") if int(manifest.get("schema_version", 1)) >= 3 else None
+        entries: dict[str, AnalysisEntry] = {}
+        if analysis is not None:
+            try:
+                data = store.get(analysis["manifest_key"])
+            except StorageError as exc:
+                raise SnapshotUnavailable(f"analysis manifest: {exc}") from None
+            if _sha(data) != analysis["manifest_sha256"]:
+                raise SnapshotUnavailable("the analysis manifest does not match the snapshot")
+            pinned = AnalysisManifest.model_validate(json.loads(data))
+            entries = {e.security_id: e for e in pinned.entries}
         return cls(
             exchange=exchange,
             meta_version=manifest["meta_version"],
@@ -431,6 +739,8 @@ class ServingSnapshot:
             weekly_files=dict(manifest["weekly_files"]),
             counts=dict(manifest["counts"]),
             schema_version=int(manifest.get("schema_version", 1)),
+            analysis=analysis,
+            analysis_entries=entries,
         )
 
     @staticmethod

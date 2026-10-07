@@ -25,7 +25,9 @@ import gzip
 import hashlib
 import io
 import json
+import zlib
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from datetime import date
 from typing import Any, Final, Literal
 
@@ -40,7 +42,13 @@ from chartlens_core.canonical import (
     dataset_content_hash,
 )
 from chartlens_core.domain import DataQualityStatus
-from chartlens_pipeline.storage import DataLakeLayout, ImmutableObjectError, ObjectStore
+from chartlens_pipeline.storage import (
+    DataLakeLayout,
+    ImmutableObjectError,
+    ObjectStore,
+    StorageError,
+    validate_key,
+)
 
 UNIVERSE_RULE_VERSION: Final = "1"
 MANIFEST_SCHEMA_VERSION: Final = 1
@@ -319,6 +327,92 @@ def read_events(
     if found != dataset or digest != content_sha256:
         raise AnalysisStoreError(f"{dataset} file {content_sha256} does not match its address")
     return rows, _sha(data)
+
+
+# ----------------------------------------------------------------------------- inspection
+
+
+@dataclass(frozen=True)
+class ArtifactProblem:
+    """Why an artifact cannot be used. ``corrupt``: the object does not match its own
+    content address (quarantine it); ``mismatch``: a valid object that differs from what
+    an entry records; ``missing``: no object."""
+
+    key: str
+    kind: Literal["missing", "corrupt", "mismatch"]
+    detail: str
+
+
+def inspect_document(
+    store: ObjectStore, exchange: str, address: str
+) -> tuple[bytes | None, ArtifactProblem | None]:
+    """The document's canonical bytes if it is present and matches its address."""
+    key = DataLakeLayout.serving_analysis_key(exchange, address)
+    try:
+        data = store.get(key)
+    except StorageError:
+        return None, ArtifactProblem(key, "missing", "no object")
+    try:
+        canonical = decompress_document(data)
+    except (OSError, EOFError, zlib.error) as exc:
+        return None, ArtifactProblem(key, "corrupt", f"not gzip ({exc})")
+    if _sha(canonical) != address:
+        return None, ArtifactProblem(key, "corrupt", "content does not hash to its address")
+    return canonical, None
+
+
+def inspect_events(
+    store: ObjectStore, exchange: str, dataset: Dataset, artifact: EventArtifact
+) -> tuple[tuple[list[Row], dict[str, str]] | None, ArtifactProblem | None]:
+    """Rows and metadata if the file is present, matches its content address
+    (logically) and the recorded bytes and row count (physically)."""
+    key = DataLakeLayout.serving_events_key(exchange, dataset, artifact.content_sha256)
+    try:
+        data = store.get(key)
+    except StorageError:
+        return None, ArtifactProblem(key, "missing", "no object")
+    try:
+        found, rows, meta = decode_events(data)
+    except Exception as exc:
+        return None, ArtifactProblem(key, "corrupt", f"not a readable event file ({exc})")
+    if found != dataset or dataset_content_hash(meta, rows) != artifact.content_sha256:
+        return None, ArtifactProblem(key, "corrupt", "content does not hash to its address")
+    if _sha(data) != artifact.physical_sha256:
+        return None, ArtifactProblem(
+            key, "mismatch", "bytes differ from the recorded physical hash"
+        )
+    if len(rows) != artifact.row_count:
+        return None, ArtifactProblem(key, "mismatch", "row count differs from the entry")
+    return (rows, meta), None
+
+
+def entry_problems(
+    store: ObjectStore, exchange: str, entry: AnalysisEntry
+) -> list[ArtifactProblem]:
+    """Every problem with an entry's artifacts, logical and physical (ADR-0026 §1.4)."""
+    problems: list[ArtifactProblem] = []
+    _, problem = inspect_document(store, exchange, entry.document_sha256)
+    problems += [problem] if problem else []
+    for name in EVENT_DATASETS:
+        artifact = entry.events.get(name)
+        if artifact is None:
+            problems.append(ArtifactProblem(name, "mismatch", "the entry has no such dataset"))
+            continue
+        _, problem = inspect_events(store, exchange, name, artifact)
+        problems += [problem] if problem else []
+    return problems
+
+
+def quarantine(store: ObjectStore, key: str) -> str:
+    """Move a corrupt object out of its content address: its bytes are first kept,
+    unchanged, under ``quarantine/`` (named by their own hash), then removed from the
+    address, so the expected object can be written there (ADR-0026 §1.4). Returns the
+    quarantine key."""
+    data = store.get(key)
+    held = validate_key(f"quarantine/{key}.{_sha(data)}")
+    store.put_immutable(held, data)
+    store.delete(key)
+    return held
 
 
 # ----------------------------------------------------------------------------- manifest

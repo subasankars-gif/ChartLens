@@ -32,6 +32,19 @@ from chartlens_pipeline.weekly import (
 )
 
 EX = "NSE"
+FINDINGS_SCHEMA = pa.schema(
+    [
+        ("security_id", pa.string()),
+        ("start_date", pa.date32()),
+        ("end_date", pa.date32()),
+        ("dimension", pa.string()),
+        ("severity", pa.string()),
+        ("code", pa.string()),
+        ("breaks_continuity", pa.bool_()),
+        ("detail", pa.string()),
+        ("evidence", pa.string()),
+    ]
+)
 START = date(2010, 1, 4)
 
 
@@ -111,24 +124,38 @@ def build(store: ObjectStore, specs: list[Spec], weekly_version: str = "wk-1") -
     for spec in specs:
         bars = _bars(spec)
         files[spec.security_id] = _write_file(store, spec.security_id, bars, weekly_version)
-        seen: dict[str, date] = {}
+        seen: dict[str, list[WeeklyBar]] = {}
         for b in bars:
-            seen.setdefault(b.continuity_segment_id, b.first_session_date)
-        for seg, start in seen.items():
+            seen.setdefault(b.continuity_segment_id, []).append(b)
+        for seg, seg_bars in seen.items():
             segments.append(
                 {
                     "security_id": spec.security_id,
                     "continuity_segment_id": seg,
-                    "segment_start": start,
+                    "segment_start": seg_bars[0].first_session_date,
+                    "segment_end": seg_bars[-1].last_session_date,
+                    "sessions": 5 * len(seg_bars),
+                    "cause": "LISTING" if seg_bars[0] is bars[0] else "UNEXPLAINED_GAP",
+                    "dq_version": "dq-1",
                 }
             )
         _, start = _segment_start(bars)
         status.append(
             {
                 "security_id": spec.security_id,
+                "symbol": spec.security_id.removeprefix("SEC-"),
+                "isin": None,
+                "instrument_type": "EQUITY",
                 "analytical_universe": spec.analytical,
                 "status": spec.status,
                 "usable_from": start,
+                "first_date": bars[0].first_session_date,
+                "last_date": bars[-1].last_session_date,
+                "sessions": 5 * len(bars),
+                "usable_sessions": 5 * sum(1 for b in bars if b.first_session_date >= start),
+                "continuity_breaks": len(seen) - 1,
+                "warnings": 0,
+                "failures": 0,
                 "dq_version": "dq-1",
             }
         )
@@ -141,6 +168,42 @@ def build(store: ObjectStore, specs: list[Spec], weekly_version: str = "wk-1") -
     )
     store.put(
         DataLakeLayout.data_quality_report_key(EX), json.dumps({"dq_version": "dq-1"}).encode()
+    )
+    # What publication also reads: findings, the security master, identifier history and
+    # the adjusted dataset's manifest (none of it matters to ANALYSIS).
+    store.put(
+        DataLakeLayout.data_quality_findings_key(EX),
+        to_parquet_bytes(FINDINGS_SCHEMA.empty_table()),
+    )
+    master = [
+        {
+            "security_id": spec.security_id,
+            "current_symbol": spec.security_id.removeprefix("SEC-"),
+            "security_name": f"Synthetic {spec.security_id}",
+            "isin": None,
+            "current_series": "EQ",
+            "listing_status": "ACTIVE",
+        }
+        for spec in specs
+    ]
+    store.put(DataLakeLayout.securities_key(EX), to_parquet_bytes(pa.Table.from_pylist(master)))
+    identifiers = [
+        {
+            "security_id": spec.security_id,
+            "identifier_type": "SYMBOL",
+            "identifier_value": spec.security_id.removeprefix("SEC-"),
+            "valid_from": START,
+            "valid_to": date(9999, 12, 31),
+        }
+        for spec in specs
+    ]
+    store.put(
+        DataLakeLayout.identifier_history_key(EX),
+        to_parquet_bytes(pa.Table.from_pylist(identifiers)),
+    )
+    store.put(
+        DataLakeLayout.adjusted_manifest_key(EX),
+        json.dumps({"adjustment_version": "adj-1", "identity_version": "id-1"}).encode(),
     )
     _write_manifest(store, files, weekly_version, as_of)
 
@@ -155,8 +218,12 @@ def _write_manifest(
         "builder_version": WEEKLY_BUILDER_VERSION,
         "as_of": str(as_of),
         "data_version": "data-1",
+        "adjustment_version": "adj-1",
+        "identity_version": "id-1",
+        "calendar_version": "cal-1",
         "dq_version": "dq-1",
         "methodology_hash": "f9e40bee87d3",
+        "row_count": 0,
         "files": files,
     }
     store.put(DataLakeLayout.weekly_manifest_key(EX), json.dumps(manifest).encode())

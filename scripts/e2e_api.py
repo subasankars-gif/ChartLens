@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "pipeline/tests"), str(ROOT / "backend/tests")]
 
 import uvicorn  # noqa: E402
+from chartlens_jobs.analysis_stage import AnalysisStage, StoreSpec  # noqa: E402
 from chartlens_jobs.production import ProductionRunner, StageResult  # noqa: E402
 from fakes import FakeVerifier, MemoryAppState  # noqa: E402
 from test_adjust import SESSIONS, build_lake  # noqa: E402
@@ -40,6 +41,7 @@ from chartlens_api.main import create_app  # noqa: E402
 from chartlens_core.config import ApiConfig, ChartLensSettings  # noqa: E402
 from chartlens_core.domain import utc_now  # noqa: E402
 from chartlens_core.runs import SnapshotOutcome, Stage  # noqa: E402
+from chartlens_engine.analysis import analysis_version  # noqa: E402
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides  # noqa: E402
 from chartlens_pipeline.data_quality import DataQualityService  # noqa: E402
 from chartlens_pipeline.identity import IdentityOverrides  # noqa: E402
@@ -86,7 +88,10 @@ def main(port: int, lake: Path | None) -> None:
         ).run()
         DataQualityService(settings, provider, store, identity_overrides=IdentityOverrides()).run()
         WeeklyService(settings, provider, store).run()
-        ServingPublisher(settings, provider, store).run()
+        AnalysisStage(settings, "NSE", StoreSpec("local", root=str(store.root)), workers=1).run()
+        ServingPublisher(
+            settings, provider, store, expected_analysis_version=analysis_version(settings.analysis)
+        ).run()
     api = ChartLensSettings.model_construct(
         api=ApiConfig(
             firebase_project_id="e2e",

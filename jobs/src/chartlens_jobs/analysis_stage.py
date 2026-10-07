@@ -62,6 +62,8 @@ from chartlens_pipeline.analysis_store import (
     AnalysisStoreError,
     EventArtifact,
     analysis_set_hash,
+    entry_problems,
+    quarantine,
     read_document,
     read_events,
     read_manifest,
@@ -76,6 +78,7 @@ from chartlens_pipeline.storage import (
     LocalObjectStore,
     ObjectStore,
     StorageError,
+    SwapConflict,
 )
 from chartlens_pipeline.weekly import bars_from_table
 
@@ -123,6 +126,14 @@ class OverlayObjectStore:
 
     def delete(self, key: str) -> None:
         self.overlay.delete(key)
+
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        """Compares against what a reader of this store sees (the overlay's object, else
+        the base's), and writes only to the overlay."""
+        current = hashlib.sha256(self.get(key)).hexdigest() if self.exists(key) else None
+        if current != expected_sha256:
+            raise SwapConflict(f"{key} changed since it was read")
+        self.overlay.put(key, data)
 
 
 @dataclass(frozen=True)
@@ -177,6 +188,8 @@ class SecurityOutcome:
     entry: AnalysisEntry
     computed: bool
     document_bytes: int = 0
+    quarantined: tuple[str, ...] = ()
+    """Corrupt objects moved to quarantine before this security was recomputed."""
 
 
 @dataclass
@@ -286,9 +299,24 @@ def analyse_security(task: SecurityTask) -> SecurityOutcome:
     w = _worker()
     p = _prepare(task)
     prev = task.previous
+    quarantined: tuple[str, ...] = ()
     if w.allow_reuse and prev is not None and prev.reuse_key == p.reuse_key:
-        entry = prev.model_copy(update={"weekly_file_sha256": task.weekly_file_sha256})
-        return SecurityOutcome(entry, computed=False)
+        # ADR-0026 §1.4: a corrupt object is never reused. Verify, logically and
+        # physically, before reusing; quarantine anything that fails its own address.
+        problems = entry_problems(w.store, task.exchange, prev)
+        if not problems:
+            entry = prev.model_copy(update={"weekly_file_sha256": task.weekly_file_sha256})
+            return SecurityOutcome(entry, computed=False)
+        quarantined = tuple(
+            quarantine(w.store, problem.key) for problem in problems if problem.kind == "corrupt"
+        )
+        log_event(
+            log,
+            "analysis.repair",
+            security_id=task.security_id,
+            problems=[f"{x.kind}: {x.key}: {x.detail}" for x in problems],
+            quarantined=list(quarantined),
+        )
     _, stored = _compute(task, p)
     try:
         address = write_document(w.store, task.exchange, stored.document)
@@ -314,7 +342,9 @@ def analyse_security(task: SecurityTask) -> SecurityOutcome:
         document_sha256=address,
         events=events,
     )
-    return SecurityOutcome(entry, computed=True, document_bytes=len(stored.document))
+    return SecurityOutcome(
+        entry, computed=True, document_bytes=len(stored.document), quarantined=quarantined
+    )
 
 
 def recompute_security(task: SecurityTask, entry: AnalysisEntry) -> str | None:
@@ -544,6 +574,7 @@ class AnalysisStage:
             "reused": summary.reused,
             "reuse_validation_sample": len(sample),
             "reuse_validation_mismatches": 0,
+            "quarantined": sum(len(o.quarantined) for o in by_id.values()),
             "universe_sha256": manifest.universe_sha256[:12],
             "analysis_set_hash": manifest.analysis_set_hash[:12],
             "document_mb_written": summary.document_mb,

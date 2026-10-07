@@ -18,6 +18,7 @@ from test_adjust import SESSIONS, build_lake
 from typer.testing import CliRunner
 
 from chartlens_core.runs import STAGES, RunRecord, RunStatus, SnapshotOutcome, Stage, start_run
+from chartlens_engine.analysis import analysis_version
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
@@ -174,7 +175,14 @@ def real_stages(lake: Any, history: MemoryRunStore, run_id: str, **broken: Any) 
         return StageResult(version=summary.manifest.analysis_version, details=summary.details)
 
     def publish() -> StageResult:
-        r = ServingPublisher(settings, provider, store, history=history, run_id=run_id).run()
+        r = ServingPublisher(
+            settings,
+            provider,
+            store,
+            expected_analysis_version=analysis_version(settings.analysis),
+            history=history,
+            run_id=run_id,
+        ).run()
         return StageResult(version=r["meta_version"], snapshot_outcome=r["outcome"])
 
     stages = {
@@ -219,7 +227,14 @@ def test_only_a_fully_successful_run_moves_the_serving_pointer(lake: Any) -> Non
 
     def publish() -> StageResult:
         settings, provider, _, _ = lake
-        r = ServingPublisher(settings, provider, store, history=runs, run_id="run-2").run()
+        r = ServingPublisher(
+            settings,
+            provider,
+            store,
+            expected_analysis_version=analysis_version(settings.analysis),
+            history=runs,
+            run_id="run-2",
+        ).run()
         return StageResult(version=r["meta_version"], snapshot_outcome=r["outcome"])
 
     second = ProductionRunner(

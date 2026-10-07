@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from chartlens_api.appstate import Role, User, UserNotFound, Watchlist
 from chartlens_api.auth import AuthenticationError, Claims
 
@@ -50,3 +52,22 @@ class MemoryAppState:
 
     def delete_watchlist(self, uid: str, watchlist_id: str) -> bool:
         return self.watchlists.get(uid, {}).pop(watchlist_id, None) is not None
+
+
+def publish_with_analysis(settings: Any, provider: Any, store: Any, **kw: Any) -> dict[str, Any]:
+    """The tracked run's last two stages on a test lake: the real ANALYSIS stage (one
+    process), then schema-3 publication with the job layer's expected analysis_version."""
+    from chartlens_jobs.analysis_stage import AnalysisStage, StoreSpec
+
+    from chartlens_engine.analysis import analysis_version
+    from chartlens_pipeline.serving import ServingPublisher
+
+    AnalysisStage(settings, "NSE", StoreSpec("local", root=str(store.root)), workers=1).run()
+    published: dict[str, Any] = ServingPublisher(
+        settings,
+        provider,
+        store,
+        expected_analysis_version=analysis_version(settings.analysis),
+        **kw,
+    ).run()
+    return published

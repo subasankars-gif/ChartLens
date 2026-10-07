@@ -339,3 +339,6 @@ class SnapshotRecord(BaseModel):
     data_as_of: date
     versions: dict[str, str]
     counts: dict[str, int] = Field(default_factory=dict)
+    analysis: dict[str, str | int] | None = None
+    """Schema 3: the analysis set's summary (version, methodology hash, universe and set
+    hashes, securities analysed). Run facts stay in the run record (ADR-0026 §1.7)."""

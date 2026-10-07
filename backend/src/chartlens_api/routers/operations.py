@@ -97,6 +97,8 @@ class SnapshotView(BaseModel):
     schema_version: int
     versions: dict[str, str]
     counts: dict[str, int]
+    analysis: dict[str, str | int] | None = None
+    """Schema 3: the analysis set's summary (ADR-0026 §1.7)."""
 
 
 class ServingView(BaseModel):

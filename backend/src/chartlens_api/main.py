@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 import chartlens_api
-from chartlens_api.routers import admin, health, me, operations, securities, system
+from chartlens_api.routers import admin, analysis, health, me, operations, securities, system
 from chartlens_core.config import ChartLensSettings, get_settings
 from chartlens_core.logs import configure_logging
 
@@ -48,6 +48,7 @@ def create_app(settings: ChartLensSettings | None = None) -> FastAPI:
     app.include_router(health.router, prefix=API_PREFIX)
     for router in (
         securities.router,
+        analysis.router,
         system.router,
         me.router,
         admin.router,

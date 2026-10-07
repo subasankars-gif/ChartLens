@@ -89,6 +89,7 @@ API_ALLOWED_PIPELINE = {
     "chartlens_pipeline.serving",
     "chartlens_pipeline.storage",
     "chartlens_pipeline.runs",  # operational run state and snapshot history (ADR-0018)
+    "chartlens_pipeline.analysis_store",  # reading and verifying published analysis (ADR-0026)
 }
 API_FORBIDDEN_CORE = {"chartlens_core.adjustment", "chartlens_core.quality"}
 API_ALLOWED_FROM_CORE_WEEKLY = {"WeeklyBar"}
@@ -277,3 +278,22 @@ def test_the_orchestrator_contains_no_analytics(module: str) -> None:
     ]
     assert not filtered, filtered
     assert not set(_calls(tree)) & SELECTING, set(_calls(tree)) & SELECTING
+
+
+API_ANALYSIS = (
+    "backend/src/chartlens_api/routers/analysis.py",
+    "backend/src/chartlens_api/lake.py",
+)
+NEVER_IN_SERVING = {"sorted", "sort", "min", "max", "sum", "round", "rank", "nlargest", "nsmallest"}
+
+
+@pytest.mark.parametrize("module", API_ANALYSIS)
+def test_the_analysis_api_never_sorts_ranks_or_computes(module: str) -> None:
+    """ADR-0026 §2.1: the API serves published results; it never ranks, sorts, scores or
+    computes over them, and never names a fit or score to order by."""
+    path = ROOT / module
+    tree = ast.parse(path.read_text(), filename=str(path))
+    assert not set(_calls(tree)) & NEVER_IN_SERVING, set(_calls(tree)) & NEVER_IN_SERVING
+    text = path.read_text()
+    for word in ("definition_fit", "fit_rank", "relevance_score", "chartlens_engine"):
+        assert word not in text, word

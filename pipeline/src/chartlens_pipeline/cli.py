@@ -621,8 +621,15 @@ def publish_serving(
         str | None, typer.Option(help="Also write the JSON summary here")
     ] = None,
     run_id: Annotated[str | None, typer.Option(help="The production run publishing")] = None,
+    analysis_version: Annotated[
+        str,
+        typer.Option(
+            help="The analysis_version the job layer expects (schema 3 requires an analysis "
+            "set; publication never derives one)"
+        ),
+    ] = "",
 ) -> None:
-    """Publish the versioned serving snapshot the API reads (ADR-0016, ADR-0018).
+    """Publish the versioned serving snapshot the API reads (ADR-0016, ADR-0018, ADR-0026).
 
     Exit 5 when the inputs are out of step, 6 when publication stopped before the pointer
     moved. Either way the live snapshot is unchanged.
@@ -635,10 +642,14 @@ def publish_serving(
 
     settings = get_settings()
     configure_logging(settings.runtime)
+    if not analysis_version:
+        typer.echo("Refusing to run: --analysis-version is required (ADR-0026)", err=True)
+        raise typer.Exit(code=5)
     publisher = ServingPublisher(
         settings,
         _provider(settings, exchange),
         _store(settings),
+        expected_analysis_version=analysis_version,
         history=_run_store(settings),
         run_id=run_id,
     )

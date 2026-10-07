@@ -334,3 +334,48 @@ def test_documents_are_addressed_by_their_uncompressed_bytes_in_production(
         assert hashlib.sha256(canonical).hexdigest() == e.document_sha256
         assert hashlib.sha256(stored).hexdigest() != e.document_sha256
         assert canonical == canonical_json(json.loads(canonical))
+
+
+# ----------------------------------------------------------------------------- repair (ADR-0026 §1.4)
+
+
+def test_a_corrupt_reusable_document_is_quarantined_and_rewritten(lake: LocalObjectStore) -> None:
+    """A corrupt object is never reused: its bytes go to quarantine, the security is
+    recomputed and the expected object is written back to its address."""
+    first = stage(lake).run()
+    before = manifest_bytes(lake)
+    e = first.manifest.entries[0]
+    key = DataLakeLayout.serving_analysis_key(EX, e.document_sha256)
+    lake.delete(key)
+    lake.put_immutable(key, gzip.compress(b'{"tampered":true}', mtime=0))
+    again = stage(lake).run()
+    assert (again.computed, again.reused) == (1, 3)
+    assert again.details["quarantined"] == 1
+    assert read_document(lake, EX, e.document_sha256)  # the expected object, verified
+    held = lake.list("quarantine/")
+    assert len(held) == 1 and held[0].startswith(f"quarantine/{key}.")
+    assert gzip.decompress(lake.get(held[0])) == b'{"tampered":true}'
+    assert manifest_bytes(lake) == before
+
+
+def test_a_corrupt_reusable_event_file_is_quarantined_and_rewritten(lake: LocalObjectStore) -> None:
+    first = stage(lake).run()
+    e = first.manifest.entries[1]
+    art = e.events["level_breakouts"]
+    key = DataLakeLayout.serving_events_key(EX, "level_breakouts", art.content_sha256)
+    lake.delete(key)
+    lake.put_immutable(key, b"not parquet")
+    again = stage(lake).run()
+    assert again.computed == 1 and again.details["quarantined"] == 1
+    rows, physical = read_events(lake, EX, "level_breakouts", art.content_sha256)
+    assert physical == art.physical_sha256 and len(rows) == art.row_count
+
+
+def test_a_missing_reusable_artifact_is_recomputed_without_quarantine(
+    lake: LocalObjectStore,
+) -> None:
+    m = stage(lake).run().manifest
+    lake.delete(DataLakeLayout.serving_analysis_key(EX, m.entries[2].document_sha256))
+    again = stage(lake).run()
+    assert again.computed == 1 and again.details["quarantined"] == 0
+    assert lake.list("quarantine/") == []

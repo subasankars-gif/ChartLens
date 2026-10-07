@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fakes import FakeVerifier, MemoryAppState
+from fakes import FakeVerifier, MemoryAppState, publish_with_analysis
 from fastapi.testclient import TestClient
 from test_adjust import SESSIONS, build_lake
 
@@ -20,7 +20,6 @@ from chartlens_core.config import ApiConfig, ChartLensSettings
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
-from chartlens_pipeline.serving import ServingPublisher
 from chartlens_pipeline.storage import DataLakeLayout, LocalObjectStore
 from chartlens_pipeline.weekly import WeeklyService
 
@@ -45,7 +44,7 @@ def env(tmp_path: Path) -> dict[str, Any]:
     ).run()
     DataQualityService(settings, provider, store, identity_overrides=IdentityOverrides()).run()
     WeeklyService(settings, provider, store).run()
-    ServingPublisher(settings, provider, store).run()
+    publish_with_analysis(settings, provider, store)
     api_settings = ChartLensSettings.model_construct(
         api=ApiConfig(firebase_project_id="demo-test", admin_emails=("boss@example.com",))
     )
