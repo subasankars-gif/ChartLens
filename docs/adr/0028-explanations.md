@@ -217,7 +217,7 @@ Not in 6e: ADR-0027 §10.1 (spans across missing weeks), channels, replay.
 Choices made while building, each within the clarifications; listed for the review.
 
 1. **Where the code lives.** `chartlens_core.claims` holds the claim model, the template
-   set (21 templates), the renderer, the resolver (RFC 6901 pointers) and the validator;
+   set (19 templates), the renderer, the resolver (RFC 6901 pointers) and the validator;
    `chartlens_engine.explain` only selects subjects and fields; the ANALYSIS stage
    (`chartlens_jobs`) generates, validates and writes; the publisher validates new
    objects with the same `validate`; the API serves verbatim. No layer re-implements
