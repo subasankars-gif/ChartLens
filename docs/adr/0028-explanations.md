@@ -2,6 +2,8 @@
 
 **Status:** Accepted · 2026-10-07, with Suba's clarifications 1–11 frozen below; §6
 (publication, schema 4) approved as written, with the provenance invariant added there.
+**Phase 6e CLOSED** (2026-10-07). The negative price levels it surfaced (§11) are a
+separate engine methodology investigation; 6e and this ADR are not changed by it.
 It details ADR-0024 §9 and builds
 on ADR-0025 (job layer), ADR-0026 (publication, API) and ADR-0027 (chart layers).
 
