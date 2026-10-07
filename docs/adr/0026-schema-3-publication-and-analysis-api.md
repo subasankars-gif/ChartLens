@@ -337,3 +337,46 @@ does not return it, the chart does not compute it.
    inside a section is a further shaping decision.
 8. **Events API:** `source` required; predicates on stored fields only; no status filter;
    a content-hash-bound cursor.
+
+## 6c evidence (2026-10-07, at the checkpoint)
+
+- **Tests:** 989 pass (`poe check`); CI green on `6d64ce9` (Python, frontend, end to end,
+  emulators, the three images). Publication tests break each of checks 1–9 and prove the
+  pointer did not move; cover the coverage boundary (covered objects existence-only, an
+  orphan fully verified, a live copy failing its hash covering nothing, a covered object
+  that vanished refused); a crash just before the commit (old snapshot live, retry
+  publishes); a compare-and-swap conflict (the other publisher's pointer kept);
+  idempotence (UNCHANGED, nothing rewritten); clean-up keeping exactly the live, previous
+  and latest analysis objects. The 6b amendment: corrupt reusable documents and event
+  files are quarantined, recomputed and rewritten; missing ones recomputed without
+  quarantine. API tests: the full document and every section re-encode to the stored
+  bytes; refusals (unknown section 400, `?as_of` 400, unknown 404, not analysed 404,
+  schema 2 `no_analysis_in_snapshot`); events verbatim in stored order, predicates,
+  paging that walks the stored order exactly, a cursor bound to its predicates (400) and
+  to its dataset (409 across a snapshot change); a corrupt document never served. A
+  static test keeps sorting, ranking and the engine out of the analysis routes.
+- **Real NSE rehearsal** (the live lake read-only, everything written on the runner;
+  weekly `wk-cc82a2aff239`, 3,193 analysed, 4 CPUs):
+
+| Step | Result | Time |
+|---|---|---|
+| ANALYSIS, first run | 3,193 computed | 241 s |
+| Publish (live pointer was schema 2, so nothing covered) | PUBLISHED `meta-1ceff11a89a2`, schema 3; 9,579 objects fully verified (3,193 documents, 6,386 event files) | 99 s, of which verification 93 s |
+| Publish again | UNCHANGED, same `meta_version` | 1.1 s |
+| Verification, existence-only path (all 9,579 covered) | 0 problems | 0.5 s (local store; on GCS: three listings) |
+| Verification, full path again | 0 problems | 96 s |
+| ANALYSIS rerun (reuse now verifies every artifact) | 3,193 reused, 32 recomputed with 0 mismatches, 0 quarantined | 98 s |
+| API: snapshot load (pinned copy verified) | schema 3, analysis summary present | 0.2 s |
+| API: document read + verification | 100 documents | 18 ms each |
+| API: level events read + verification | 100 datasets | 18 ms each |
+
+  A normal day fully verifies only what the live snapshot does not cover (about 2,577
+  documents and 5,154 event files), so about 75 s at this rate; reruns are
+  existence-only.
+- **K7 implementation check** (validates the current implementation, not the
+  contract): 528,343 swing prices across 300 sampled securities, every one exactly equal
+  (as `Decimal` of the stored float text) to a stored decimal of its bar: high or low for
+  the FRACTAL and ATR methods (236,904), another of the bar's OHLC decimals for the
+  close-based PERCENT and ZIGZAG methods. A first version of this check compared every
+  method with high/low only and reported 61,427 "mismatches"; those were the
+  close-based methods, and the check was wrong, not the values.
