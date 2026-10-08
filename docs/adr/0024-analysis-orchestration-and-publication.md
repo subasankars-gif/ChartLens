@@ -2,6 +2,9 @@
 
 **Status:** Accepted · 2026-10-07. Decisions 1–4 and amendments A–G by Suba. Phase 6a
 **closed** 2026-10-07: refinements R1–R5 and the storage decision (§4.1) approved.
+**Phase 6 complete** 2026-10-08 (Suba): 6a–6e closed (6b ADR-0025, 6c ADR-0026, 6d
+ADR-0027, 6e ADR-0028). Investigation 0001 is closed; its follow-ups 0001-A/B/C are
+independent read-only investigations, not Phase 6 defects, and do not gate M8.
 Amends ADR-0001, ADR-0018, ADR-0019 and ADR-0023 where stated. The ANALYSIS stage's
 design is ADR-0025.
 
@@ -371,6 +374,10 @@ version.
 | 6e | `explain` | every claim resolves; wording tests |
 
 Channels follow as their own levels-layer phase.
+
+**Status 2026-10-08:** all five phases closed; Phase 6 is complete for the scope above.
+Carried forward, not gating: ADR-0027 §10.1 (spans across missing weekly observations)
+and Investigations 0001-A/B/C (docs/investigations).
 
 ## Phase 6a refinements (approved at the 6a checkpoint)
 
