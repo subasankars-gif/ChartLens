@@ -38,20 +38,34 @@ permissions:
 
 jobs:
   refresh:
-    if: vars.GCS_BUCKET != '' && vars.GCP_PROJECT_ID != ''
+    if: vars.GCP_PROJECT_ID != ''
+    # M8 completion gate, A6: the live storage target and the GCP identities exist only in the
+    # `production` GitHub Environment, which accepts runs from `main` alone. A workflow
+    # file that does not name it (an old commit's re-run, another branch) sees neither.
+    # Environment variables are read in steps only, never in job-level `if` or `env`.
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 350   # the run store treats 6 h without progress as lost
     env:
       CHARTLENS_RUNTIME__ENVIRONMENT: prod
       CHARTLENS_RUNTIME__LOG_JSON: "true"
       CHARTLENS_STORAGE__BACKEND: gcs
-      CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
       CHARTLENS_FIRESTORE__PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       # Inputs reach the script through env, never interpolated into it.
       INPUT_RUN_ID: ${{ inputs.run_id }}
       EVENT: ${{ github.event_name }}
       ACTOR: ${{ github.triggering_actor }}   # on a re-run: whoever re-ran it
     steps:
+      - name: Live storage target (production environment only)
+        env:
+          BUCKET: ${{ vars.GCS_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BUCKET" ]; then
+            echo "::error::GCS_BUCKET is not provided: this job must run in the production environment"
+            exit 1
+          fi
+          echo "CHARTLENS_STORAGE__GCS_BUCKET=$BUCKET" >> "$GITHUB_ENV"
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
         with:

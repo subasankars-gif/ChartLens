@@ -41,7 +41,12 @@ jobs:
   deploy:
     # Skipped until the M5 setup (ADR-0016, README → API deployment) has created the
     # deployer and the repository variables.
-    if: vars.GCP_DEPLOY_SA != '' && vars.GCP_API_SA != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_REGION != ''
+    if: vars.GCP_API_SA != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_REGION != ''
+    # M8 completion gate, A6: the live storage target and the GCP identities exist only in the
+    # `production` GitHub Environment, which accepts runs from `main` alone. A workflow
+    # file that does not name it (an old commit's re-run, another branch) sees neither.
+    # Environment variables are read in steps only, never in job-level `if` or `env`.
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

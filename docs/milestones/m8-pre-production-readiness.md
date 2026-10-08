@@ -1,6 +1,11 @@
 # M8 pre-production readiness review
 
-**Status:** Report for review · 2026-10-08. Read-only against the locked
+**Status:** Report for review · 2026-10-08. **Decisions 2026-10-09 (§5):** A6 = a
+`main`-only GitHub Environment (merge blocked until re-checked); B8 accepted as a
+pre-merge evidence gap; B9 correction accepted. A6 protection implemented on `m8`; its
+re-check awaits the settings only you can apply (§5.3).
+
+Original report follows. Read-only against the locked
 [M8 completion gate](m8-completion-gate.md): D5 and Gate 4's before-merge items.
 
 Nothing was changed in production. Specifically:
@@ -367,6 +372,131 @@ is otherwise green (1,048 passed, 1 failed before the fix). CI on 34e3776 is gre
 All seven CI checks pass on 34e3776 (the gate wording fix): Python, Frontend, the
 Firebase-emulator API tests, the end-to-end suite, and the three Docker targets. PR #16 is
 green again. This report adds documentation only.
+
+## 5. Decisions (Suba, 2026-10-09) and the A6 implementation
+
+### 5.1 B8: accepted as an evidence gap, not a merge blocker
+
+Recorded as: *not demonstrated against real Cloud Storage before the merge; production
+validation provides the first live evidence.* B8 is **not** upgraded to PASS here.
+
+At Gate 3, verify explicitly:
+- actual GCS object writes;
+- actual manifest and object validation;
+- the actual compare-and-swap pointer update;
+- retention of the live and previous snapshots;
+- the API and chart reading the resulting live snapshot.
+
+### 5.2 B9: correction accepted
+
+The rollback record (gate D5) now distinguishes these cases:
+
+| Situation | Required action |
+|---|---|
+| Bad schema-4 live snapshot, compatible API | Re-point the live pointer to a retained compatible snapshot |
+| Need the schema-2 data snapshot | It must still exist; retention is not indefinite (gone after the second schema-4 publish) |
+| Old API revision required | Deploy a compatible old revision as well |
+| Only data is wrong | No automatic code rollback |
+| Seven-stage run records | The old API cannot fully operate against them (run history fails) |
+
+The rollback path is **recorded and technically bounded, not rehearsed.**
+
+### 5.3 A6: implementation and the focused re-check
+
+**Invariant:** only workflows executing from `main` may possess the live-publication
+storage target and credentials. It is enforced at two independent layers, so that it does
+not rest on a variable merely being absent.
+
+**Layer 1: GitHub.** Implemented on `m8`.
+- `production-refresh`, `pipeline-job`, `deploy-api` and `deploy-web` declare
+  `environment: production`. No other workflow does.
+- The four target and credential variables (`GCS_BUCKET`, `GCP_WIF_PROVIDER`,
+  `GCP_PIPELINE_SA`, `GCP_DEPLOY_SA`) move from repository variables into that
+  environment, whose deployment branches are `main` only.
+- A workflow file that does not name the environment sees none of them:
+  - old commits' re-runs;
+  - Dependabot branches;
+  - probe and verify workflows.
+- A workflow that names it on another branch is refused by GitHub before it runs.
+- The protected variables are read only inside steps, never in a job-level `if` or
+  `env`. A job gated on an environment variable could otherwise be skipped silently.
+- The refresh's first step fails loudly if no bucket is provided.
+- `pipeline-job` decides GCS or local inside a step.
+
+**Layer 2: GCP.** Script `scripts/gcp_setup_m8.sh`, which you run.
+- The pipeline and deployer identities accept exactly one OIDC subject:
+  `repo:subasankars-gif/ChartLens:environment:production`. GitHub issues that subject
+  only to jobs the environment admits.
+- The repository-wide principal set is removed, so a workflow that hard-codes the
+  provider and account names still cannot impersonate either identity.
+- This covers point 7: no alternate configuration bypasses the protection.
+
+**Static evidence (PASS).** `tests/test_production_environment.py`, 7 tests:
+- every job of the four workflows names `production`, and nothing else does;
+- the protected variables are never read in workflow-level `env`, job-level `if` or job
+  `env`;
+- the refresh fails without its bucket;
+- every GCP sign-in takes its identity from the protected variables, and none uses a key;
+- no tracked code, workflow or configuration names the live bucket;
+- the setup script binds both identities to the environment subject.
+
+The full suite passes: 1,056 tests. The README's storage section is updated.
+
+**Settings only you can apply.** This session cannot read or write GitHub environments
+or variables, or GCP IAM.
+- **S1.** Create Environment `production`, with deployment branches set to `main` only.
+  Add the four variables with their current values.
+- **S2.** `bash scripts/gcp_setup_m8.sh before-merge`. This adds the environment-subject
+  binding. It is harmless today, because the current `main` does not use that subject.
+
+**Sequencing, a decision for you.** The negative checks (points 3, 4, 6, 7) need
+enforcement switched on: the repository-level variables removed and `after-merge` run.
+Today's `main` workflows do not name the environment, so switching it on stops
+production's refresh until the merge. Two orderings are possible:
+
+- **(a) Enforce, verify, then merge. Recommended: it satisfies "block merge until A6 is
+  re-checked" literally.**
+  1. Remove the four repository variables.
+  2. Run `after-merge` (despite its name, it works before the merge).
+  3. Run the negative checks below.
+  4. Merge.
+
+  Cost: production's refresh is paused (each run is skipped) from step 1 until the merge.
+  Data stays at the last schema-2 snapshot for those hours. Nothing can publish, so every
+  negative check is harmless even if it fails. Don't press Refresh during the pause; the
+  run would be skipped and later recorded as lost.
+- **(b) Merge, then enforce.** Enforcement and the negative checks happen after the merge,
+  before the first schema-4 refresh. Live is still schema 2 then, so a failed check would
+  only republish schema 2. The checks are equally harmless, but the merge is not blocked
+  by them.
+
+**Negative checks (both orderings).** All are attempted, not inferred:
+
+| # | Check | Expected |
+|---|---|---|
+| 3 | Re-run a pre-merge `production-refresh` run (e.g. #6, b3473b7) | job skipped: its old `if` sees no `GCS_BUCKET`; no run record written |
+| 3′ | Re-run a pre-merge `pipeline-job` run | runs on the runner's disk only; no GCP sign-in step runs |
+| 4 | "Run workflow" `production-refresh` on a Dependabot branch | job skipped (no `GCS_BUCKET`) |
+| 6 | Probe or verify workflow on a probe branch | no variables; GCP sign-in cannot be attempted |
+| 7a | Probe that **hard-codes** the provider and pipeline-account names and signs in from a non-`main` branch | GCP refuses the token: wrong subject |
+| 7b | Probe that names `environment: production` from a non-`main` branch | GitHub refuses the job: the branch policy |
+| — | Today's `main` `production-refresh` (pre-merge file, ordering (a) only) | job skipped; even `main`'s old file cannot reach the lake |
+
+**Positive checks.** These need the merged code, so they are cut-over steps:
+- **(1) Scheduled refresh publishes:** the first scheduled run after the merge.
+- **(2) API-dispatched refresh publishes:** cut-over step 7, triggered from the System
+  page's Refresh.
+- **Deploy identity:** the merge push's `deploy-api` and `deploy-web` succeed under the
+  environment subject.
+
+**Point 5** (the one-off Pipeline job's publish refuses) is already PASS (A4).
+
+**Re-check status: repository side PASS; live negative checks PENDING S1, S2 and your
+choice of ordering.** I'll report the A6 re-check after the checks run.
+
+Follow-up created by A6 (non-blocking): read-only probes of the real lake, as used for
+6a–6e and Investigation 0001, are no longer possible from probe branches. If they are
+needed again, they would need their own read-only identity and environment.
 
 ## Appendix: M8 §61 report structure (prepared, to be filled at completion)
 

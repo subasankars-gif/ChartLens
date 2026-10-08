@@ -124,8 +124,8 @@ docker compose run --rm pipeline info      # any pipeline command
 
 Market data belongs in GCS (ADR-0002). The flow is: NSE → runner → GCS raw (immutable)
 → GCS curated → adjusted → weekly. `.github/workflows/pipeline-job.yml` switches to
-GCS automatically once these repository **variables** exist (Settings → Secrets and
-variables → Actions → Variables):
+GCS automatically once these **variables** exist in the `production` GitHub Environment
+(Settings → Environments → production; deployment branches: `main` only):
 
 | Variable | Example |
 |---|---|
@@ -133,8 +133,15 @@ variables → Actions → Variables):
 | `GCP_WIF_PROVIDER` | `projects/<number>/locations/global/workloadIdentityPools/github/providers/chartlens-repo` |
 | `GCP_PIPELINE_SA` | `chartlens-pipeline@<project>.iam.gserviceaccount.com` |
 
-Authentication is keyless, through Workload Identity Federation restricted to this
-repository. The service account has `roles/storage.objectUser` on the bucket only.
+Authentication is keyless, through Workload Identity Federation. The pipeline and
+deployer identities accept only this repository's `production` environment (OIDC subject
+`repo:subasankars-gif/ChartLens:environment:production`), so only `main`'s current
+workflows can reach the lake or deploy: a re-run of an old commit's workflow, or a
+workflow on another branch, sees neither the bucket nor the identities (M8 completion
+gate, A6; `scripts/gcp_setup_m8.sh`). The service account has `roles/storage.objectUser`
+on the bucket only. `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_API_SA`, the Firebase web
+variables, `API_ADMIN_EMAILS` and `CHARTLENS_GH_APP_ID` stay repository variables; they
+name things but grant nothing.
 
 The lake was populated on 2026-10-01/02 (2006 → 2026-09-30, 5,145 sessions). The
 weekday schedule (20:15 IST, `.github/workflows/production-refresh.yml`) runs the daily

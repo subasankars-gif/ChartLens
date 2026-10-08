@@ -137,7 +137,8 @@ called "M8 complete" or "M8 final review".
 
 Cut-over procedure:
 
-1. M8 pre-production readiness review passes (D5 and Gate 4's before-merge items).
+1. M8 pre-production readiness review passes (D5 and Gate 4's before-merge items),
+   including the A6 re-check (readiness §5.3; its sequencing is your decision).
 2. Merge PR #16.
 3. Confirm the API deployment is healthy.
 4. Confirm the frontend deployment is healthy.
@@ -197,10 +198,32 @@ schema 2.
 - Production ANALYSIS time and lake growth. Rehearsal figures: about 5 min first run,
   2 to 4 min explanations and publish; about 0.9 GB documents and events per full
   regeneration, plus explanations.
-- No secret or IAM change needed: the jobs service account writes the lake; the API
-  service account reads it.
-- Rollback path recorded: re-point to the retained schema-2 snapshot and redeploy the
-  previous revision. Not rehearsed unless decided otherwise.
+- No new secret. One IAM change, from A6: the pipeline and deployer identities are
+  re-bound to the `production` environment's OIDC subject. Otherwise the jobs service
+  account writes the lake and the API service account reads it, as today.
+- Rollback path (B9, accepted 2026-10-09): recorded and technically bounded, **not
+  rehearsed**.
+
+  | Situation | Required action |
+  |---|---|
+  | Bad schema-4 live snapshot, compatible API | Re-point the live pointer to a retained compatible snapshot (by hand; no tool) |
+  | Need the schema-2 data snapshot | It must still exist: it is gone after the second schema-4 publish; afterwards republish schema 2 with the old code |
+  | Old API revision required | Deploy a compatible old revision as well |
+  | Only data is wrong | No automatic code rollback; the merged API reads schema 2 |
+  | Seven-stage run records | The old API cannot fully operate against them (run history fails) |
+
+*Main-only protection (A6, decided 2026-10-09).* Only workflows executing from `main` may
+possess the live-publication storage target and credentials.
+- The `production` GitHub Environment (deployment branches: `main`) holds `GCS_BUCKET`,
+  `GCP_WIF_PROVIDER`, `GCP_PIPELINE_SA` and `GCP_DEPLOY_SA`.
+- The four production workflows name it.
+- The pipeline and deployer identities accept only the environment's OIDC subject
+  (`scripts/gcp_setup_m8.sh`).
+- Evidence is in readiness review §5.3.
+
+*Evidence gap accepted (B8, 2026-10-09):* the real-GCS write paths are not demonstrated
+before the merge. Gate 3 gives the first live evidence and is never recorded as a
+pre-merge PASS.
 
 ## Next
 
