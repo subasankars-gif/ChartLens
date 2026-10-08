@@ -348,6 +348,13 @@ assembly's no-analytics test (§1) enforces it. When channels exist, they appear
 the `levels` section and change `analysis_version` through the levels analyzer's
 version.
 
+**Clarified 2026-10-08 (M8 completion gate, D1):** channels are **post-M8**. They are
+the first post-M8 analytical phase, in the levels layer, with their own design review
+before implementation. "Next phase" here never meant an M8 requirement: an accepted
+design does not constitute a delivery commitment unless the milestone scope or an
+accepted phase gate explicitly requires its implementation
+(docs/milestones/m8-completion-gate.md).
+
 ## 9. The explanation layer (`chartlens_engine.explain`)
 
 - **A pure function of one `TechnicalAnalysis`.** It returns a separate `explanations`

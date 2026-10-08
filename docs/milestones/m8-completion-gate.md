@@ -1,22 +1,28 @@
 # M8 completion gate
 
-**Status:** PROPOSED · 2026-10-08 · for Suba's review. Design only: no code, workflow,
-deployment or version change follows from this document until it is approved.
+**Status:** **LOCKED** · 2026-10-08. Approved by Suba with amendments: D1 = Option B
+(channels are post-M8); D2 = merge, then validate. Proposed the same day (5424239). This
+document decides what M8 needs to be complete. It does not itself start any work.
 
-Phase 6 is complete (6a–6e closed, ADR-0024). This document defines what else M8 needs
-before it is complete, so that no "next phase" in an ADR becomes a merge requirement by
-default.
+Phase 6 is complete (6a–6e closed, ADR-0024). This gate defines what else M8 needs, so
+that no "next phase" in an ADR becomes a merge or completion requirement by default.
 
-## The principle (Suba, 2026-10-08)
+## The principle
 
 > M8 is complete when the committed 6a–6e architecture is operational end-to-end in the
 > production refresh path, its required milestone documentation is complete, and all
 > explicitly deferred investigations/follow-ups are recorded as non-blocking. Features
-> not included in the approved M8 completion scope do not block the milestone.
+> not included in the approved M8 completion scope do not block the milestone. Merging
+> the implementation into main is a prerequisite for, but does not itself constitute,
+> M8 completion.
 
-**No-blocker criterion:** no open investigation, follow-up or known limitation may
+**No-blocker criterion.** No open investigation, follow-up or known limitation may
 prevent the system from satisfying the committed M8 behaviour. Open items are allowed;
-they must be recorded as non-blocking.
+they must be recorded as non-blocking (Gate 5).
+
+**Governance rule (general, not only for channels).** The existence of an accepted design
+does not constitute a delivery commitment unless the milestone scope or an accepted phase
+gate explicitly requires its implementation.
 
 ## Gate 1: Analytical scope (satisfied)
 
@@ -30,36 +36,17 @@ they must be recorded as non-blocking.
 
 The engine layers they compose (ADR-0020 to ADR-0022, Phases 1–5) were closed before 6a.
 
-## Gate 2: Channels (decision needed, D1)
+## Gate 2: Channels (decided: post-M8)
 
-Suba's position: channels are post-M8, unless the original M8 charter promised them.
-The repository record on that condition:
+**D1, approved: Option B.** Channels are an accepted architectural design (ADR-0021 §D)
+but were never an explicit M8 delivery commitment. The charter is "Weekly technical
+analysis & pattern engine (ADR-0019–0023)".
+- Channels moved from patterns to levels on 2026-10-02 and were marked "not yet built".
+- ADR-0024's Phase 6 delivery table omits them.
+- ADR-0024 §8 gives them their own levels phase and their own review.
 
-- The M8 charter (README milestone table) is "Weekly technical analysis & pattern
-  engine (ADR-0019–0023)".
-- Channels were in that scope from the start: first as a pattern in ADR-0022, then moved
-  to the levels layer on 2026-10-02 (ADR-0022 §7.9). **ADR-0021 §D holds an accepted
-  channel design** (candidate, known_at, ACTIVE / BROKEN_UP / BROKEN_DOWN, de-duplication,
-  relevance), marked "not yet built".
-- No M8 document gives channels a delivery commitment. ADR-0021 §D says they are built
-  "when the levels layer is next extended, outside Phase 5". ADR-0024 §8 says "in their
-  own levels phase with their own review". Phase 6's delivery table (ADR-0024) omits
-  them, and ADR-0028 lists them as "Not in 6e".
-
-So the charter **accepted a channel design** but **never committed to delivering it in
-M8**. That is closer to a promise than "ADR-0024 says next" alone, and it is your
-decision which weighs more.
-
-- **Option A (inside M8):** channels ADR or amendment, review, implementation, real-NSE
-  validation, then production through Gate 3. A new `analysis_version` (levels analyzer)
-  and, if explained, new explanation templates and a new `explain_version`.
-- **Option B (post-M8, the proposed default):** channels are the first post-M8
-  analytical phase, in the levels layer. Two clarifications follow, so "next" never reads
-  as "required":
-  - ADR-0024 §8: channels are post-M8.
-  - ADR-0021 §D: an accepted design, deferred beyond M8 and not built. It is re-reviewed
-    when its phase starts, against the rules frozen since (known_at visibility, 6d
-    placement, 6e claims, Investigation 0001).
+They become the **first post-M8 analytical phase**, in the levels layer, with their own
+design review before implementation. ADR-0024 §8 and ADR-0021 §D state this.
 
 ## Gate 3: Production validation (blocking)
 
@@ -72,30 +59,36 @@ NSE input → INGEST → CORPORATE_ACTIONS → ADJUSTMENT → DATA_QUALITY → W
   → PUBLISH_SERVING (schema 4, atomic pointer) → API → chart
 ```
 
-**Evidence required:**
-
 | # | Evidence | How it is shown |
 |---|---|---|
 | 3.1 | The seven stages run and are recorded correctly | Firestore run record, System page, workflow log |
 | 3.2 | Schema-4 publication is atomic | snapshot schema 4; pointer moved by compare-and-swap after checks 1–12 pass |
-| 3.3 | Analysis and explanation manifests agree | snapshot check 10 / 11 results; the explanations' `analysis_set_hash` equals the analysis manifest's |
+| 3.3 | Analysis and explanation manifests agree | check 10/11 results; the explanations' `analysis_set_hash` equals the analysis manifest's |
 | 3.4 | The API reads the published snapshot | `/system/status` and `/analysis` name the live meta_version |
 | 3.5 | `/chart` reads the same snapshot | every component of a `/chart` response names that meta_version |
-| 3.6 | No schema-2 production path remains active | the deployed API and the refresh's code are the m8 code; no schema-2 publish after cut-over (see D2) |
-| 3.7 | Reuse works | see D4: a same-data rerun gives UNCHANGED with every analysis and explanation reused |
-| 3.8 | The old snapshot stays safe on failure | see D3 |
+| 3.6 | **No schema-2 production publishing path remains active after cut-over** | the deployed API and the refresh run the merged code; no schema-2 publish after cut-over. Backward-compatible schema-2 *reading* is permitted only for retained historical snapshots and rollback; it is not a violation |
+| 3.7 | Reuse | **A same-input rerun after the first live schema-4 refresh demonstrates complete reuse and UNCHANGED publication** (every analysis and explanation reused). Separately, the normal refresh's reused-security count is recorded (D4) |
+| 3.8 | Failure safety | **Production validation observes the already-proven failure-safety mechanism; it does not intentionally induce a production failure** (D3) |
 | 3.9 | The live product shows it | chartlenslab.web.app: search, security page, weekly chart with layers and "What the chart shows" on real data (this also completes the outstanding M6 real-data checks) |
 
-## Gate 4: Documentation (blocking)
+## Gate 4: Documentation (blocking, in two stages)
 
-- M4 §61 report: exists.
-- M5, M7 and M8 §61 reports: written and finalised.
-- Project status shows the final M8 state.
-- ADR index consistent: statuses, and any D1 clarifications.
-- README: the status line (still "Milestone 7") and the M8 row (still "In progress:
-  indicators, swings, structure") updated.
-- PR #16: title and description (still "phase 1: indicators") match the final scope and
-  this gate's checklist.
+This is split so the M8 report, which needs production evidence, never has to exist
+before the merge that produces that evidence.
+
+**Required before merge** (part of the pre-production readiness review):
+- the M4 §61 report exists;
+- the status of the M5 and M7 §61 reports is known;
+- the structure of the M8 §61 report is prepared;
+- inconsistencies in the project status, ADR index and README are identified.
+
+**Required before declaring M8 complete:**
+- M5, M7 and M8 §61 reports final;
+- project status final;
+- ADR index final;
+- README final (the status line still says "Milestone 7"; the M8 row still says
+  "In progress: indicators, swings, structure");
+- PR #16 title, description and checklist final (they still say "phase 1: indicators").
 
 ## Gate 5: Non-blocking register
 
@@ -103,77 +96,115 @@ Each item is recorded as not preventing the committed M8 behaviour.
 
 | Item | Status | M8 effect |
 |---|---|---|
-| Investigation 0001 | closed (accepted) | none |
+| Investigation 0001 | **closed (accepted)**; not an unresolved defect | none; follow-ons below are non-blocking |
 | 0001-A price-domain semantics | open, read-only | non-blocking |
 | 0001-B triangle geometry | open, read-only | non-blocking |
 | 0001-C drawable line extent | open, read-only | non-blocking |
 | ADR-0027 §10.1 spans across missing weeks | open | non-blocking |
-| Channels | D1 | blocking only under Option A |
-| Old CORS origins (`chartlens-lake-13934.web.app`, `.firebaseapp.com`) | to remove after the chartlenslab checklist | non-blocking (proposed) |
+| Channels | post-M8 (D1) | non-blocking |
+| Old CORS origins (`chartlens-lake-13934.web.app`, `.firebaseapp.com`) | remove after the chartlenslab checklist | non-blocking |
 | Probe branches `probe/pattern-stats`, `probe-results/pattern-stats` | still exist; this session cannot delete them | non-blocking cleanup |
 | Dependabot Actions PRs | not reviewed | non-blocking |
 | Scheduler lateness (about 7 h once) | watching | non-blocking |
 | Pre-open overrides (NSE circulars) | none filed | non-blocking (M3 data item) |
 
-## Decisions needed
+**Explicitly not M8 requirements:**
+- closing 0001-A/B/C, and 0001 is not reopened because production deployment happens;
+- resolving missing-week span semantics;
+- implementing channels;
+- a production failure injection;
+- deleting the probe branches;
+- reviewing the Dependabot PRs;
+- resolving scheduler lateness;
+- filing NSE pre-open overrides.
 
-**D1. Channels.** Option A or B (Gate 2).
+## Decisions
 
-**D2. Merge versus production validation: a sequencing conflict.** Today's rule is "PR #16
-is not merged until M8 is complete". But the production path runs from `main`:
+**D1. Channels: APPROVED, Option B (post-M8).** See Gate 2.
 
-- the API deploys on push to `main` (deploy-api.yml);
-- the frontend deploys on push to `main` (deploy-web.yml);
-- the API dispatches refreshes on `ref = main` (`github_ref` default);
-- GitHub runs the 20:15 IST schedule from the default branch's workflow.
+**D2. Merge and production sequencing: APPROVED.** The previous rule, "PR #16 is not
+merged until M8 is complete", is **replaced**. It could not be satisfied together with
+Gate 3, because the production path runs from `main`:
+- the API and the frontend deploy on push to `main`;
+- the API dispatches refreshes on `ref = main`;
+- GitHub runs the 20:15 IST schedule from the default branch.
 
-So a "normal live refresh" of the schema-4 path cannot happen until the m8 code is on
-`main`. Running it from the branch instead (manual deploys and dispatches on `m8`) would
-not be a normal refresh. Worse, the scheduled run would still be main's schema-2 code,
-publishing over the schema-4 snapshot unless the schedule were suspended.
+> Merging PR #16 does not declare M8 complete. It begins the final production-validation
+> portion of M8. M8 is declared complete only after Gate 3 and Gate 4 pass.
 
-Proposed: separate **merge** from **completion**.
-1. Pre-merge review: Gate 1, plus Gate 2 under Option A, plus a deployment readiness
-   check (D5).
-2. Merge PR #16 and deploy. The API and frontend deploy from `main`; the next refresh
-   publishes schema 4.
-3. Gate 3 evidence from the first live schema-4 refreshes.
-4. Gate 4 reports.
-5. M8 declared complete.
+The review before the merge is the **M8 pre-production readiness review**. It is never
+called "M8 complete" or "M8 final review".
 
-Under this reading, merging PR #16 is the start of Gate 3, not the end of M8.
+Cut-over procedure:
 
-**D3. Failure safety in production (3.8).** Failure safety is already proven by tests
-(a crash before the pointer moves leaves the old snapshot live) and by the 6b/6c
-rehearsals against the real lake. Proposed: Gate 3 checks it passively. After cut-over,
-the previous (schema-2) snapshot is retained and readable, and the first schema-4 publish
-replaced the pointer only by compare-and-swap. No deliberate production failure is
-injected; the code has no fault switch, and adding one would be new code. If you want a
-live failure demonstration, that is a separate, explicit decision.
+1. M8 pre-production readiness review passes (D5 and Gate 4's before-merge items).
+2. Merge PR #16.
+3. Confirm the API deployment is healthy.
+4. Confirm the frontend deployment is healthy.
+5. Confirm the production refresh workflow resolves to the merged code on `main`.
+6. Confirm no scheduled schema-2 publisher can run.
+7. Trigger the first production refresh **manually**. This removes the timing race with
+   the 20:15 IST schedule, which becomes the next ordinary run, not the cut-over
+   mechanism.
+8. Wait for all seven stages.
+9. Validate the schema-4 publication (3.1–3.3, 3.6, 3.8).
+10. Validate the API and chart against the live snapshot (3.4, 3.5, 3.9).
+11. Allow the normal schedule to continue.
+12. Run the same-data reuse validation (3.7).
+13. Complete the documentation (Gate 4, final stage).
+14. Declare **M8 COMPLETE**.
 
-**D4. Reuse in production (3.7).** A normal weekday refresh changes the forming week of
-nearly every traded security, so its bars change and little is reused. That is correct
-behaviour, not a reuse failure. Proposed: reuse is evidenced by a manual refresh on the
-same data straight after a scheduled one. Expected: snapshot UNCHANGED, all analyses and
-explanations reused. Also by the number reused on the first normal day (securities with
-no new trade).
+**D3. Failure safety: observed, not induced.**
+- *Already proven* in 6b/6c, by tests and by rehearsals against the real lake:
+  - checks run before the pointer moves;
+  - a failure before the pointer moves leaves the old live snapshot;
+  - publication is atomic;
+  - compare-and-swap protects the live pointer.
+- *Observed in production* (Gate 3):
+  - the previous snapshot is retained;
+  - the new snapshot was published through the normal atomic path;
+  - the live pointer references the new snapshot;
+  - the previous snapshot remains readable.
+- No production failure is injected. The code has no fault switch, and one would add
+  risk without proving anything new.
 
-**D5. Deployment readiness check (before merge).** Proposed contents:
-- The m8 API reads both schema 2 and schema 4. The reader accepts schemas below 4, with
-  analysis and explanations absent, so the API can deploy before the first schema-4
-  publish.
-- The API deploy completes before the next scheduled refresh. Merge in the IST morning,
-  or the cut-over refresh is a manual one after the deploy.
-- Production ANALYSIS time and lake growth. Rehearsal figures: about 5 min first run, 2 to
-  4 min explanations and publish; about 0.9 GB documents and events, plus explanations,
-  per full regeneration.
-- No secret or IAM change: the jobs service account already writes the lake; the API
+**D4. Reuse: two tests, two claims.**
+- *Normal refresh:* new bars lead to correct selective recomputation and reuse of
+  unchanged securities. Its reused-security count is recorded. It is low on a normal
+  weekday, because the forming week changes for nearly every traded security; that is
+  correct, not a reuse failure.
+- *Immediate same-data rerun:* identical bars give identical reuse keys, 100% analysis
+  reuse, 100% explanation reuse, and UNCHANGED publication. This is the 3.7 requirement.
+
+**D5. Pre-merge deployment readiness: checklist.**
+
+*Operational split-brain (hard checks).* The main risk at cut-over is no longer the
+analytical code. It is a new `main` publishing schema 4 while an old path publishes
+schema 2.
+- the deployment workflows (deploy-api, deploy-web) run from `main`;
+- the refresh dispatch (API `github_ref`) resolves to `main`;
+- the scheduled refresh is the default branch's workflow, which after the merge is the
+  merged code;
+- no old workflow can publish schema 2 after cut-over;
+- no stale workflow file on `main` can overwrite the schema-4 snapshot, including the
+  one-off Pipeline job workflow and any probe or verify workflow that publishes.
+
+*Compatibility and capacity.*
+- The merged API reads schema 2 and schema 4, so it can deploy before the first schema-4
+  publish. Reading schema 2 is for retained snapshots and rollback only (3.6).
+- The API deploy completes before the first schema-4 refresh. Cut-over step 7 makes that
+  refresh a manual one.
+- Production ANALYSIS time and lake growth. Rehearsal figures: about 5 min first run,
+  2 to 4 min explanations and publish; about 0.9 GB documents and events per full
+  regeneration, plus explanations.
+- No secret or IAM change needed: the jobs service account writes the lake; the API
   service account reads it.
-- A rollback path: re-point to the retained schema-2 snapshot and redeploy the previous
-  revision. Recorded, not rehearsed, unless you want it rehearsed.
+- Rollback path recorded: re-point to the retained schema-2 snapshot and redeploy the
+  previous revision. Not rehearsed unless decided otherwise.
 
-## After approval
+## Next
 
-- **Option B and the D2 sequence:** clarify ADR-0024 §8 and ADR-0021 §D; run the D5
-  readiness check and report it; then stop for your merge decision.
-- **Option A:** a channels ADR (design only) comes first, against this boundary.
+- The **M8 pre-production readiness review** (D5 plus Gate 4's before-merge items) is the
+  next M8 step. It is read-only and reported for review before any merge.
+- A channels ADR is post-M8 work. It is not a prerequisite for M8 and may be prepared
+  independently.

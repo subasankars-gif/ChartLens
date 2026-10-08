@@ -310,6 +310,11 @@ they sharpen or change the text above, they take precedence.
 A channel is a container of the levels layer, not a classical pattern. It is built from
 the trendline machinery when the levels layer is next extended, outside Phase 5.
 
+**Status (2026-10-08, M8 completion gate D1):** an accepted design, **deferred beyond
+M8 and not built**. It is not an M8 delivery commitment. When its phase starts, it is
+re-reviewed against the rules frozen since it was written: known_at visibility, 6d
+placement, 6e claims, and Investigation 0001. Only then is it implemented.
+
 - **Candidate:** four consecutive alternating primary swings. The upper line runs
   through the two highs and the lower line through the two lows.
   - The lines must be non-flat and parallel: |slope difference| ≤ `parallel_tol_atr`
