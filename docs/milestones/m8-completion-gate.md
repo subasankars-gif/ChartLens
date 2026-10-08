@@ -102,7 +102,7 @@ Each item is recorded as not preventing the committed M8 behaviour.
 | 0001-C drawable line extent | open, read-only | non-blocking |
 | ADR-0027 §10.1 spans across missing weeks | open | non-blocking |
 | Channels | post-M8 (D1) | non-blocking |
-| Old CORS origins (`chartlens-lake-13934.web.app`, `.firebaseapp.com`) | remove after the chartlenslab checklist | non-blocking |
+| Old default Hosting origins in the API CORS list (deploy-api.yml `CORS_ORIGINS`) | remove after the chartlenslab checklist | non-blocking |
 | Probe branches `probe/pattern-stats`, `probe-results/pattern-stats` | still exist; this session cannot delete them | non-blocking cleanup |
 | Dependabot Actions PRs | not reviewed | non-blocking |
 | Scheduler lateness (about 7 h once) | watching | non-blocking |
