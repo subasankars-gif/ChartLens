@@ -2,8 +2,10 @@
 
 (Filed as "negative analytical price levels"; retitled at review, §7.)
 
-**Status:** **ACCEPTED FOR METHODOLOGY REVIEW** · 2026-10-07. Split into 0001-A, 0001-B
-and 0001-C (§7); no engine change approved. Read-only. Nothing in ChartLens was
+**Status:** **CLOSED (accepted)** · 2026-10-08. §7 is the authoritative review outcome;
+§8 locks the review rules. The follow-ups 0001-A, 0001-B and 0001-C stay **open** as
+read-only methodology investigations, none started, none with authority to change the
+engine. No engine change approved. Read-only. Nothing in ChartLens was
 changed: no analytical behaviour, explanation behaviour, stored value, published
 artifact, 6e, ADR-0028, the claim checker, the API, the chart panel or the publication
 schema.
@@ -253,3 +255,55 @@ evaluated without touching pattern detection.
 Each of 0001-A, B and C is a read-only investigation with its own report and review;
 any resulting engine change would need its own approval, a new `analysis_version`, and
 new explanations.
+
+## 8. Closure and locked review rules (Suba, 2026-10-08)
+
+**Verdict: Investigation 0001 CLOSED (accepted).** §7 is the authoritative review
+outcome. 0001-A, 0001-B and 0001-C remain open read-only methodology investigations and
+stay strictly separate. None of them has authority to modify the engine. No code or
+version change occurs until one of them produces an explicitly approved methodology
+decision.
+
+```
+6e explanations ──faithfully expose──▶ authoritative analysis
+                                              │ surfaced finding
+                                              ▼
+                                       Investigation 0001 (closed)
+                                              ├── 0001-A  price-domain semantics   (open)
+                                              ├── 0001-B  triangle geometry        (open)
+                                              └── 0001-C  drawable line extent     (open)
+```
+
+**Terminology is preserved:** "outside the valid market-price domain", never "negative
+prices", so that no later implementation treats the mathematical result itself as
+defective.
+
+**Process rule** (applies to every investigation; also in
+[the investigations index](README.md)):
+
+> No investigation may use the existence or frequency of an undesirable output as the
+> criterion for changing the methodology.
+
+The output is evidence that something deserves review; it is not evidence that the
+definition is wrong.
+
+**Locked rules per follow-up:**
+
+- **0001-A.** Do not design `OUTSIDE_DOMAIN` (or any domain status) yet. First determine
+  *where domain status belongs*: the analytical object itself, the specific value, or
+  the rendering/serving layer. Only then consider a representation, so its semantics
+  are the same across Fibonacci, measured moves, channels and any later construct.
+- **0001-B.** Do not condition the investigation on "out-of-domain zone". Compare the
+  537 and the 1,049 triangles across the complete geometry dimensions (§7). If the
+  out-of-domain population is the extreme tail of otherwise valid triangles, the answer
+  may be no triangle-methodology change. Tuning triangle constraints until the
+  out-of-domain projections disappear is exactly what the process rule forbids.
+- **0001-C.** Keep three concepts distinct:
+
+  ```
+  pattern geometry  ≠  drawable extent  ≠  confirmation evaluation domain
+  ```
+
+  A line may be defined mathematically by its anchors while the chart renders it only
+  between appropriate dates. A change to the rendering extent must not silently change
+  pattern identity or confirmation semantics.
