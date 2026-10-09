@@ -123,3 +123,81 @@ def test_the_setup_script_binds_the_identities_to_the_environment_subject() -> N
     assert f'SUBJECT="{OIDC_SUBJECT}"' in script
     assert "repo:subasankars-gif/ChartLens:" not in script  # the name-only form never matches
     assert "chartlens-pipeline@" in script and "chartlens-deployer@" in script
+
+
+# ----------------------------------------------------------------------------- R12
+# The M5 setup script binds the deployer to the whole repository. After A6 it must refuse
+# to run before changing anything, so it can never silently restore that binding.
+
+FAKE_GCLOUD = r"""#!/usr/bin/env bash
+# Records every call; answers like gcloud for the identity checks.
+echo "$*" >> "$GCLOUD_LOG"
+case "$*" in
+  "iam service-accounts describe "*)
+    [ "$FAKE_IDENTITIES_EXIST" = 1 ] || exit 1 ;;
+  "iam service-accounts get-iam-policy "*)
+    printf '%s\n' "$FAKE_MEMBERS" ;;
+esac
+exit 0
+"""
+
+ENV_MEMBER = (
+    "principal://iam.googleapis.com/projects/1082278531047/locations/global/"
+    f"workloadIdentityPools/github/subject/{OIDC_SUBJECT}"
+)
+REPO_MEMBER = (
+    "principalSet://iam.googleapis.com/projects/1082278531047/locations/global/"
+    "workloadIdentityPools/github/attribute.repository/subasankars-gif/ChartLens"
+)
+
+
+def _run_m5(tmp: Path, *, identities_exist: bool, members: str) -> tuple[int, list[str], str]:
+    bin_dir = tmp / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "gcloud"
+    fake.write_text(FAKE_GCLOUD, encoding="utf-8")
+    fake.chmod(0o755)
+    log = tmp / "gcloud.log"
+    log.touch()
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "GCLOUD_LOG": str(log),
+        "FAKE_IDENTITIES_EXIST": "1" if identities_exist else "0",
+        "FAKE_MEMBERS": members,
+    }
+    proc = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "gcp_setup_m5.sh")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, log.read_text(encoding="utf-8").splitlines(), proc.stderr
+
+
+def _mutations(calls: list[str]) -> list[str]:
+    reads = ("config set project", "iam service-accounts describe", "get-iam-policy")
+    return [c for c in calls if not any(r in c for r in reads)]
+
+
+def test_m5_setup_refuses_after_a6_without_changing_anything(tmp_path: Path) -> None:
+    code, calls, err = _run_m5(tmp_path, identities_exist=True, members=ENV_MEMBER)
+    assert code != 0
+    assert "undo that" in err and "gcp_setup_m8.sh" in err
+    assert _mutations(calls) == [], calls
+    assert not any(REPO_MEMBER in c for c in calls)
+
+
+def test_m5_setup_refuses_even_mid_cut_over(tmp_path: Path) -> None:
+    """Both members present (between before-merge and after-merge): still refused."""
+    code, calls, _ = _run_m5(
+        tmp_path, identities_exist=True, members=f"{REPO_MEMBER}\n{ENV_MEMBER}"
+    )
+    assert code != 0 and _mutations(calls) == []
+
+
+def test_m5_setup_still_works_on_a_project_that_predates_a6(tmp_path: Path) -> None:
+    """Historical behaviour preserved: no identities yet, so the full setup runs."""
+    code, calls, _ = _run_m5(tmp_path, identities_exist=False, members="")
+    assert code == 0
+    assert any(f"--member={REPO_MEMBER}" in c for c in calls)
