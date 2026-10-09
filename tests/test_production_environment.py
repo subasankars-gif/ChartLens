@@ -133,9 +133,13 @@ FAKE_GCLOUD = r"""#!/usr/bin/env bash
 # Records every call; answers like gcloud for the identity checks.
 echo "$*" >> "$GCLOUD_LOG"
 case "$*" in
-  "iam service-accounts describe "*)
-    [ "$FAKE_IDENTITIES_EXIST" = 1 ] || exit 1 ;;
+  "iam service-accounts list "*)
+    [ "$FAKE_LIST_FAILS" = 1 ] && exit 1
+    if [ "$FAKE_IDENTITIES_EXIST" = 1 ]; then
+      printf '%s\n' "${*#*email=}" | cut -d' ' -f1
+    fi ;;
   "iam service-accounts get-iam-policy "*)
+    [ "$FAKE_POLICY_FAILS" = 1 ] && exit 1
     printf '%s\n' "$FAKE_MEMBERS" ;;
 esac
 exit 0
@@ -151,7 +155,14 @@ REPO_MEMBER = (
 )
 
 
-def _run_m5(tmp: Path, *, identities_exist: bool, members: str) -> tuple[int, list[str], str]:
+def _run_m5(
+    tmp: Path,
+    *,
+    identities_exist: bool,
+    members: str,
+    list_fails: bool = False,
+    policy_fails: bool = False,
+) -> tuple[int, list[str], str]:
     bin_dir = tmp / "bin"
     bin_dir.mkdir()
     fake = bin_dir / "gcloud"
@@ -164,6 +175,8 @@ def _run_m5(tmp: Path, *, identities_exist: bool, members: str) -> tuple[int, li
         "GCLOUD_LOG": str(log),
         "FAKE_IDENTITIES_EXIST": "1" if identities_exist else "0",
         "FAKE_MEMBERS": members,
+        "FAKE_LIST_FAILS": "1" if list_fails else "0",
+        "FAKE_POLICY_FAILS": "1" if policy_fails else "0",
     }
     proc = subprocess.run(
         ["bash", str(ROOT / "scripts" / "gcp_setup_m5.sh")],
@@ -176,7 +189,7 @@ def _run_m5(tmp: Path, *, identities_exist: bool, members: str) -> tuple[int, li
 
 
 def _mutations(calls: list[str]) -> list[str]:
-    reads = ("config set project", "iam service-accounts describe", "get-iam-policy")
+    reads = ("config set project", "iam service-accounts list", "get-iam-policy")
     return [c for c in calls if not any(r in c for r in reads)]
 
 
@@ -201,3 +214,17 @@ def test_m5_setup_still_works_on_a_project_that_predates_a6(tmp_path: Path) -> N
     code, calls, _ = _run_m5(tmp_path, identities_exist=False, members="")
     assert code == 0
     assert any(f"--member={REPO_MEMBER}" in c for c in calls)
+
+
+def test_m5_setup_fails_closed_when_existence_cannot_be_checked(tmp_path: Path) -> None:
+    """An error is never read as "the identity does not exist" (which would let the
+    script re-add the repository-wide binding)."""
+    code, calls, err = _run_m5(tmp_path, identities_exist=True, members="", list_fails=True)
+    assert code != 0 and "cannot check" in err
+    assert _mutations(calls) == [], calls
+
+
+def test_m5_setup_fails_closed_when_the_policy_cannot_be_read(tmp_path: Path) -> None:
+    code, calls, err = _run_m5(tmp_path, identities_exist=True, members="", policy_fails=True)
+    assert code != 0 and "cannot read the IAM policy" in err
+    assert _mutations(calls) == [], calls

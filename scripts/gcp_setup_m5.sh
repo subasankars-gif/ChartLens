@@ -23,7 +23,13 @@ gcloud config set project "$PROJECT_ID"
 # (no such binding, or the identities do not exist yet) it behaves exactly as before.
 for sa in "chartlens-deployer@${PROJECT_ID}.iam.gserviceaccount.com" \
   "chartlens-pipeline@${PROJECT_ID}.iam.gserviceaccount.com"; do
-  if gcloud iam service-accounts describe "$sa" >/dev/null 2>&1; then
+  # Fail closed: "the identity does not exist" is only an empty answer from a successful
+  # listing; any error (permissions, network) stops the script.
+  if ! found=$(gcloud iam service-accounts list --filter="email=$sa" --format='value(email)'); then
+    echo "error: cannot check whether $sa exists; refusing to continue." >&2
+    exit 1
+  fi
+  if [ -n "$found" ]; then
     if ! members=$(gcloud iam service-accounts get-iam-policy "$sa" \
       --flatten='bindings[].members' --filter='bindings.role=roles/iam.workloadIdentityUser' \
       --format='value(bindings.members)'); then
