@@ -644,3 +644,46 @@ Notes:
 - **Nothing published during the checks.** The live snapshot predates every A6 check
   (first one 17:37 IST on 9 Oct).
 - The last published snapshot stays readable during the pause.
+
+### 6.3 R12 fixed before the merge (Suba, 2026-10-09) and A6 re-confirmed
+
+**The hazard.** The only code path that grants the repository-wide Workload Identity
+binding is `scripts/gcp_setup_m5.sh`, its deployer step (`git grep` finds no other).
+The README's "API deployment" setup tells you to run it, and it was written to be
+re-runnable, so a re-run after A6 would silently restore deploy access for any branch or
+old workflow.
+
+**The fix (4128173).**
+- A guard runs before the script changes anything (only `gcloud config set project`
+  precedes it). For the deployer and the pipeline identity, if the identity exists, it
+  reads its `workloadIdentityUser` members.
+- The script **exits with an actionable error** if any member is a pool *subject*
+  binding (the A6 marker), or if the policy cannot be read.
+- On a project that predates A6 (no such binding, or the identities not yet created),
+  the script behaves exactly as before.
+- No other change to the script.
+
+**Verification.**
+- Three behavioural tests with a fake `gcloud` (`tests/test_production_environment.py`):
+  - after A6: refuses, makes no mutating call, and never names the repository-wide
+    member;
+  - mid-cut-over (both members present): refuses, makes no mutating call;
+  - pre-A6 project: runs fully, including the original binding.
+- The guard reads members with the same `gcloud … get-iam-policy --flatten … --format=
+  value(bindings.members)` call as `gcp_setup_m8.sh status`, whose real Cloud Shell output
+  (one member per line) is recorded in §6 and §6.1.
+- The guard was **not** run live: if it misbehaved, it would re-open the binding it
+  exists to protect.
+- Full suite: 1,059 passed.
+
+**A6 restrictions re-confirmed after the fix:** probe re-run 37928441272, attempt 3.
+
+| # | Result |
+|---|---|
+| 6 | **PASS**: no variables; sign-in impossible |
+| 7a | **PASS**: pipeline and deployer both refused by GCP with `403 … iam.serviceAccounts.getAccessToken denied` (subject `…:ref:refs/heads/probe/a6`) |
+| 7b | **PASS**: GitHub refused the `production` environment for `probe/a6` |
+
+The GCP binding's positive state (exactly one member per identity) was last observed in
+Suba's `after-merge` output (§6.1). A fresh `bash scripts/gcp_setup_m8.sh status`
+(read-only) re-observes it.
