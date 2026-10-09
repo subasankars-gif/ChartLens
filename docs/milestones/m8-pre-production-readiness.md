@@ -425,7 +425,7 @@ not rest on a variable merely being absent.
 
 **Layer 2: GCP.** Script `scripts/gcp_setup_m8.sh`, which you run.
 - The pipeline and deployer identities accept exactly one OIDC subject:
-  `repo:subasankars-gif/ChartLens:environment:production`. GitHub issues that subject
+  `repo:subasankars-gif@288858503/ChartLens@1398125563:environment:production`. GitHub issues that subject
   only to jobs the environment admits.
 - The repository-wide principal set is removed, so a workflow that hard-codes the
   provider and account names still cannot impersonate either identity.
@@ -517,3 +517,58 @@ Following the M3/M4 reports:
    reuse, the publication checks, the API and chart against the live snapshot.
 7. **Non-blocking register and next steps.** Gate 5 as closed out; channels as the first
    post-M8 phase.
+
+## 6. Focused A6 re-check (2026-10-09, ordering (a): protection switched on before the merge)
+
+**Settings applied by Suba.**
+- S1: the `production` environment exists (deployment branches: `main` only) with the
+  four variables, and the repository copies were deleted.
+- S2 (`before-merge`) and `after-merge`: Cloud Shell output received. Each identity
+  ended with exactly one member, the environment subject. Provider `chartlens-repo` maps
+  `google.subject = assertion.sub` and has the attribute condition
+  `assertion.repository=='subasankars-gif/ChartLens'`.
+
+**Checks** (run IDs are GitHub Actions runs; evidence comes from job and step
+conclusions and check-run annotations, because job logs are not reachable from this
+session):
+
+| # | Check | Run | Result | Evidence |
+|---|---|---|---|---|
+| 3 | Re-run of pre-merge refresh #8 (b3473b7) | 37837070543 attempt 2 | **PASS** | job `refresh` **skipped**: the old file's `if` saw no `GCS_BUCKET` |
+| 3′ | Re-run of pre-merge Pipeline job #5 (b3473b7; job `info`) | 37335565816 attempt 2 | **PASS** | "Authenticate to GCP" **skipped**; "Warn when the lake is ephemeral" ran (runner disk only) |
+| 4 | Refresh dispatched on `dependabot/github_actions/actions/checkout-7` (1bf4f94) | 37928295865 (#11) | **PASS** | job **skipped**. The first attempt, #9 (37928005526), was cancelled by the shared `pipeline-writes` queue before it was evaluated, so it counts as NOT RUN and was repeated |
+| — | Today's `main` refresh dispatched (pre-merge file) | 37928007927 (#10) | **PASS** | job **skipped**: even `main`'s old file cannot reach the lake |
+| 6 | Probe without the environment (`probe/a6`) | 37928441272, job `check6-no-environment` | **PASS** | the four variables were empty (lengths 0); the sign-in attempt failed in the action (no provider given) |
+| 7a | Probe **hard-coding** the provider and both identities from `probe/a6` | 37928441272, job `check7a-hard-coded-identity` | **PASS (refusal by GCP)** | both sign-ins: `403 Permission 'iam.serviceAccounts.getAccessToken' denied`. Token claims recorded: `sub = repo:subasankars-gif@288858503/ChartLens@1398125563:ref:refs/heads/probe/a6`, `environment = null` |
+| 7b | Probe requesting `environment: production` from `probe/a6` | 37928441272, job `check7b-environment-from-other-branch` | **PASS (refusal by GitHub)** | "Branch "probe/a6" is not allowed to deploy to production due to environment protection rules"; the job never started a step |
+
+(First probe run 37928080195 gave the same results, before the claims annotation was
+added.)
+
+**Defect found in the A6 implementation: the binding subject was wrong. Fixed in the
+repository; the fix must be re-applied in GCP.**
+- The recorded claim shows GitHub issues this repository **immutable subject claims**:
+  `repo:<owner>@<owner-id>/<repo>@<repo-id>:…`. That is GitHub's default for
+  repositories renamed or created after 2026-07-15.
+- The binding added by S2 used the name-only form `repo:subasankars-gif/ChartLens:
+  environment:production`, which **no token will ever carry**.
+- The negative checks are unaffected: a token from another branch is refused either way.
+- But after the merge the **production workflows would also be refused**: no deploy and
+  no refresh could sign in. Ordering (a) surfaced this before the merge.
+- The correct subject is `repo:subasankars-gif@288858503/ChartLens@1398125563:
+  environment:production`:
+  - the IDs come from the recorded token and the repository API;
+  - the environment suffix follows GitHub's documentation, which says the owner and
+    repository IDs are always in the `repo` segment for repositories using immutable
+    subject claims.
+- The script, test and README now use it. `after-merge` now removes every other pool
+  member, including the wrong subject.
+
+**Re-check status: negative checks PASS. A6 is NOT yet passed:**
+1. The corrected binding must be applied: `before-merge`, then `after-merge`, from the
+   updated `m8`.
+2. Check 7a must be repeated against the final binding.
+3. The exact environment subject has only been derived, not observed. It will be observed
+   at the first sign-in from `main` after the merge (the deploys) unless an earlier
+   observation is approved: a probe job in a separate, empty scratch environment would
+   record the format with no access to anything.

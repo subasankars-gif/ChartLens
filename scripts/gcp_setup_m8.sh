@@ -4,13 +4,13 @@
 #
 #   bash scripts/gcp_setup_m8.sh status        # print the provider and both bindings; change nothing
 #   bash scripts/gcp_setup_m8.sh before-merge  # ADD the environment-subject binding (harmless today)
-#   bash scripts/gcp_setup_m8.sh after-merge   # REMOVE the repository-wide bindings (cut-over step 5a)
+#   bash scripts/gcp_setup_m8.sh after-merge   # REMOVE every other pool binding (repository-wide, stale subjects)
 #
 # Why two steps: today's `main` workflows do not name the `production` environment, so
 # their OIDC subject is `repo:…:ref:refs/heads/main`. Removing the repository-wide
 # binding before the merge would stop the current production refresh. After the merge,
 # every workflow on `main` that may reach GCP names the environment, and the subject
-# becomes `repo:…:environment:production`, which GitHub issues only to jobs the
+# becomes `repo:…@<ids>:environment:production`, which GitHub issues only to jobs the
 # environment admits (`main`, see README → Production storage).
 #
 # Effect after both steps: the pipeline and deployer identities accept exactly one
@@ -20,9 +20,14 @@ set -u
 PROJECT_ID=chartlens-lake-13934
 PROJECT_NUMBER=1082278531047
 POOL=github
-SUBJECT="repo:subasankars-gif/ChartLens:environment:production"
+# GitHub issues this repository immutable subject claims (owner and repository IDs after
+# the names; the repository was renamed after 2026-07-15, which adopts the format). The
+# A6 probe recorded a real token's subject: repo:subasankars-gif@288858503/
+# ChartLens@1398125563:ref:refs/heads/probe/a6. For a job in the environment the suffix
+# is :environment:production.
+SUBJECT="repo:subasankars-gif@288858503/ChartLens@1398125563:environment:production"
 ENV_PRINCIPAL="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/subject/${SUBJECT}"
-POOL_PREFIX="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/"
+POOL_MEMBER_RE="^principal(Set)?://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL}/"
 SAS=(
   "chartlens-pipeline@${PROJECT_ID}.iam.gserviceaccount.com"
   "chartlens-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -80,7 +85,8 @@ case "$MODE" in
     for sa in "${SAS[@]}"; do
       gcloud iam service-accounts get-iam-policy "$sa" \
         --flatten='bindings[].members' --filter="bindings.role=$ROLE" \
-        --format='value(bindings.members)' | grep "^${POOL_PREFIX}" | while read -r member; do
+        --format='value(bindings.members)' | grep -E "$POOL_MEMBER_RE" | grep -vx "$ENV_PRINCIPAL" \
+        | while read -r member; do
           gcloud iam service-accounts remove-iam-policy-binding "$sa" \
             --member="$member" --role="$ROLE" >/dev/null
           echo "removed: $member → $sa"

@@ -135,7 +135,7 @@ GCS automatically once these **variables** exist in the `production` GitHub Envi
 
 Authentication is keyless, through Workload Identity Federation. The pipeline and
 deployer identities accept only this repository's `production` environment (OIDC subject
-`repo:subasankars-gif/ChartLens:environment:production`), so only `main`'s current
+`repo:subasankars-gif@288858503/ChartLens@1398125563:environment:production`), so only `main`'s current
 workflows can reach the lake or deploy: a re-run of an old commit's workflow, or a
 workflow on another branch, sees neither the bucket nor the identities (M8 completion
 gate, A6; `scripts/gcp_setup_m8.sh`). The service account has `roles/storage.objectUser`

@@ -24,7 +24,9 @@ ENVIRONMENT = "production"
 PROTECTED = {"production-refresh.yml", "pipeline-job.yml", "deploy-api.yml", "deploy-web.yml"}
 PROTECTED_VARS = ("GCS_BUCKET", "GCP_WIF_PROVIDER", "GCP_PIPELINE_SA", "GCP_DEPLOY_SA")
 BUCKET = "chartlens-lake-13934-data"
-OIDC_SUBJECT = "repo:subasankars-gif/ChartLens:environment:production"
+# Immutable subject claims: owner and repository IDs follow the names (recorded from a real
+# token by the A6 probe, run 37928441272).
+OIDC_SUBJECT = "repo:subasankars-gif@288858503/ChartLens@1398125563:environment:production"
 # Human-run setup scripts and documentation may name the bucket; code and workflows never.
 BUCKET_ALLOWED_IN = {
     "README.md",
@@ -118,5 +120,6 @@ def test_no_tracked_code_or_configuration_names_the_live_bucket() -> None:
 
 def test_the_setup_script_binds_the_identities_to_the_environment_subject() -> None:
     script = (ROOT / "scripts" / "gcp_setup_m8.sh").read_text(encoding="utf-8")
-    assert OIDC_SUBJECT in script
+    assert f'SUBJECT="{OIDC_SUBJECT}"' in script
+    assert "repo:subasankars-gif/ChartLens:" not in script  # the name-only form never matches
     assert "chartlens-pipeline@" in script and "chartlens-deployer@" in script
