@@ -687,3 +687,31 @@ old workflow.
 The GCP binding's positive state (exactly one member per identity) was last observed in
 Suba's `after-merge` output (§6.1). A fresh `bash scripts/gcp_setup_m8.sh status`
 (read-only) re-observes it.
+
+### 6.4 Readiness re-check (2026-10-09)
+
+Each item is labelled PASS, FAIL or NOT RUN; nothing is upgraded by inference.
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| 1 | The M5 guard runs before every mutation | **PASS** | Diff 4128173: only `gcloud config set project` (local configuration) precedes the guard; every `create`, `enable` and binding call comes after it |
+| 2 | Policy-read failure is fail-closed | **PASS** | `get-iam-policy` failure: "cannot read the IAM policy", exit 1 |
+| 3 | Existence-check failure is fail-closed | **FAIL → fixed (6c95e71) → PASS** | The re-check found that the first guard read *any* `describe` failure (permissions, network) as "identity does not exist" and carried on to the mutations: fail-open. Existence now comes only from a successful `service-accounts list` (an empty answer means absent); any error stops with "cannot check whether … exists" |
+| 4 | Tests cover the A6, intermediate and legacy states and both read failures | **PASS** | 5 behavioural tests: A6 (refuses, no mutation); two bindings (refuses, no mutation); pre-A6 (runs fully, original binding); list failure and policy failure (refuse, no mutation) |
+| 5 | Full suite | **PASS** | 1,061 passed locally |
+| 6 | CI on fdd921b | **PASS** | all 7 checks; end to end 113854763185 |
+| 7 | CI on 6c95e71 (the guard fix) | **PASS** | all 7 checks: Python 113862718191, Frontend 113862718671, API emulators 113863883306, end to end 113863883363, Docker api/pipeline/jobs 113863883386 / 113863883490 / 113863883319 |
+| 8 | Live guard against the real project | **NOT RUN** (deliberately) | The fake-`gcloud` tests establish behaviour under the tested responses only. The live check relies on the real `get-iam-policy` output already recorded (§6, §6.1) and on the cut-over checks |
+| 9 | A6 GitHub environment restriction | **PASS** | 7b, probe run 37928441272 attempt 3 |
+| 10 | A6 GCP identity restriction | **PASS** | 7a, attempt 3: both identities 403 |
+| 11 | A6 no-environment path | **PASS** | 6, attempt 3 |
+| 12 | A6 re-runs and old-ref dispatches | **PASS** | §6: refresh #8 attempt 2, Pipeline job #5 attempt 2, #10 and #11 skipped |
+| 13 | Environment-subject observation | **NOT RUN, accepted gap** | Closed at cut-over (§6.2) |
+| 14 | Real-GCS write paths (B8) | **NOT RUN, accepted gap** | Gate 3 |
+| 15 | Rollback (B9) | **NOT RUN, accepted** | Recorded and bounded, not rehearsed; the mechanism wording is a Gate 4 correction (R11) |
+| 16 | Current snapshot readable during the pause | **PASS** | §6.2 (Suba's checks) |
+
+**Re-check verdict: the pre-merge readiness checks pass.** One fail-open path was found
+and fixed (item 3). The remaining items are the accepted, documented gaps (13–15), each
+with its closing point. This is not an M8-complete declaration, and it authorizes no
+merge. The merge decision is the next gate.
