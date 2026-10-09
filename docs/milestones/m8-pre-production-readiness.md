@@ -601,3 +601,28 @@ binding). One **evidence gap** remains:
   schema-2 snapshot stays live.
 - It is closed either by an empty scratch-environment probe before the merge (needs
   Suba's approval), or at cut-over step 3.
+
+### 6.2 Decision on the environment-subject gap (Suba, 2026-10-09): option (b)
+
+**Accepted pre-merge evidence gap, not a passed check.** The `production` environment's
+token subject is closed at cut-over, by the first authorized sign-in (the merge push's
+deploys), before any schema-4 refresh:
+
+1. Observe the actual OIDC subject from the authorized deployment sign-in.
+2. Compare it, character for character, with the Workload Identity binding.
+3. If authentication fails: stop the cut-over, correct the binding, retry the deployment.
+4. Do not start the schema-4 refresh until the deployment has succeeded and the
+   production identity is verified.
+
+No scratch environment was created. The probe needs no further step.
+
+**Pre-merge checks of the live site during the pause.** These check the current
+(pre-M8) site, not Gate 3.9; the layers and "What the chart shows" are Gate 3.9 after
+deployment:
+- search returns real securities;
+- a security page opens;
+- the weekly chart renders real bars;
+- the System page's data date (expected 2026-10-08; the displayed date is recorded
+  as shown).
+
+Result: pending Suba's check (this session cannot sign in to the site).
