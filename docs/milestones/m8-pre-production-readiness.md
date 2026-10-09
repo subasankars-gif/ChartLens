@@ -572,3 +572,32 @@ repository; the fix must be re-applied in GCP.**
    at the first sign-in from `main` after the merge (the deploys) unless an earlier
    observation is approved: a probe job in a separate, empty scratch environment would
    record the format with no access to anything.
+
+### 6.1 Corrected binding applied and 7a repeated (2026-10-09)
+
+- **Cloud Shell, from 4de8698.**
+  - `before-merge` added the immutable-ID subject.
+  - `after-merge` removed the wrong name-only subject.
+  - Final state: **each identity has exactly one member**,
+    `principal://…/workloadIdentityPools/github/subject/repo:subasankars-gif@288858503/ChartLens@1398125563:environment:production`.
+- **Probe re-run (37928441272, attempt 2), against the final binding:**
+
+| # | Result | Evidence |
+|---|---|---|
+| 6 | **PASS** | variables empty; sign-in could not be attempted |
+| 7a | **PASS** | pipeline and deployer: `Permission 'iam.serviceAccounts.getAccessToken' denied`; token `sub = repo:subasankars-gif@288858503/ChartLens@1398125563:ref:refs/heads/probe/a6`, `environment = null` |
+| 7b | **PASS** | "Branch "probe/a6" is not allowed to deploy to production due to environment protection rules" |
+
+- Checks 3, 3′, 4 and today's-`main` are unaffected by the binding change; they fail
+  earlier, at the missing variables. They stand as recorded in §6.
+
+**A6 re-check verdict.** Every attempt from a re-run, another branch or a hard-coded
+identity was refused, by GitHub (variables, environment rule) and by GCP (subject
+binding). One **evidence gap** remains:
+- The `production` environment's token subject has been derived (the probe's recorded ID
+  prefix plus GitHub's documented `:environment:<name>` suffix), not observed.
+- If the derivation were wrong, the first sign-ins after the merge (deploys, then the
+  manual refresh) would be refused. That failure is safe: nothing publishes, and the
+  schema-2 snapshot stays live.
+- It is closed either by an empty scratch-environment probe before the merge (needs
+  Suba's approval), or at cut-over step 3.
