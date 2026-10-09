@@ -46,7 +46,7 @@ jobs:
           import base64, json, sys
           p = sys.argv[1].split(".")[1]; p += "=" * (-len(p) % 4)
           c = json.loads(base64.urlsafe_b64decode(p))
-          print({k: c.get(k) for k in ("sub", "ref", "environment", "repository", "workflow_ref")})
+          print("::notice::claims " + json.dumps({k: c.get(k) for k in ("sub", "ref", "environment", "repository")}))
           PY
       - name: Sign-in with hard-coded provider and pipeline identity
         id: auth
