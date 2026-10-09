@@ -625,4 +625,22 @@ deployment:
 - the System page's data date (expected 2026-10-08; the displayed date is recorded
   as shown).
 
-Result: pending Suba's check (this session cannot sign in to the site).
+Result (Suba, 2026-10-09 18:59 IST, during the pause):
+
+| Check | Result |
+|---|---|
+| Search returns real securities (RELIANCE) | **yes** |
+| A security page opens | **yes** |
+| The weekly chart renders real bars | **yes** |
+| System page | "Serving now. Data through 8 Oct 2026". Snapshot `meta-95df3d57e421`, published 9 Oct 00:48 IST; weekly `wk-0069f4822725`; adjustment `adj-1b10a5b3f2e1`; methodology `f9e40bee87d3`; API healthy, 0.1.0 |
+
+Notes:
+- **Which run published the live snapshot.** The publication time (00:48 IST = 19:18 UTC
+  on 8 Oct) matches refresh **#7** (manual dispatch, finished 19:18 UTC), not #8 as
+  assumed earlier.
+- **Refresh #8.** The scheduled run started at 01:37 IST, so it found the same data. Its
+  first attempt succeeded, which is consistent with an UNCHANGED outcome; the run log is
+  not readable from here to confirm.
+- **Nothing published during the checks.** The live snapshot predates every A6 check
+  (first one 17:37 IST on 9 Oct).
+- The last published snapshot stays readable during the pause.
