@@ -1,0 +1,84 @@
+# A6 re-check probe (throwaway branch probe/a6; read-only). Each job tries to reach the
+# live lake from a non-main branch and must be refused. A job ends in success only when
+# the refusal happened; "PROTECTION BROKEN" marks a failure of the protection.
+name: A6 probe
+on:
+  push:
+    branches: ["probe/a6"]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  check6-no-environment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: What a workflow without the environment sees
+        env:
+          B: ${{ vars.GCS_BUCKET }}
+          P: ${{ vars.GCP_WIF_PROVIDER }}
+          S: ${{ vars.GCP_PIPELINE_SA }}
+          D: ${{ vars.GCP_DEPLOY_SA }}
+        run: |
+          echo "GCS_BUCKET length=${#B} GCP_WIF_PROVIDER length=${#P} GCP_PIPELINE_SA length=${#S} GCP_DEPLOY_SA length=${#D}"
+          if [ -n "$B$P$S$D" ]; then echo "::error::PROTECTION BROKEN: protected variables visible"; exit 1; fi
+      - name: Sign-in attempt with whatever the variables give
+        id: auth
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PIPELINE_SA }}
+          token_format: access_token
+      - name: Verdict
+        run: |
+          echo "sign-in outcome: ${{ steps.auth.outcome }}"
+          if [ "${{ steps.auth.outcome }}" = "success" ]; then echo "::error::PROTECTION BROKEN: signed in"; exit 1; fi
+          echo "REFUSED as expected"
+
+  check7a-hard-coded-identity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: This job's OIDC subject (claims only, no token printed)
+        run: |
+          tok=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=probe" | python3 -c 'import sys,json;print(json.load(sys.stdin)["value"])')
+          python3 - "$tok" <<'PY'
+          import base64, json, sys
+          p = sys.argv[1].split(".")[1]; p += "=" * (-len(p) % 4)
+          c = json.loads(base64.urlsafe_b64decode(p))
+          print({k: c.get(k) for k in ("sub", "ref", "environment", "repository", "workflow_ref")})
+          PY
+      - name: Sign-in with hard-coded provider and pipeline identity
+        id: auth
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1082278531047/locations/global/workloadIdentityPools/github/providers/chartlens-repo
+          service_account: chartlens-pipeline@chartlens-lake-13934.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Sign-in with hard-coded provider and deployer identity
+        id: auth2
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/1082278531047/locations/global/workloadIdentityPools/github/providers/chartlens-repo
+          service_account: chartlens-deployer@chartlens-lake-13934.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Verdict
+        run: |
+          echo "pipeline sign-in: ${{ steps.auth.outcome }}  deployer sign-in: ${{ steps.auth2.outcome }}"
+          if [ "${{ steps.auth.outcome }}" = "success" ] || [ "${{ steps.auth2.outcome }}" = "success" ]; then
+            echo "::error::PROTECTION BROKEN: a hard-coded identity signed in from probe/a6"; exit 1
+          fi
+          echo "REFUSED as expected"
+
+  check7b-environment-from-other-branch:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Must never run
+        env:
+          B: ${{ vars.GCS_BUCKET }}
+        run: |
+          echo "::error::PROTECTION BROKEN: a job on probe/a6 entered the production environment (bucket length ${#B})"
+          exit 1
