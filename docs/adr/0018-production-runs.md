@@ -183,3 +183,10 @@ history is metadata about past publications, never a way to choose what to serve
 - Live refresh status over WebSockets. The operations page polls every 5 seconds while a
   run is active.
 - Serving any weekly file that a later, unpublished run could rewrite.
+
+## Amendment (2026-10-02, M8): the ANALYSIS stage
+
+The tracked run gains a seventh stage, `ANALYSIS`, between `WEEKLY` and
+`PUBLISH_SERVING` (ADR-0019). Publication still moves the pointer last. A failed
+analysis stage leaves the live snapshot (bars and analysis) untouched. Run records
+written before M8 keep their six stages.

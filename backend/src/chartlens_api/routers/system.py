@@ -22,6 +22,11 @@ class ServingStatus(BaseModel):
     snapshot_generated_at: datetime
     snapshot_loaded_at: datetime | None
     refresh_seconds: float
+    schema_version: int
+    analysis: dict[str, str | int] | None
+    """Schema 3: the pinned analysis set's summary (ADR-0026 §1.7); None before."""
+    explanations: dict[str, str | int] | None = None
+    """Schema 4: the pinned explanation set's summary (ADR-0028 §6); None before."""
 
 
 @router.get("/status", response_model=ServingStatus)
@@ -39,4 +44,7 @@ def serving_status(_: CurrentUser, snap: Snapshot, snapshots: Snapshots) -> Serv
             else None
         ),
         refresh_seconds=snapshots.refresh_seconds,
+        schema_version=snap.schema_version,
+        analysis=snap.analysis,
+        explanations=snap.explanations,
     )

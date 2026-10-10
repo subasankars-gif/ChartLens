@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fakes import FakeVerifier, MemoryAppState
+from fakes import FakeVerifier, MemoryAppState, publish_with_analysis
 from fastapi.testclient import TestClient
 from test_adjust import SESSIONS, build_lake
 
@@ -30,7 +30,6 @@ from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverride
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
 from chartlens_pipeline.runs import MemoryRunStore
-from chartlens_pipeline.serving import ServingPublisher
 from chartlens_pipeline.storage import LocalObjectStore
 from chartlens_pipeline.weekly import WeeklyService
 
@@ -87,7 +86,7 @@ def env(tmp_path: Path) -> dict[str, Any]:
     DataQualityService(settings, provider, store, identity_overrides=IdentityOverrides()).run()
     WeeklyService(settings, provider, store).run()
     runs = MemoryRunStore()
-    published = ServingPublisher(settings, provider, store, history=runs, run_id="gh-1-1").run()
+    published = publish_with_analysis(settings, provider, store, history=runs, run_id="gh-1-1")
     dispatcher = FakeDispatcher()
     return {
         "client": make_client(store, runs, dispatcher),
@@ -279,7 +278,9 @@ def test_snapshot_history_marks_the_live_one(env: dict[str, Any]) -> None:
         "PUBLISHED",
         "gh-1-1",
     )
-    assert snap["schema_version"] == 2 and "weekly_version" in snap["versions"]
+    assert snap["schema_version"] == 4 and "weekly_version" in snap["versions"]
+    assert snap["analysis"]["securities"] == snap["counts"]["analysed"]
+    assert snap["analysis"]["analysis_version"].startswith("analysis-")
 
 
 def test_no_secret_reaches_a_response(env: dict[str, Any]) -> None:

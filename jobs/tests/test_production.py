@@ -1,5 +1,6 @@
-"""The tracked production run (ADR-0018): stages recorded in order, failure where it
-happened, and a live snapshot that only a fully successful run can replace."""
+"""The tracked production run (ADR-0018, ADR-0025): seven stages recorded in order,
+failure where it happened, and a live snapshot that only a fully successful run can
+replace. Moved from the pipeline with the run driver; ANALYSIS runs for real here."""
 
 from __future__ import annotations
 
@@ -10,15 +11,18 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from chartlens_jobs import cli
+from chartlens_jobs.analysis_stage import AnalysisStage, StoreSpec
+from chartlens_jobs.production import ProductionRunner, StageFailed, StageResult
 from test_adjust import SESSIONS, build_lake
 from typer.testing import CliRunner
 
 from chartlens_core.runs import STAGES, RunRecord, RunStatus, SnapshotOutcome, Stage, start_run
-from chartlens_pipeline import cli
+from chartlens_engine.analysis import analysis_version
+from chartlens_engine.explain import explain_version
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
-from chartlens_pipeline.production import ProductionRunner, StageFailed, StageResult
 from chartlens_pipeline.runs import MemoryRunStore, RunNotClaimable
 from chartlens_pipeline.serving import ServingPublisher, ServingSnapshot
 from chartlens_pipeline.storage import DataLakeLayout
@@ -47,6 +51,7 @@ def fake_stages(**overrides: Callable[[], StageResult]) -> dict[Stage, Callable[
         Stage.ADJUSTMENT: ok(version="adj-1"),
         Stage.DATA_QUALITY: ok(version="dq-1"),
         Stage.WEEKLY: ok(version="wk-1", data_as_of=date(2026, 10, 1), records_processed=9),
+        Stage.ANALYSIS: ok(version="analysis-0123456789ab", records_processed=3),
         Stage.PUBLISH_SERVING: ok(
             version="meta-0123456789ab", snapshot_outcome=SnapshotOutcome.PUBLISHED
         ),
@@ -66,7 +71,7 @@ def test_a_successful_run_records_every_stage_and_the_snapshot() -> None:
     store = MemoryRunStore()
     run = ProductionRunner(store, running_run(store), fake_stages(), clock=Clock()).execute()
     assert run.status == RunStatus.SUCCEEDED
-    assert [s.status for s in run.stages] == [RunStatus.SUCCEEDED] * 6
+    assert [s.status for s in run.stages] == [RunStatus.SUCCEEDED] * len(STAGES)
     assert all(s.duration_seconds == 30 for s in run.stages)
     assert (run.serving_version, run.snapshot_outcome) == (
         "meta-0123456789ab",
@@ -164,8 +169,22 @@ def real_stages(lake: Any, history: MemoryRunStore, run_id: str, **broken: Any) 
             version=r.summary["weekly_version"], data_as_of=date.fromisoformat(r.summary["as_of"])
         )
 
+    def analysis() -> StageResult:
+        summary = AnalysisStage(
+            settings, "NSE", StoreSpec("local", root=str(store.root)), workers=1
+        ).run()
+        return StageResult(version=summary.manifest.analysis_version, details=summary.details)
+
     def publish() -> StageResult:
-        r = ServingPublisher(settings, provider, store, history=history, run_id=run_id).run()
+        r = ServingPublisher(
+            settings,
+            provider,
+            store,
+            expected_analysis_version=analysis_version(settings.analysis),
+            expected_explain_version=explain_version(),
+            history=history,
+            run_id=run_id,
+        ).run()
         return StageResult(version=r["meta_version"], snapshot_outcome=r["outcome"])
 
     stages = {
@@ -174,6 +193,7 @@ def real_stages(lake: Any, history: MemoryRunStore, run_id: str, **broken: Any) 
         Stage.ADJUSTMENT: adjustment,
         Stage.DATA_QUALITY: dq,
         Stage.WEEKLY: weekly,
+        Stage.ANALYSIS: analysis,
         Stage.PUBLISH_SERVING: publish,
     }
     stages.update({Stage(k): v for k, v in broken.items()})
@@ -196,7 +216,8 @@ def test_only_a_fully_successful_run_moves_the_serving_pointer(lake: Any) -> Non
     sid = sorted(served.securities)[0]
     bars = served.weekly_bars(store, sid)
 
-    # A second run gets as far as rewriting the weekly files, then publication fails.
+    # A second run gets as far as rewriting the weekly files, which no longer match their
+    # manifest: ANALYSIS refuses them, so publication is never reached.
     def weekly_then_corrupt() -> StageResult:
         key = DataLakeLayout.curated_weekly_key("NSE", sid)
         store.put(key, store.get(key) + b"partial")
@@ -208,7 +229,15 @@ def test_only_a_fully_successful_run_moves_the_serving_pointer(lake: Any) -> Non
 
     def publish() -> StageResult:
         settings, provider, _, _ = lake
-        r = ServingPublisher(settings, provider, store, history=runs, run_id="run-2").run()
+        r = ServingPublisher(
+            settings,
+            provider,
+            store,
+            expected_analysis_version=analysis_version(settings.analysis),
+            expected_explain_version=explain_version(),
+            history=runs,
+            run_id="run-2",
+        ).run()
         return StageResult(version=r["meta_version"], snapshot_outcome=r["outcome"])
 
     second = ProductionRunner(
@@ -217,7 +246,8 @@ def test_only_a_fully_successful_run_moves_the_serving_pointer(lake: Any) -> Non
         real_stages(lake, runs, "run-2", WEEKLY=weekly_then_corrupt, PUBLISH_SERVING=publish),
         clock=Clock(),
     ).execute()
-    assert second.status == RunStatus.FAILED and second.current_stage == Stage.PUBLISH_SERVING
+    assert second.status == RunStatus.FAILED and second.current_stage == Stage.ANALYSIS
+    assert second.stage(Stage.PUBLISH_SERVING).status == RunStatus.CANCELLED
     assert second.snapshot_outcome == SnapshotOutcome.NOT_PUBLISHED
     assert store.get(pointer_key) == live  # the pointer never moved
     again = ServingSnapshot.load(store, "NSE")

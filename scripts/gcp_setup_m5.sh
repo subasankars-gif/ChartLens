@@ -13,6 +13,39 @@ REPO=subasankars-gif/ChartLens
 POOL_PRINCIPAL="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/attribute.repository/${REPO}"
 
 gcloud config set project "$PROJECT_ID"
+
+# Guard (M8 completion gate, A6 / readiness R12). This script binds the deployer to the
+# whole repository (step "Deployer identity" below). After A6, the deployer and the
+# pipeline accept only the `production` environment's OIDC subject
+# (scripts/gcp_setup_m8.sh); re-running this script would silently restore access for
+# any branch or old workflow. So it refuses to run, before changing anything, as soon as
+# either identity carries an environment-subject binding. On a project that predates A6
+# (no such binding, or the identities do not exist yet) it behaves exactly as before.
+for sa in "chartlens-deployer@${PROJECT_ID}.iam.gserviceaccount.com" \
+  "chartlens-pipeline@${PROJECT_ID}.iam.gserviceaccount.com"; do
+  # Fail closed: "the identity does not exist" is only an empty answer from a successful
+  # listing; any error (permissions, network) stops the script.
+  if ! found=$(gcloud iam service-accounts list --filter="email=$sa" --format='value(email)'); then
+    echo "error: cannot check whether $sa exists; refusing to continue." >&2
+    exit 1
+  fi
+  if [ -n "$found" ]; then
+    if ! members=$(gcloud iam service-accounts get-iam-policy "$sa" \
+      --flatten='bindings[].members' --filter='bindings.role=roles/iam.workloadIdentityUser' \
+      --format='value(bindings.members)'); then
+      echo "error: cannot read the IAM policy of $sa; refusing to continue." >&2
+      exit 1
+    fi
+    if grep -q "/workloadIdentityPools/github/subject/" <<<"$members"; then
+      echo "error: $sa is bound to the production environment's subject (A6)." >&2
+      echo "This M5 script would re-add the repository-wide binding and undo that" >&2
+      echo "protection. Nothing was changed. Use 'bash scripts/gcp_setup_m8.sh status'" >&2
+      echo "to inspect the identities; README → Production storage." >&2
+      exit 1
+    fi
+  fi
+done
+
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
   firestore.googleapis.com firebase.googleapis.com identitytoolkit.googleapis.com
 

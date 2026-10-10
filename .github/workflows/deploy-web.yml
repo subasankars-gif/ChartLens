@@ -28,6 +28,11 @@ jobs:
   deploy:
     # Skipped until the M6 setup (README → Web deployment) has added the variables.
     if: vars.FIREBASE_WEB_API_KEY != '' && vars.FIREBASE_WEB_APP_ID != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_REGION != ''
+    # M8 completion gate, A6: the live storage target and the GCP identities exist only in the
+    # `production` GitHub Environment, which accepts runs from `main` alone. A workflow
+    # file that does not name it (an old commit's re-run, another branch) sees neither.
+    # Environment variables are read in steps only, never in job-level `if` or `env`.
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

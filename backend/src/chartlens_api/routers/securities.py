@@ -192,6 +192,16 @@ def weekly(
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown security {security_id}") from None
     except LakeUnavailable as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    return weekly_payload(snap, security_id, bars, segments)
+
+
+def weekly_payload(
+    snap: ServingSnapshot,
+    security_id: str,
+    bars: list[Any],
+    segments: Literal["valid", "all"],
+) -> WeeklyResponse:
+    """The ``/weekly`` payload for bars read from ``snap`` (shared verbatim by ``/chart``)."""
     row = _security(snap, security_id)
     current = row["current_segment_id"]
     chosen = bars if segments == "all" else [b for b in bars if b.continuity_segment_id == current]

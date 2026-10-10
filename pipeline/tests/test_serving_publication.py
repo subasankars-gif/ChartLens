@@ -12,6 +12,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from analysis_fixture import AV, EV, stage_analysis
 from test_adjust import SESSIONS, build_lake
 
 from chartlens_core.runs import SnapshotOutcome, SnapshotRecord
@@ -44,9 +45,18 @@ def lake(tmp_path: Path):  # type: ignore[no-untyped-def]
 
 
 def publisher(lake: Any, history: Any = None, run_id: str | None = "run-x") -> ServingPublisher:
+    """ANALYSIS (a stand-in) for the current weekly version, then a publisher."""
     settings, provider, store = lake
+    stage_analysis(store, settings)
     return ServingPublisher(
-        settings, provider, store, history=history, run_id=run_id, clock=lambda: T0
+        settings,
+        provider,
+        store,
+        expected_analysis_version=AV,
+        expected_explain_version=EV,
+        history=history,
+        run_id=run_id,
+        clock=lambda: T0,
     )
 
 
@@ -74,7 +84,7 @@ def test_publication_records_history_and_serves_immutable_copies(lake: Any) -> N
     _, _, store = lake
     history = MemoryRunStore()
     summary = publisher(lake, history).run()
-    assert summary["outcome"] == SnapshotOutcome.PUBLISHED and summary["schema_version"] == 2
+    assert summary["outcome"] == SnapshotOutcome.PUBLISHED and summary["schema_version"] == 4
     meta = summary["meta_version"]
     record = history.get_snapshot(meta)
     assert record is not None
@@ -187,12 +197,15 @@ def test_after_the_pointer_moves_nothing_fails_the_publication(lake: Any) -> Non
             raise RuntimeError("503 from storage")
 
     settings, provider, _ = lake
+    stage_analysis(store, settings)
     second = ServingPublisher(
         settings,
         provider,
-        BrokenDeletes(store),
+        BrokenDeletes(store),  # type: ignore[arg-type]
+        expected_analysis_version=AV,
+        expected_explain_version=EV,
         history=history,
-        clock=lambda: T0,  # type: ignore[arg-type]
+        clock=lambda: T0,
     ).run()
     assert second["outcome"] == SnapshotOutcome.PUBLISHED
     assert json.loads(pointer(store))["meta_version"] == second["meta_version"]

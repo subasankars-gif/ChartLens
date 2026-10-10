@@ -16,8 +16,10 @@ Two write modes, on purpose:
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import os
 import tempfile
+import threading
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Protocol
@@ -34,6 +36,14 @@ class StorageError(RuntimeError):
 
 class ImmutableObjectError(StorageError):
     """Attempt to replace an immutable object with different content."""
+
+
+class SwapConflict(StorageError):
+    """A conditional replacement found the object changed since it was read."""
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 class ObjectStore(Protocol):
@@ -55,6 +65,13 @@ class ObjectStore(Protocol):
         """Remove a derived object. Raw (immutable source) objects can never be deleted."""
         ...
 
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        """Replace ``key`` atomically, and only if its current content hashes to
+        ``expected_sha256`` (``None``: only if it does not exist). Otherwise
+        :class:`SwapConflict`, with nothing changed. The commit primitive of a publication
+        (ADR-0026 §1.5): a reader sees the old object or the new one, never a mixture."""
+        ...
+
 
 def check_deletable(key: str) -> str:
     validate_key(key)
@@ -68,6 +85,9 @@ def validate_key(key: str) -> str:
     if not key or key.startswith("/") or ".." in path.parts or "\\" in key:
         raise StorageError(f"invalid object key: {key!r}")
     return key
+
+
+_SWAP_LOCK = threading.Lock()
 
 
 class LocalObjectStore:
@@ -129,6 +149,14 @@ class LocalObjectStore:
     def delete(self, key: str) -> None:
         self._path(check_deletable(key)).unlink(missing_ok=True)
 
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        path = self._path(key)
+        with _SWAP_LOCK:  # one process: a lock, a comparison, then an atomic rename
+            current = _sha256(path.read_bytes()) if path.is_file() else None
+            if current != expected_sha256:
+                raise SwapConflict(f"{key} changed since it was read")
+            self._write_atomic(path, data)
+
 
 class GcsObjectStore:
     """Google Cloud Storage-backed store.
@@ -181,6 +209,26 @@ class GcsObjectStore:
         with contextlib.suppress(NotFound):
             self._bucket.blob(check_deletable(key)).delete()
 
+    def swap(self, key: str, data: bytes, expected_sha256: str | None) -> None:
+        """Compare-and-swap on the object's generation: GCS replaces an object atomically,
+        and the precondition makes the write fail if anyone replaced it meanwhile."""
+        from google.api_core.exceptions import PreconditionFailed
+
+        blob = self._bucket.get_blob(validate_key(key))
+        if blob is None:
+            if expected_sha256 is not None:
+                raise SwapConflict(f"{key} no longer exists")
+            generation = 0
+        else:
+            generation = int(blob.generation)
+            current = bytes(blob.download_as_bytes(if_generation_match=generation))
+            if _sha256(current) != expected_sha256:
+                raise SwapConflict(f"{key} changed since it was read")
+        try:
+            self._bucket.blob(key).upload_from_string(data, if_generation_match=generation)
+        except PreconditionFailed:
+            raise SwapConflict(f"{key} was replaced during the swap") from None
+
 
 def object_store_from_config(config: StorageConfig) -> ObjectStore:
     if config.backend == "gcs":
@@ -188,6 +236,11 @@ def object_store_from_config(config: StorageConfig) -> ObjectStore:
             raise StorageError("storage.backend = gcs requires storage.gcs_bucket")
         return GcsObjectStore(config.gcs_bucket)
     return LocalObjectStore(config.local_root)
+
+
+def _require_sha(sha256: str) -> None:
+    if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
+        raise StorageError(f"not a SHA-256: {sha256!r}")
 
 
 class DataLakeLayout:
@@ -213,6 +266,9 @@ class DataLakeLayout:
         curated/weekly_scan/exchange={EX}/v={version}/part-NNN.parquet (+ _manifest.json)
         curated/serving/exchange={EX}/v={meta_version}/{name}.parquet (+ _manifest.json)
         curated/serving/exchange={EX}/weekly/{sha256}.parquet   immutable weekly copies (ADR-0018)
+        curated/serving/exchange={EX}/analysis/{sha256}.json.gz         analysis (ADR-0025)
+        curated/serving/exchange={EX}/events/{dataset}/{sha256}.parquet breakout events
+        curated/analysis/exchange={EX}/_manifest.json                  latest analysis manifest
 
     Raw keys embed the content hash, so if an exchange re-issues a file for the same
     date, both versions are kept side by side instead of one replacing the other.
@@ -395,6 +451,13 @@ class DataLakeLayout:
         )
 
     @staticmethod
+    def serving_analysis_manifest_key(exchange: str, meta_version: str) -> str:
+        """The verbatim copy of the analysis manifest a schema-3 snapshot pins (ADR-0026)."""
+        return validate_key(
+            f"curated/serving/exchange={exchange.upper()}/v={meta_version}/analysis_manifest.json"
+        )
+
+    @staticmethod
     def serving_version_manifest_key(exchange: str, meta_version: str) -> str:
         """A copy of the snapshot's manifest, kept with its files (ADR-0018)."""
         return validate_key(
@@ -409,9 +472,65 @@ class DataLakeLayout:
     def serving_weekly_key(exchange: str, sha256: str) -> str:
         """An immutable copy of a weekly file, named by its content (ADR-0018). The API
         reads weekly bars only from here, so no later run can change what is served."""
-        if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256):
-            raise StorageError(f"not a SHA-256: {sha256!r}")
+        _require_sha(sha256)
         return validate_key(f"curated/serving/exchange={exchange.upper()}/weekly/{sha256}.parquet")
+
+    @staticmethod
+    def serving_analysis_prefix(exchange: str) -> str:
+        return f"curated/serving/exchange={exchange.upper()}/analysis/"
+
+    @staticmethod
+    def serving_analysis_key(exchange: str, sha256: str) -> str:
+        """A gzip-compressed analysis document, named by the SHA-256 of its uncompressed
+        canonical bytes (ADR-0024 §4.1, ADR-0025 §5)."""
+        _require_sha(sha256)
+        return validate_key(f"{DataLakeLayout.serving_analysis_prefix(exchange)}{sha256}.json.gz")
+
+    @staticmethod
+    def serving_events_prefix(exchange: str, dataset: str) -> str:
+        if dataset not in ("pattern_breakouts", "level_breakouts"):
+            raise StorageError(f"unknown event dataset {dataset!r}")
+        return f"curated/serving/exchange={exchange.upper()}/events/{dataset}/"
+
+    @staticmethod
+    def serving_events_key(exchange: str, dataset: str, sha256: str) -> str:
+        """An event file, named by the content hash of its rows (ADR-0025 §5)."""
+        _require_sha(sha256)
+        prefix = DataLakeLayout.serving_events_prefix(exchange, dataset)
+        return validate_key(f"{prefix}{sha256}.parquet")
+
+    @staticmethod
+    def analysis_manifest_key(exchange: str) -> str:
+        """The latest complete analysis manifest, written last by the ANALYSIS stage."""
+        return validate_key(f"curated/analysis/exchange={exchange.upper()}/_manifest.json")
+
+    @staticmethod
+    def serving_explanations_prefix(exchange: str) -> str:
+        return f"curated/serving/exchange={exchange.upper()}/explanations/"
+
+    @staticmethod
+    def serving_explanation_key(exchange: str, sha256: str) -> str:
+        """A gzip-compressed explanation object, named by the SHA-256 of its uncompressed
+        canonical bytes (ADR-0028 §4)."""
+        _require_sha(sha256)
+        prefix = DataLakeLayout.serving_explanations_prefix(exchange)
+        return validate_key(f"{prefix}{sha256}.json.gz")
+
+    @staticmethod
+    def explanations_manifest_key(exchange: str) -> str:
+        """The latest complete explanation manifest, written after the analysis manifest
+        by the ANALYSIS stage (ADR-0028 §5)."""
+        return validate_key(
+            f"curated/analysis/exchange={exchange.upper()}/_explanations_manifest.json"
+        )
+
+    @staticmethod
+    def serving_explanations_manifest_key(exchange: str, meta_version: str) -> str:
+        """The verbatim copy of the explanation manifest a schema-4 snapshot pins."""
+        return validate_key(
+            f"curated/serving/exchange={exchange.upper()}/v={meta_version}/"
+            "explanations_manifest.json"
+        )
 
     @staticmethod
     def serving_manifest_key(exchange: str) -> str:

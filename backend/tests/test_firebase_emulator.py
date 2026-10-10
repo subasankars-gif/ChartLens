@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fakes import publish_with_analysis
 from fastapi.testclient import TestClient
 from test_adjust import SESSIONS, build_lake
 
@@ -28,7 +29,6 @@ from chartlens_core.config import ApiConfig, ChartLensSettings
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
 from chartlens_pipeline.data_quality import DataQualityService
 from chartlens_pipeline.identity import IdentityOverrides
-from chartlens_pipeline.serving import ServingPublisher
 from chartlens_pipeline.weekly import WeeklyService
 
 PROJECT = "demo-chartlens"
@@ -70,7 +70,7 @@ def client(tmp_path: Path) -> TestClient:
     ).run()
     DataQualityService(settings, provider, store, identity_overrides=IdentityOverrides()).run()
     WeeklyService(settings, provider, store).run()
-    ServingPublisher(settings, provider, store).run()
+    publish_with_analysis(settings, provider, store)
     admin = f"boss-{uuid.uuid4().hex[:8]}@example.com"
     api = ChartLensSettings.model_construct(
         api=ApiConfig(firebase_project_id=PROJECT, admin_emails=(admin,))

@@ -2,10 +2,15 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { ExplanationPanel } from "@/components/Explanations";
+import { AnalysisPanel, LayerControls } from "@/components/Layers";
 import { WeeklyChart } from "@/components/WeeklyChart";
-import { ApiError, api, type DataQuality, type SecurityDetail, type WeeklyResponse } from "@/lib/api";
+import { ApiError, api, type DataQuality, type SecurityDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useChartData } from "@/lib/chart-data";
 import { causeLabel, formatDate } from "@/lib/format";
+import { frameOf } from "@/lib/layers/place";
+import { DEFAULT_SETTINGS, runLayers, type LayerSettings } from "@/lib/layers/registry";
 
 export default function SecurityPage() {
   return (
@@ -21,13 +26,21 @@ function Security() {
   const id = useSearchParams().get("id") ?? "";
   const { token } = useAuth();
   const [loadedState, setLoaded] = useState<(Loaded & { id: string }) | null>(null);
-  const [weeklyState, setWeekly] = useState<{ key: string; data: WeeklyResponse } | null>(null);
   const [allSegments, setAllSegments] = useState(false);
+  const [settings, setSettings] = useState<LayerSettings>(DEFAULT_SETTINGS);
+  const [focused, setFocused] = useState<string | null>(null);
   const [errorState, setError] = useState<{ key: string; message: string } | null>(null);
-  const weeklyKey = `${id}|${allSegments ? "all" : "valid"}`;
   const loaded = loadedState?.id === id ? loadedState : null;
-  const weekly = weeklyState?.key === weeklyKey ? weeklyState.data : null;
-  const error = errorState && (errorState.key === id || errorState.key === weeklyKey) ? errorState.message : null;
+  const chartData = useChartData(token, id, allSegments ? "all" : "valid", settings);
+  const chart = chartData.loaded?.chart ?? null;
+  const weekly = chart?.weekly ?? null;
+  const error = (errorState && errorState.key === id ? errorState.message : null) ?? chartData.error;
+  const doc = chartData.loaded?.doc;
+  const run = useMemo(
+    () => (weekly && doc ? runLayers(frameOf(weekly), doc, settings, chartData.breakoutRows) : null),
+    [weekly, doc, settings, chartData.breakoutRows],
+  );
+  const drawn = useMemo(() => run?.results.flatMap((r) => r.drawn) ?? [], [run]);
 
   useEffect(() => {
     if (!id) return;
@@ -51,21 +64,6 @@ function Security() {
       cancelled = true;
     };
   }, [id, token]);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    api
-      .weekly(token, id, weeklyKey.endsWith("|all") ? "all" : "valid")
-      .then((data) => !cancelled && setWeekly({ key: weeklyKey, data }))
-      .catch(
-        (err: unknown) =>
-          !cancelled && setError({ key: weeklyKey, message: err instanceof Error ? err.message : String(err) }),
-      );
-    return () => {
-      cancelled = true;
-    };
-  }, [id, token, weeklyKey]);
 
   const causes = useMemo(
     () => new Map((loaded?.detail.segments ?? []).map((s) => [s.continuity_segment_id, causeLabel(s.cause)])),
@@ -122,11 +120,39 @@ function Security() {
             {earlier === 1 ? "a continuity break" : "continuity breaks"})
           </label>
         )}
+        {chart && chart.analysis_status === "analysed" && doc ? (
+          <LayerControls settings={settings} onChange={setSettings} doc={doc} />
+        ) : chart ? (
+          <p className="text-sm text-muted" data-testid="analysis-status">
+            {chart.analysis_status === "not_analysed"
+              ? "This security is not in the analysed universe: the chart shows its weekly bars only."
+              : "The current data snapshot carries no analysis yet: the chart shows weekly bars only."}
+          </p>
+        ) : null}
         {weekly ? (
-          <WeeklyChart bars={weekly.bars} currentSegmentId={weekly.current_segment_id} causes={causes} />
+          <WeeklyChart
+            bars={weekly.bars}
+            currentSegmentId={weekly.current_segment_id}
+            causes={causes}
+            drawn={drawn}
+            highlighted={focused}
+          />
         ) : (
-          <div className="h-[600px] rounded-lg border border-line bg-surface" />
+          <div className="h-[660px] rounded-lg border border-line bg-surface" />
         )}
+        {chart?.explanations && (
+          <ExplanationPanel
+            explanation={chart.explanations}
+            focused={focused}
+            onFocus={(target, layer) => {
+              setFocused(target);
+              if (layer && !settings.enabled.has(layer)) {
+                setSettings({ ...settings, enabled: new Set([...settings.enabled, layer]) });
+              }
+            }}
+          />
+        )}
+        {run && doc && <AnalysisPanel run={run} doc={doc} focused={focused} onFocus={setFocused} />}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -201,7 +227,15 @@ function Security() {
             <dt className="text-muted">Security id</dt>
             <dd className="font-mono text-xs leading-5">{detail.security_id}</dd>
             <dt className="text-muted">Serving snapshot</dt>
-            <dd className="font-mono text-xs leading-5">{detail.meta_version}</dd>
+            <dd className="font-mono text-xs leading-5">{chart?.meta_version ?? detail.meta_version}</dd>
+            {chart?.analysis && (
+              <>
+                <dt className="text-muted">Analysis</dt>
+                <dd className="font-mono text-xs leading-5">{chart.analysis.envelope.analysis_version}</dd>
+                <dt className="text-muted">Analysis document</dt>
+                <dd className="font-mono text-xs leading-5 break-all">{chart.analysis.envelope.document_sha256}</dd>
+              </>
+            )}
             {Object.entries(weekly?.versions ?? {})
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([k, v]) => (

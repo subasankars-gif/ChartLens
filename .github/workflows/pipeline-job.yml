@@ -46,17 +46,16 @@ permissions:
 
 jobs:
   run:
+    # M8 completion gate, A6: the live storage target and the GCP identities exist only in the
+    # `production` GitHub Environment, which accepts runs from `main` alone. A workflow
+    # file that does not name it (an old commit's re-run, another branch) sees neither.
+    # Environment variables are read in steps only, never in job-level `if` or `env`.
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 350
     env:
       CHARTLENS_RUNTIME__ENVIRONMENT: prod
       CHARTLENS_RUNTIME__LOG_JSON: "true"
-      # The lake is GCS when the repository variables are set (README → Production
-      # storage); otherwise the runner's disk, which is discarded after the job.
-      CHARTLENS_STORAGE__BACKEND: ${{ vars.GCS_BUCKET && 'gcs' || 'local' }}
-      CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
-      # A manual publish-serving is recorded in the snapshot history too (ADR-0018).
-      CHARTLENS_FIRESTORE__PROJECT_ID: ${{ vars.GCS_BUCKET && vars.GCP_PROJECT_ID || '' }}
       # Inputs are passed through env, never interpolated into the script, so a
       # crafted input value cannot inject shell commands.
       JOB: ${{ inputs.job }}
@@ -66,6 +65,23 @@ jobs:
       SYMBOL: ${{ inputs.symbol }}
       DRY_RUN: ${{ inputs.dry_run }}
     steps:
+      # The lake is GCS when the production environment provides the bucket (README →
+      # Production storage); otherwise the runner's disk, which is discarded after the job.
+      - name: Storage target
+        env:
+          BUCKET: ${{ vars.GCS_BUCKET }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BUCKET" ]; then
+            {
+              echo "CHARTLENS_STORAGE__BACKEND=gcs"
+              echo "CHARTLENS_STORAGE__GCS_BUCKET=$BUCKET"
+              echo "CHARTLENS_FIRESTORE__PROJECT_ID=$PROJECT"  # a one-off run is recorded too (ADR-0018)
+            } >> "$GITHUB_ENV"
+          else
+            echo "CHARTLENS_STORAGE__BACKEND=local" >> "$GITHUB_ENV"
+          fi
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
         with:

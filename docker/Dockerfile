@@ -2,7 +2,8 @@
 #
 # One Dockerfile, two deployable targets:
 #   docker build -f docker/Dockerfile --target api .       → Cloud Run service
-#   docker build -f docker/Dockerfile --target pipeline .  → batch jobs (GitHub Actions / Cloud Run Jobs)
+#   docker build -f docker/Dockerfile --target pipeline .  → pipeline commands (one-off jobs)
+#   docker build -f docker/Dockerfile --target jobs .      → the tracked run and ANALYSIS (ADR-0025)
 #
 # Build context is the repository root. Dependencies are resolved from uv.lock
 # (--frozen), so images are reproducible from a commit.
@@ -23,6 +24,7 @@ COPY pyproject.toml uv.lock ./
 COPY core/pyproject.toml core/
 COPY engine/pyproject.toml engine/
 COPY pipeline/pyproject.toml pipeline/
+COPY jobs/pyproject.toml jobs/
 COPY backend/pyproject.toml backend/
 
 # ------------------------------------------------------------------ api build
@@ -44,6 +46,17 @@ COPY core core
 COPY pipeline pipeline
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-editable --package chartlens-pipeline
+
+# ------------------------------------------------------------------ jobs build
+FROM builder AS build-jobs
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package chartlens-jobs
+COPY core core
+COPY engine engine
+COPY pipeline pipeline
+COPY jobs jobs
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable --package chartlens-jobs
 
 # ------------------------------------------------------------------ runtime base
 FROM ${PYTHON_IMAGE} AS runtime
@@ -68,3 +81,9 @@ COPY --from=build-pipeline /app/.venv /app/.venv
 USER 10001
 ENTRYPOINT ["chartlens-pipeline"]
 CMD ["info"]
+
+FROM runtime AS jobs
+COPY --from=build-jobs /app/.venv /app/.venv
+USER 10001
+ENTRYPOINT ["chartlens-jobs"]
+CMD ["--help"]

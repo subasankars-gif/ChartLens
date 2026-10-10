@@ -91,3 +91,40 @@ def test_repo_config_file_is_valid(monkeypatch: pytest.MonkeyPatch) -> None:
     shipped = ChartLensSettings()
     # The shipped file documents the defaults; it must not silently drift from them.
     assert shipped.methodology() == ChartLensSettings.model_construct().methodology()
+
+
+def test_analysis_settings_have_their_own_hash() -> None:
+    """ADR-0019 (K1): an analysis threshold never changes the data methodology hash, and a
+    data setting never changes the analysis one."""
+    from chartlens_core.config import AnalysisConfig, DataQualityConfig, IndicatorConfig
+
+    base = ChartLensSettings()
+    tuned = ChartLensSettings(analysis=AnalysisConfig(indicators=IndicatorConfig(rsi_period=21)))
+    assert tuned.methodology_hash() == base.methodology_hash()
+    assert tuned.analysis_methodology_hash() != base.analysis_methodology_hash()
+    data = ChartLensSettings(data_quality=DataQualityConfig(max_unexplained_move=0.3))
+    assert data.analysis_methodology_hash() == base.analysis_methodology_hash()
+    assert data.methodology_hash() != base.methodology_hash()
+
+
+def test_shipped_toml_matches_the_analysis_defaults() -> None:
+    """The confirmed defaults (K6) are what the repository's config file says."""
+    from chartlens_core.config import AnalysisConfig
+
+    assert ChartLensSettings().analysis == AnalysisConfig()
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"macd_fast": 26, "macd_slow": 12},
+        {"volume_trend_short": 20, "volume_trend_long": 10},
+        {"rvol_contraction": 2.0},
+        {"sma_periods": (0, 10)},
+    ],
+)
+def test_incoherent_indicator_settings_are_refused(bad: dict[str, object]) -> None:
+    from chartlens_core.config import IndicatorConfig
+
+    with pytest.raises(ValidationError):
+        IndicatorConfig(**bad)  # type: ignore[arg-type]

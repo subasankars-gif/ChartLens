@@ -228,6 +228,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/securities/{security_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Analysis
+         * @description The published analysis of one security, verbatim, or whole named sections of it.
+         */
+        get: operations["analysis_api_v1_securities__security_id__analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/securities/{security_id}/breakout-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Breakout Events
+         * @description Rows of one published breakout-event dataset matching explicit predicates on
+         *     stored fields, in the stored order. Retrieval, never ranking or selection.
+         */
+        get: operations["breakout_events_api_v1_securities__security_id__breakout_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/securities/{security_id}/chart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Chart
+         * @description Bars and requested analysis sections of one security, from one snapshot.
+         */
+        get: operations["chart_api_v1_securities__security_id__chart_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/securities/{security_id}/data-quality": {
         parameters: {
             query?: never;
@@ -237,6 +298,27 @@ export interface paths {
         };
         /** Data Quality */
         get: operations["data_quality_api_v1_securities__security_id__data_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/securities/{security_id}/explanations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Explanations
+         * @description The published explanation of one security's analysis, verbatim. Served only bound
+         *     to exactly the document the snapshot names (ADR-0028 §6).
+         */
+        get: operations["explanations_api_v1_securities__security_id__explanations_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -325,6 +407,68 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AnalysisEnvelope
+         * @description Provenance: describes the served object, never alters it.
+         */
+        AnalysisEnvelope: {
+            /** Analysis Methodology Hash */
+            analysis_methodology_hash: string;
+            /** Analysis Version */
+            analysis_version: string;
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Document Sha256 */
+            document_sha256: string;
+            /** Meta Version */
+            meta_version: string;
+            /** Methodology Hash */
+            methodology_hash: string;
+            /** Sections */
+            sections: string[];
+            /** Security Id */
+            security_id: string;
+            /** Snapshot Generated At */
+            snapshot_generated_at: string;
+            /** Weekly Version */
+            weekly_version: string;
+        };
+        /** AnalysisResponse */
+        AnalysisResponse: {
+            /** Document */
+            document: {
+                [key: string]: unknown;
+            };
+            envelope: components["schemas"]["AnalysisEnvelope"];
+        };
+        /** ChartResponse */
+        ChartResponse: {
+            analysis: components["schemas"]["AnalysisResponse"] | null;
+            /**
+             * Analysis Status
+             * @enum {string}
+             */
+            analysis_status: "analysed" | "not_analysed" | "no_analysis_in_snapshot";
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            explanations: components["schemas"]["ExplanationResponse"] | null;
+            /** Meta Version */
+            meta_version: string;
+            /** Security Id */
+            security_id: string;
+            /**
+             * Segments
+             * @enum {string}
+             */
+            segments: "valid" | "all";
+            weekly: components["schemas"]["WeeklyResponse"];
+        };
         /** ComponentVersions */
         ComponentVersions: {
             /** Api */
@@ -367,6 +511,70 @@ export interface components {
          * @enum {string}
          */
         Environment: "local" | "ci" | "prod";
+        /** EventsEnvelope */
+        EventsEnvelope: {
+            /** Analysis Version */
+            analysis_version: string;
+            /** Content Sha256 */
+            content_sha256: string;
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Dataset */
+            dataset: string;
+            /** Meta Version */
+            meta_version: string;
+            /** Physical Sha256 */
+            physical_sha256: string;
+            /** Row Count */
+            row_count: number;
+            /** Security Id */
+            security_id: string;
+            /** Snapshot Generated At */
+            snapshot_generated_at: string;
+        };
+        /** EventsResponse */
+        EventsResponse: {
+            envelope: components["schemas"]["EventsEnvelope"];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Rows */
+            rows: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** ExplanationEnvelope */
+        ExplanationEnvelope: {
+            /** Analysis Version */
+            analysis_version: string;
+            /**
+             * Data As Of
+             * Format: date
+             */
+            data_as_of: string;
+            /** Document Sha256 */
+            document_sha256: string;
+            /** Explain Version */
+            explain_version: string;
+            /** Explanation Sha256 */
+            explanation_sha256: string;
+            /** Meta Version */
+            meta_version: string;
+            /** Security Id */
+            security_id: string;
+            /** Snapshot Generated At */
+            snapshot_generated_at: string;
+        };
+        /** ExplanationResponse */
+        ExplanationResponse: {
+            envelope: components["schemas"]["ExplanationEnvelope"];
+            /** Explanation */
+            explanation: {
+                [key: string]: unknown;
+            };
+        };
         /** Finding */
         Finding: {
             /** Breaks Continuity */
@@ -632,6 +840,10 @@ export interface components {
         };
         /** ServingStatus */
         ServingStatus: {
+            /** Analysis */
+            analysis: {
+                [key: string]: string | number;
+            } | null;
             /** Counts */
             counts: {
                 [key: string]: number;
@@ -643,10 +855,16 @@ export interface components {
             data_as_of: string;
             /** Exchange */
             exchange: string;
+            /** Explanations */
+            explanations?: {
+                [key: string]: string | number;
+            } | null;
             /** Meta Version */
             meta_version: string;
             /** Refresh Seconds */
             refresh_seconds: number;
+            /** Schema Version */
+            schema_version: number;
             /**
              * Snapshot Generated At
              * Format: date-time
@@ -689,6 +907,10 @@ export interface components {
         SnapshotOutcome: "PUBLISHED" | "UNCHANGED" | "NOT_PUBLISHED";
         /** SnapshotView */
         SnapshotView: {
+            /** Analysis */
+            analysis?: {
+                [key: string]: string | number;
+            } | null;
             /** Counts */
             counts: {
                 [key: string]: number;
@@ -724,7 +946,7 @@ export interface components {
          * Stage
          * @enum {string}
          */
-        Stage: "INGEST" | "CORPORATE_ACTIONS" | "ADJUSTMENT" | "DATA_QUALITY" | "WEEKLY" | "PUBLISH_SERVING";
+        Stage: "INGEST" | "CORPORATE_ACTIONS" | "ADJUSTMENT" | "DATA_QUALITY" | "WEEKLY" | "ANALYSIS" | "PUBLISH_SERVING";
         /** StageRecord */
         StageRecord: {
             /** Completed At */
@@ -1331,6 +1553,154 @@ export interface operations {
             };
         };
     };
+    analysis_api_v1_securities__security_id__analysis_get: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated top-level sections; default: the whole document */
+                sections?: string | null;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisResponse"];
+                };
+            };
+            /** @description unknown_security, not_analysed, no_analysis_in_snapshot */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    breakout_events_api_v1_securities__security_id__breakout_events_get: {
+        parameters: {
+            query: {
+                /** @description One dataset; never merged */
+                source: "pattern" | "level";
+                from?: string | null;
+                to?: string | null;
+                direction?: ("BREAKOUT" | "BREAKDOWN") | null;
+                /** @description source=pattern only */
+                pattern_type?: string | null;
+                /** @description source=level only */
+                level_source_type?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsResponse"];
+                };
+            };
+            /** @description unknown_security, not_analysed, no_analysis_in_snapshot */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the snapshot changed between pages; restart without a cursor */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chart_api_v1_securities__security_id__chart_get: {
+        parameters: {
+            query?: {
+                segments?: "valid" | "all";
+                /** @description Comma-separated whole sections of the published document */
+                sections?: string;
+                /** @description Also return the published explanation (ADR-0028) */
+                explanations?: boolean;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChartResponse"];
+                };
+            };
+            /** @description unknown security */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     data_quality_api_v1_securities__security_id__data_quality_get: {
         parameters: {
             query?: never;
@@ -1352,6 +1722,46 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DataQualityResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    explanations_api_v1_securities__security_id__explanations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                security_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplanationResponse"];
+                };
+            };
+            /** @description unknown_security, not_analysed, no_explanations_in_snapshot */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

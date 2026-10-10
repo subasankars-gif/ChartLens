@@ -59,7 +59,7 @@ test("an admin refreshes data and follows the run to the end", async ({ page }) 
   // Polling carries it through to the end without a reload.
   await expect(detail.getByTestId("run-status")).toHaveText("Succeeded", { timeout: 30_000 });
   await expect(detail).toContainText("No new data; the live snapshot was already current");
-  for (const stage of ["INGEST", "CORPORATE_ACTIONS", "ADJUSTMENT", "DATA_QUALITY", "WEEKLY", "PUBLISH_SERVING"]) {
+  for (const stage of ["INGEST", "CORPORATE_ACTIONS", "ADJUSTMENT", "DATA_QUALITY", "WEEKLY", "ANALYSIS", "PUBLISH_SERVING"]) {
     await expect(detail.locator(`[data-stage="${stage}"]`)).toHaveAttribute("data-status", "SUCCEEDED");
   }
   await expect(page.getByTestId("runs")).toContainText("admin@example.com");
@@ -68,7 +68,7 @@ test("an admin refreshes data and follows the run to the end", async ({ page }) 
 
   const run = await (await call(ADMIN, `/jobs/${accepted.run_id}`)).json();
   expect(run.status).toBe("SUCCEEDED");
-  expect(run.stages.map((s: { status: string }) => s.status)).toEqual(Array(6).fill("SUCCEEDED"));
+  expect(run.stages.map((s: { status: string }) => s.status)).toEqual(Array(7).fill("SUCCEEDED"));
   await page.screenshot({ path: "test-results/system-done.png", fullPage: true });
 });
 

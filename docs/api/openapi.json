@@ -1,6 +1,156 @@
 {
   "components": {
     "schemas": {
+      "AnalysisEnvelope": {
+        "description": "Provenance: describes the served object, never alters it.",
+        "properties": {
+          "analysis_methodology_hash": {
+            "title": "Analysis Methodology Hash",
+            "type": "string"
+          },
+          "analysis_version": {
+            "title": "Analysis Version",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "document_sha256": {
+            "title": "Document Sha256",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "methodology_hash": {
+            "title": "Methodology Hash",
+            "type": "string"
+          },
+          "sections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "snapshot_generated_at": {
+            "title": "Snapshot Generated At",
+            "type": "string"
+          },
+          "weekly_version": {
+            "title": "Weekly Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "snapshot_generated_at",
+          "data_as_of",
+          "weekly_version",
+          "methodology_hash",
+          "analysis_version",
+          "analysis_methodology_hash",
+          "document_sha256",
+          "sections"
+        ],
+        "title": "AnalysisEnvelope",
+        "type": "object"
+      },
+      "AnalysisResponse": {
+        "properties": {
+          "document": {
+            "additionalProperties": true,
+            "title": "Document",
+            "type": "object"
+          },
+          "envelope": {
+            "$ref": "#/components/schemas/AnalysisEnvelope"
+          }
+        },
+        "required": [
+          "envelope",
+          "document"
+        ],
+        "title": "AnalysisResponse",
+        "type": "object"
+      },
+      "ChartResponse": {
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_status": {
+            "enum": [
+              "analysed",
+              "not_analysed",
+              "no_analysis_in_snapshot"
+            ],
+            "title": "Analysis Status",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "explanations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplanationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "segments": {
+            "enum": [
+              "valid",
+              "all"
+            ],
+            "title": "Segments",
+            "type": "string"
+          },
+          "weekly": {
+            "$ref": "#/components/schemas/WeeklyResponse"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "data_as_of",
+          "segments",
+          "analysis_status",
+          "weekly",
+          "analysis",
+          "explanations"
+        ],
+        "title": "ChartResponse",
+        "type": "object"
+      },
       "ComponentVersions": {
         "properties": {
           "api": {
@@ -107,6 +257,160 @@
         ],
         "title": "Environment",
         "type": "string"
+      },
+      "EventsEnvelope": {
+        "properties": {
+          "analysis_version": {
+            "title": "Analysis Version",
+            "type": "string"
+          },
+          "content_sha256": {
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "physical_sha256": {
+            "title": "Physical Sha256",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "snapshot_generated_at": {
+            "title": "Snapshot Generated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "snapshot_generated_at",
+          "data_as_of",
+          "analysis_version",
+          "dataset",
+          "content_sha256",
+          "physical_sha256",
+          "row_count"
+        ],
+        "title": "EventsEnvelope",
+        "type": "object"
+      },
+      "EventsResponse": {
+        "properties": {
+          "envelope": {
+            "$ref": "#/components/schemas/EventsEnvelope"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "envelope",
+          "rows",
+          "next_cursor"
+        ],
+        "title": "EventsResponse",
+        "type": "object"
+      },
+      "ExplanationEnvelope": {
+        "properties": {
+          "analysis_version": {
+            "title": "Analysis Version",
+            "type": "string"
+          },
+          "data_as_of": {
+            "format": "date",
+            "title": "Data As Of",
+            "type": "string"
+          },
+          "document_sha256": {
+            "title": "Document Sha256",
+            "type": "string"
+          },
+          "explain_version": {
+            "title": "Explain Version",
+            "type": "string"
+          },
+          "explanation_sha256": {
+            "title": "Explanation Sha256",
+            "type": "string"
+          },
+          "meta_version": {
+            "title": "Meta Version",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "snapshot_generated_at": {
+            "title": "Snapshot Generated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "security_id",
+          "meta_version",
+          "snapshot_generated_at",
+          "data_as_of",
+          "analysis_version",
+          "explain_version",
+          "document_sha256",
+          "explanation_sha256"
+        ],
+        "title": "ExplanationEnvelope",
+        "type": "object"
+      },
+      "ExplanationResponse": {
+        "properties": {
+          "envelope": {
+            "$ref": "#/components/schemas/ExplanationEnvelope"
+          },
+          "explanation": {
+            "additionalProperties": true,
+            "title": "Explanation",
+            "type": "object"
+          }
+        },
+        "required": [
+          "envelope",
+          "explanation"
+        ],
+        "title": "ExplanationResponse",
+        "type": "object"
       },
       "Finding": {
         "properties": {
@@ -924,6 +1228,27 @@
       },
       "ServingStatus": {
         "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis"
+          },
           "counts": {
             "additionalProperties": {
               "type": "integer"
@@ -940,6 +1265,27 @@
             "title": "Exchange",
             "type": "string"
           },
+          "explanations": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanations"
+          },
           "meta_version": {
             "title": "Meta Version",
             "type": "string"
@@ -947,6 +1293,10 @@
           "refresh_seconds": {
             "title": "Refresh Seconds",
             "type": "number"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
           },
           "snapshot_generated_at": {
             "format": "date-time",
@@ -981,7 +1331,9 @@
           "counts",
           "snapshot_generated_at",
           "snapshot_loaded_at",
-          "refresh_seconds"
+          "refresh_seconds",
+          "schema_version",
+          "analysis"
         ],
         "title": "ServingStatus",
         "type": "object"
@@ -1038,6 +1390,27 @@
       },
       "SnapshotView": {
         "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis"
+          },
           "counts": {
             "additionalProperties": {
               "type": "integer"
@@ -1124,6 +1497,7 @@
           "ADJUSTMENT",
           "DATA_QUALITY",
           "WEEKLY",
+          "ANALYSIS",
           "PUBLISH_SERVING"
         ],
         "title": "Stage",
@@ -2375,6 +2749,384 @@
         ]
       }
     },
+    "/api/v1/securities/{security_id}/analysis": {
+      "get": {
+        "description": "The published analysis of one security, verbatim, or whole named sections of it.",
+        "operationId": "analysis_api_v1_securities__security_id__analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated top-level sections; default: the whole document",
+            "in": "query",
+            "name": "sections",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated top-level sections; default: the whole document",
+              "title": "Sections"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "unknown_security, not_analysed, no_analysis_in_snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analysis",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/breakout-events": {
+      "get": {
+        "description": "Rows of one published breakout-event dataset matching explicit predicates on\nstored fields, in the stored order. Retrieval, never ranking or selection.",
+        "operationId": "breakout_events_api_v1_securities__security_id__breakout_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "One dataset; never merged",
+            "in": "query",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "description": "One dataset; never merged",
+              "enum": [
+                "pattern",
+                "level"
+              ],
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "BREAKOUT",
+                    "BREAKDOWN"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Direction"
+            }
+          },
+          {
+            "description": "source=pattern only",
+            "in": "query",
+            "name": "pattern_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "source=pattern only",
+              "title": "Pattern Type"
+            }
+          },
+          {
+            "description": "source=level only",
+            "in": "query",
+            "name": "level_source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "source=level only",
+              "title": "Level Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "unknown_security, not_analysed, no_analysis_in_snapshot"
+          },
+          "409": {
+            "description": "the snapshot changed between pages; restart without a cursor"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Breakout Events",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/chart": {
+      "get": {
+        "description": "Bars and requested analysis sections of one security, from one snapshot.",
+        "operationId": "chart_api_v1_securities__security_id__chart_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "segments",
+            "required": false,
+            "schema": {
+              "default": "valid",
+              "enum": [
+                "valid",
+                "all"
+              ],
+              "title": "Segments",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated whole sections of the published document",
+            "in": "query",
+            "name": "sections",
+            "required": false,
+            "schema": {
+              "default": "identity,versions,current,provenance",
+              "description": "Comma-separated whole sections of the published document",
+              "title": "Sections",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also return the published explanation (ADR-0028)",
+            "in": "query",
+            "name": "explanations",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also return the published explanation (ADR-0028)",
+              "title": "Explanations",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "unknown security"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chart",
+        "tags": [
+          "chart"
+        ]
+      }
+    },
     "/api/v1/securities/{security_id}/data-quality": {
       "get": {
         "operationId": "data_quality_api_v1_securities__security_id__data_quality_get",
@@ -2430,6 +3182,68 @@
         "summary": "Data Quality",
         "tags": [
           "securities"
+        ]
+      }
+    },
+    "/api/v1/securities/{security_id}/explanations": {
+      "get": {
+        "description": "The published explanation of one security's analysis, verbatim. Served only bound\nto exactly the document the snapshot names (ADR-0028 \u00a76).",
+        "operationId": "explanations_api_v1_securities__security_id__explanations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "security_id",
+            "required": true,
+            "schema": {
+              "title": "Security Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplanationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "unknown_security, not_analysed, no_explanations_in_snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Explanations",
+        "tags": [
+          "analysis"
         ]
       }
     },

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from analysis_fixture import AV, EV, stage_analysis
 from test_adjust import SESSIONS, build_lake
 
 from chartlens_pipeline.adjust import AdjustmentService, CorporateActionOverrides
@@ -25,6 +26,14 @@ from chartlens_pipeline.weekly import WeeklyService
 WED = SESSIONS[17]
 
 
+def publish(settings, provider, store):  # type: ignore[no-untyped-def]
+    """The tracked run's last two steps: ANALYSIS (here a stand-in), then publication."""
+    stage_analysis(store, settings)
+    return ServingPublisher(
+        settings, provider, store, expected_analysis_version=AV, expected_explain_version=EV
+    ).run()
+
+
 @pytest.fixture
 def lake(tmp_path: Path):  # type: ignore[no-untyped-def]
     settings, provider, store, today = build_lake(tmp_path, ex=WED)
@@ -38,7 +47,7 @@ def lake(tmp_path: Path):  # type: ignore[no-untyped-def]
 
 def test_snapshot_is_published_whole_and_read_back_verified(lake) -> None:  # type: ignore[no-untyped-def]
     settings, provider, store = lake
-    summary = ServingPublisher(settings, provider, store).run()
+    summary = publish(settings, provider, store)
     snap = ServingSnapshot.load(store, "NSE")
     assert snap.meta_version == summary["meta_version"] and snap.as_of == SESSIONS[-1]
     weekly = json.loads(store.get(DataLakeLayout.weekly_manifest_key("NSE")))
@@ -63,13 +72,13 @@ def test_snapshot_is_published_whole_and_read_back_verified(lake) -> None:  # ty
     assert snap.search("INE467B01029", analytical_only=True, limit=5)[0]["symbol"] == "DEMERCO"
 
     # Same inputs → same version; nothing new to serve.
-    assert ServingPublisher(settings, provider, store).run()["meta_version"] == snap.meta_version
+    assert publish(settings, provider, store)["meta_version"] == snap.meta_version
 
 
 def test_a_republished_weekly_file_never_changes_a_published_snapshot(lake) -> None:  # type: ignore[no-untyped-def]
     """Schema 2 (ADR-0018) serves immutable copies; schema 1 refused a rewritten file."""
     settings, provider, store = lake
-    ServingPublisher(settings, provider, store).run()
+    publish(settings, provider, store)
     snap = ServingSnapshot.load(store, "NSE")
     sid = next(iter(snap.securities))
     bars = snap.weekly_bars(store, sid)
@@ -85,7 +94,7 @@ def test_a_tampered_or_missing_snapshot_is_not_served(lake) -> None:  # type: ig
     settings, provider, store = lake
     with pytest.raises(SnapshotUnavailable, match="no serving snapshot"):
         ServingSnapshot.load(store, "NSE")
-    summary = ServingPublisher(settings, provider, store).run()
+    summary = publish(settings, provider, store)
     key = summary["files"]["securities"]["key"]
     store.put(key, store.get(key) + b"x")
     with pytest.raises(SnapshotUnavailable, match="does not match"):
@@ -98,4 +107,4 @@ def test_publishing_refuses_inputs_out_of_step(lake) -> None:  # type: ignore[no
     report = json.loads(store.get(report_key))
     store.put(report_key, json.dumps({**report, "dq_version": "dq-newer"}).encode())
     with pytest.raises(ServingInputsNotReady, match="run `weekly`"):
-        ServingPublisher(settings, provider, store).run()
+        publish(settings, provider, store)
