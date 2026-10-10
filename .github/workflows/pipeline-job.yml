@@ -82,7 +82,7 @@ jobs:
           else
             echo "CHARTLENS_STORAGE__BACKEND=local" >> "$GITHUB_ENV"
           fi
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"

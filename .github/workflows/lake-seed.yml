@@ -30,7 +30,7 @@ jobs:
       CHARTLENS_STORAGE__BACKEND: gcs
       CHARTLENS_STORAGE__GCS_BUCKET: ${{ vars.GCS_BUCKET }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"

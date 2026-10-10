@@ -24,7 +24,7 @@ jobs:
       END: ${{ inputs.end_date || '2026-09-29' }}
       CHARTLENS_RUNTIME__LOG_JSON: "true"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"
