@@ -50,6 +50,10 @@ export function CurrentState({
             <dd data-testid="state-date">{formatDate(current?.state_date)}</dd>
           </div>
           <div className="flex gap-1.5">
+            <dt className="text-muted">Trend state since</dt>
+            <dd data-testid="state-trend-since">{since ? formatDate(since) : "none stored"}</dd>
+          </div>
+          <div className="flex gap-1.5">
             <dt className="text-muted">Data through</dt>
             <dd data-testid="state-data-as-of">{formatDate(chart.data_as_of)}</dd>
           </div>
@@ -114,10 +118,17 @@ export function CurrentState({
         )}
       </section>
 
-      <p className="text-xs text-muted" data-testid="state-limits">
-        Not shown, because the stored analysis does not contain it: the price at which the current trend state would
-        change. Patterns show only the confirmation and invalidation conditions the engine stored.
-      </p>
+      <div className="flex flex-col gap-1 text-xs text-muted">
+        <p data-testid="state-zone-order">
+          Zones are listed as the analysis stores them: supports, then resistances, each side nearest the close of the
+          week ending {formatDate(current?.state_date)} first. That order is not a ranking, and how long a zone is drawn
+          on the chart is not a measure of its significance: a zone is drawn only from the date the analysis knew it.
+        </p>
+        <p data-testid="state-limits">
+          Not shown, because the stored analysis does not contain it: the price at which the current trend state would
+          change. Patterns show only the confirmation and invalidation conditions the engine stored.
+        </p>
+      </div>
     </section>
   );
 }

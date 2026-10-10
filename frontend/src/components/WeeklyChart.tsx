@@ -98,6 +98,11 @@ export function WeeklyChart({
   const [hovered, setHovered] = useState<string | null>(null);
   const [hoveredObject, setHoveredObject] = useState<string | null>(null);
   const [range, setRange] = useState<number | null | undefined>(undefined);
+  // Bars of the current (analysed) segment; the rest are earlier segments, bars only.
+  const analysedBars = useMemo(
+    () => bars.filter((b) => b.continuity_segment_id === currentSegmentId).length,
+    [bars, currentSegmentId],
+  );
   const hoverCallback = useRef(onHoverObject);
   useEffect(() => {
     hoverCallback.current = onHoverObject;
@@ -288,10 +293,14 @@ export function WeeklyChart({
           <span className="text-muted">Point at a drawn object to see its stored facts.</span>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-1.5 text-xs" data-testid="chart-range">
-        <span className="text-muted">
-          {model.barsByTime.size} weekly bars on the chart, from {formatDate(bars[0]?.first_session_date)}. View:
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-4 py-1.5 text-xs" data-testid="chart-range">
+        <span className="text-muted" data-testid="chart-range-count">
+          {model.barsByTime.size} weekly bars on the chart, from {formatDate(bars[0]?.first_session_date)}
+          {analysedBars < model.barsByTime.size &&
+            `: ${analysedBars} analysed, ${model.barsByTime.size - analysedBars} earlier and not analysed`}
+          .
         </span>
+        <span className="text-muted">View:</span>
         {RANGES.map((r) => (
           <button
             key={r.label}
@@ -299,12 +308,16 @@ export function WeeklyChart({
             className={`rounded border px-1.5 py-0.5 ${range === r.weeks ? "border-accent text-accent" : "border-line text-ink hover:border-accent"}`}
             onClick={() => setRange(r.weeks)}
             aria-pressed={range === r.weeks}
+            title={r.weeks === null ? "Show every bar on the chart" : `Show the last ${r.weeks} weekly bars`}
             data-testid={`range-${r.label}`}
           >
             {r.label}
           </button>
         ))}
-        <span className="text-muted">or drag and scroll the chart.</span>
+        <span className="text-muted" data-testid="chart-range-meaning">
+          1Y, 3Y and 5Y show the last 52, 156 and 260 weekly bars; All shows every bar on the chart. A view changes
+          only what is shown, never what is analysed.
+        </span>
       </div>
       <div ref={container} className="h-[560px] w-full" data-testid="weekly-chart" />
       <ChartKey />

@@ -138,6 +138,13 @@ test("the explanation panel shows the stored claims, in order, and their facts (
   await page.screenshot({ path: "test-results/m8-explanations.png", fullPage: true });
 });
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The page's date format ("2025-12-05" → "5 Dec 2025"). */
+function fmt(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m! - 1]} ${y}`;
+}
+
 test("the current weekly state restates the snapshot's own current analysis, above the chart (Issue 2)", async ({ page }) => {
   await signInAs(page, ADMIN);
   const first = page.waitForResponse((r) => r.url().includes("/securities/SEC-P/chart?"));
@@ -179,6 +186,10 @@ test("the current weekly state restates the snapshot's own current analysis, abo
     await expect(panel.getByTestId("state-level-breakouts")).toBeVisible();
   }
   await expect(panel.getByTestId("state-limits")).toContainText("would change");
+  // The trend's `since` is its own labelled field, separate from the state, data and
+  // snapshot dates; the zone order is stated as the stored order, not a ranking.
+  await expect(panel.getByTestId("state-trend-since")).toHaveText(since ? fmt(since) : "none stored");
+  await expect(panel.getByTestId("state-zone-order")).toContainText("not a ranking");
 
   // It sits above the chart.
   const panelBox = await panel.boundingBox();
@@ -198,15 +209,30 @@ test("history: every returned bar is on the chart, a short analysed history is e
   // The default chart is the current segment: all of its bars, none cut by the view.
   const range = page.getByTestId("chart-range");
   await expect(range).toContainText(`${valid.bars.length} weekly bars on the chart`);
+  await expect(page.getByTestId("chart-range-count")).not.toContainText("not analysed");
+  await expect(page.getByTestId("chart-range-meaning")).toContainText("never what is analysed");
   const current = detail.segments.find((s: { continuity_segment_id: string }) => s.continuity_segment_id === detail.current_segment_id);
-  await expect(page.getByTestId("history-notice")).toContainText("no analysis crosses it");
-  await expect(page.getByTestId("history-notice")).toContainText(current.segment_start.slice(0, 4));
 
-  // "All" and the earlier segments: older bars are on the chart, not removed.
+  // Three distinct things: the analysed period, earlier history kept without analysis,
+  // and the view.
+  await expect(page.getByTestId("history-analysed")).toContainText(fmt(detail.usable_from));
+  await expect(page.getByTestId("history-analysed")).toContainText(`${valid.bars.length} weekly bars`);
+  await expect(page.getByTestId("history-notice")).toContainText("no analysis crosses the break");
+  await expect(page.getByTestId("history-notice")).toContainText(fmt(current.segment_start));
+  await expect(page.getByTestId("history-view")).toContainText("never what is analysed");
+  const stateBefore = await page.getByTestId("current-state").getByTestId("claim-text").allTextContents();
+
+  // "All" and the earlier segments: older bars are on the chart, not removed, and they
+  // are named as not analysed. The analysis itself does not change.
   await page.getByTestId("range-All").click();
   await expect(page.getByTestId("range-All")).toHaveAttribute("aria-pressed", "true");
   await page.getByTestId("earlier-history").check();
   await expect(range).toContainText(`${all.bars.length} weekly bars on the chart`);
+  await expect(page.getByTestId("chart-range-count")).toContainText(
+    `${valid.bars.length} analysed, ${all.bars.length - valid.bars.length} earlier and not analysed`,
+  );
+  await expect(page.getByTestId("history-analysed")).toContainText(`${valid.bars.length} weekly bars`);
+  await expect(page.getByTestId("current-state").getByTestId("claim-text")).toHaveText(stateBefore);
 
   // Support and resistance in the published analysis are all drawn: none lost on the way.
   const levels = (await apiGet("/securities/SEC-L/analysis?sections=levels")).document.levels;
@@ -221,5 +247,6 @@ test("a security with a single segment shows exactly its own history and no brea
   await page.goto("/security/?id=SEC-X");
   await expect(page.getByTestId("chart-range")).toContainText(`${weekly.bars.length} weekly bars on the chart`);
   await expect(page.getByTestId("history-notice")).toHaveCount(0);
+  await expect(page.getByTestId("history-earlier")).toContainText("one continuity segment");
   await expect(page.getByTestId("current-state")).toHaveCount(0); // not analysed: no state is invented
 });
