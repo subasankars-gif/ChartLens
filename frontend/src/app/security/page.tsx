@@ -2,12 +2,13 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { ExplanationPanel } from "@/components/Explanations";
+import { CurrentState } from "@/components/CurrentState";
+import { HistoryScope } from "@/components/HistoryScope";
 import { AnalysisPanel, LayerControls } from "@/components/Layers";
 import { WeeklyChart } from "@/components/WeeklyChart";
 import { ApiError, api, type DataQuality, type SecurityDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { useChartData } from "@/lib/chart-data";
+import { useChartData, useRecentBreakouts } from "@/lib/chart-data";
 import { causeLabel, formatDate } from "@/lib/format";
 import { frameOf } from "@/lib/layers/place";
 import { DEFAULT_SETTINGS, runLayers, type LayerSettings } from "@/lib/layers/registry";
@@ -41,6 +42,8 @@ function Security() {
     [weekly, doc, settings, chartData.breakoutRows],
   );
   const drawn = useMemo(() => run?.results.flatMap((r) => r.drawn) ?? [], [run]);
+  const recent = useRecentBreakouts(token, id, chart, doc?.current?.trend_since ?? null);
+  const today = useMemo(() => new Date().toLocaleDateString("en-CA"), []);
 
   useEffect(() => {
     if (!id) return;
@@ -80,7 +83,6 @@ function Security() {
   if (!loaded) return <p className="text-sm text-muted">Loading…</p>;
   const { detail, quality } = loaded;
   const current = detail.segments.find((s) => s.continuity_segment_id === detail.current_segment_id);
-  const earlier = detail.segments.length - 1;
 
   return (
     <article className="flex flex-col gap-6">
@@ -107,19 +109,30 @@ function Security() {
         )}
       </header>
 
+      {chart && chart.analysis_status === "analysed" && doc && (
+        <CurrentState
+          chart={chart}
+          doc={doc}
+          lastBar={weekly?.bars.at(-1) ?? null}
+          today={today}
+          breakouts={recent}
+          focused={focused}
+          onFocus={(target, layer) => {
+            setFocused(target);
+            if (layer && !settings.enabled.has(layer)) {
+              setSettings({ ...settings, enabled: new Set([...settings.enabled, layer]) });
+            }
+          }}
+        />
+      )}
+
       <section aria-label="Weekly chart" className="flex flex-col gap-2">
-        {earlier > 0 && (
-          <label className="flex items-center gap-2 self-start text-sm">
-            <input
-              type="checkbox"
-              checked={allSegments}
-              onChange={(e) => setAllSegments(e.target.checked)}
-              data-testid="earlier-history"
-            />
-            Show earlier history ({earlier} earlier {earlier === 1 ? "segment" : "segments"}, separated by{" "}
-            {earlier === 1 ? "a continuity break" : "continuity breaks"})
-          </label>
-        )}
+        <HistoryScope
+          detail={detail}
+          bars={weekly?.bars ?? null}
+          showEarlier={allSegments}
+          onShowEarlier={setAllSegments}
+        />
         {chart && chart.analysis_status === "analysed" && doc ? (
           <LayerControls settings={settings} onChange={setSettings} doc={doc} />
         ) : chart ? (
@@ -139,18 +152,6 @@ function Security() {
           />
         ) : (
           <div className="h-[660px] rounded-lg border border-line bg-surface" />
-        )}
-        {chart?.explanations && (
-          <ExplanationPanel
-            explanation={chart.explanations}
-            focused={focused}
-            onFocus={(target, layer) => {
-              setFocused(target);
-              if (layer && !settings.enabled.has(layer)) {
-                setSettings({ ...settings, enabled: new Set([...settings.enabled, layer]) });
-              }
-            }}
-          />
         )}
         {run && doc && <AnalysisPanel run={run} doc={doc} focused={focused} onFocus={setFocused} />}
       </section>

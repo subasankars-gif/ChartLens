@@ -8,7 +8,14 @@ import nextTs from "eslint-config-next/typescript";
  * indices), and never scale, average or otherwise compute with numbers.
  */
 const layerAdapterRules = {
-  files: ["src/lib/layers/**/*.ts"],
+  // The current-state view and the history scope select stored objects exactly as the
+  // layers do (Issues 1 and 2).
+  files: [
+    "src/lib/layers/**/*.ts",
+    "src/lib/current-state.ts",
+    "src/components/CurrentState.tsx",
+    "src/components/HistoryScope.tsx",
+  ],
   ignores: ["src/lib/layers/**/*.test.ts"],
   rules: {
     "no-restricted-syntax": [

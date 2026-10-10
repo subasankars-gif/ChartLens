@@ -8,7 +8,8 @@
  * is about on the chart, turning its layer on.
  */
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { GROUP_TITLE, groupInOrder, type ClaimGroup } from "@/lib/current-state";
 import type { ExplanationResponse } from "@/lib/api";
 import type { LayerId } from "@/lib/layers/types";
 
@@ -56,13 +57,18 @@ export function ExplanationPanel({
   explanation,
   focused,
   onFocus,
+  compact = false,
 }: {
   explanation: ExplanationResponse;
+  /** Cap the list's height so the chart stays near the top (it scrolls). */
+  compact?: boolean;
   focused: string | null;
   onFocus: (id: string | null, layer: LayerId | null) => void;
 }) {
   const claims = (explanation.explanation as { claims: StoredClaim[] }).claims;
   const [open, setOpen] = useState<string | null>(null);
+  // Group headings in the stored order: the first claim of each run names its group.
+  const starts = new Map<string, ClaimGroup>(groupInOrder(claims).map((g) => [g.claims[0]!.claim_id, g.group]));
   return (
     <section className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-4" aria-label="What the chart shows">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -71,12 +77,22 @@ export function ExplanationPanel({
           Each sentence restates stored facts of this analysis; nothing is calculated or judged here.
         </p>
       </div>
-      <ol className="flex flex-col divide-y divide-line text-sm" data-testid="claims">
+      <ol
+        className={`flex flex-col divide-y divide-line text-sm ${compact ? "max-h-[26rem] overflow-y-auto pr-2" : ""}`}
+        data-testid="claims"
+      >
         {claims.map((c) => {
+          const group = starts.get(c.claim_id);
           const target = focusOf(c);
           const isFocused = target !== null && target === focused;
           return (
-            <li key={c.claim_id} className={`py-1.5 ${isFocused ? "bg-canvas" : ""}`} data-testid="claim">
+            <Fragment key={c.claim_id}>
+            {group && (
+              <li role="presentation" className="pt-3 pb-1 text-xs font-semibold text-muted" data-testid="claim-group">
+                {GROUP_TITLE[group]}
+              </li>
+            )}
+            <li className={`py-1.5 ${isFocused ? "bg-canvas" : ""}`} data-testid="claim">
               <div className="flex flex-wrap items-baseline gap-x-3">
                 {target ? (
                   <button
@@ -119,6 +135,7 @@ export function ExplanationPanel({
                 </table>
               )}
             </li>
+            </Fragment>
           );
         })}
       </ol>

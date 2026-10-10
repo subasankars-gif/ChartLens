@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, type ChartResponse, type TokenSource } from "./api";
+import { CURRENT_STATE_SECTIONS } from "./current-state";
 import type { BreakoutRow, ChartDocument } from "./layers/document";
 import { BASE_SECTIONS, sectionsFor, type LayerSettings } from "./layers/registry";
 
@@ -44,7 +45,8 @@ export function checkChart(chart: ChartResponse): void {
 
 export function useChartData(token: TokenSource, id: string, segments: "valid" | "all", settings: LayerSettings) {
   const key = `${id}|${segments}`;
-  const wanted = useMemo(() => sectionsFor(settings), [settings]);
+  // The enabled layers' sections, plus what the current-state view always shows.
+  const wanted = useMemo(() => [...new Set<string>([...sectionsFor(settings), ...CURRENT_STATE_SECTIONS])], [settings]);
   const [loaded, setLoaded] = useState<LoadedChart | null>(null);
   const [rows, setRows] = useState<{ key: string; meta: string; source: string; rows: BreakoutRow[] } | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
@@ -141,4 +143,40 @@ export function useChartData(token: TokenSource, id: string, segments: "valid" |
     breakoutRows,
     error: error?.key === key ? error.message : null,
   };
+}
+
+export type RecentBreakouts = { pattern: BreakoutRow[]; level: BreakoutRow[] };
+
+/**
+ * Breakout events since the engine's `current.trend_since`, for the current-state view:
+ * each stored dataset fetched on its own with the stored-field predicate `from`, accepted
+ * only from the chart's snapshot, and never merged (ADR-0024 decision 4, §19).
+ */
+export function useRecentBreakouts(token: TokenSource, id: string, chart: ChartResponse | null, since: string | null) {
+  const meta = chart?.meta_version ?? null;
+  const analysed = chart?.analysis_status === "analysed";
+  const key = `${id}|${meta}|${since}`;
+  const [state, setState] = useState<{ key: string; rows: RecentBreakouts | null; error: string | null } | null>(null);
+  useEffect(() => {
+    if (!meta || !analysed || !since) return;
+    let cancelled = false;
+    const load = async (source: "pattern" | "level") => {
+      const all: BreakoutRow[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await api.breakoutEvents(token, id, source, cursor, since);
+        acceptFrom(meta, page.envelope.meta_version);
+        all.push(...(page.rows as unknown as BreakoutRow[]));
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor && !cancelled);
+      return all;
+    };
+    Promise.all([load("pattern"), load("level")])
+      .then(([pattern, level]) => !cancelled && setState({ key, rows: { pattern, level }, error: null }))
+      .catch((err: unknown) => !cancelled && setState({ key, rows: null, error: err instanceof Error ? err.message : String(err) }));
+    return () => {
+      cancelled = true;
+    };
+  }, [token, id, meta, analysed, since, key]);
+  return state?.key === key ? state : null;
 }

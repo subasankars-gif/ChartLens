@@ -139,3 +139,33 @@ export function buildChartModel(
   }
   return { series, markers, breaks, barsByTime };
 }
+
+/** The ranges a reader can pick; `null` weeks = every bar returned. */
+export const RANGES: readonly { label: string; weeks: number | null }[] = [
+  { label: "1Y", weeks: 52 },
+  { label: "3Y", weeks: 156 },
+  { label: "5Y", weeks: 260 },
+  { label: "All", weeks: null },
+];
+
+/**
+ * Which bars are in view: a logical range over *all* bars the API returned. The chart
+ * always holds every bar; a range only scrolls the view (Issue 1: a recent view never
+ * removes older history, which stays reachable by range, drag or zoom).
+ *
+ * With no choice made: the last 156 weeks, or 52 weeks before the last continuity break
+ * when earlier segments are shown, so the break is in view.
+ */
+export function visibleRange(
+  total: number,
+  weeks: number | null | undefined,
+  breakIndex = -1,
+): { from: number; to: number } | null {
+  if (total === 0) return null;
+  if (weeks === null) return { from: 0, to: total + 4 };
+  if (weeks === undefined) {
+    const from = Math.max(0, Math.min(total - 156, breakIndex >= 0 ? breakIndex - 52 : total - 156));
+    return total > 160 || from > 0 ? { from, to: total + 4 } : null; // null: fit everything
+  }
+  return { from: Math.max(0, total - weeks), to: total + 4 };
+}
