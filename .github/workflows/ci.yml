@@ -20,7 +20,7 @@ jobs:
       CHARTLENS_RUNTIME__ENVIRONMENT: ci
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.8.17"
           python-version: "3.12"
@@ -40,7 +40,7 @@ jobs:
       CHARTLENS_REQUIRE_EMULATORS: "1"
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.8.17"
           python-version: "3.12"
@@ -90,7 +90,7 @@ jobs:
     needs: [python, frontend]
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: "0.8.17"
           python-version: "3.12"
