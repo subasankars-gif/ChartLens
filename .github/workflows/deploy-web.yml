@@ -47,7 +47,7 @@ jobs:
       SITE_URL: https://chartlenslab.web.app
       NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: chartlenslab.web.app
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: frontend/package.json
