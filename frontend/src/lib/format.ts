@@ -61,3 +61,9 @@ export function causeLabel(cause: string): string {
     .map((c) => labels[c] ?? c)
     .join(" + ");
 }
+
+/** Whole days from the snapshot's data date to `today` (both ISO dates); never negative. */
+export function ageInDays(dataAsOf: string, today: string): number {
+  const ms = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${dataAsOf}T00:00:00Z`);
+  return Math.max(0, Math.round(ms / 86_400_000));
+}

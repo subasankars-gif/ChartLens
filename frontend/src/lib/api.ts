@@ -138,9 +138,9 @@ export const api = {
     apiRequest<AnalysisResponse>(`/securities/${encodeURIComponent(id)}/analysis`, t, {
       query: { sections: sections.join(",") },
     }),
-  breakoutEvents: (t: TokenSource, id: string, source: "pattern" | "level", cursor?: string) =>
+  breakoutEvents: (t: TokenSource, id: string, source: "pattern" | "level", cursor?: string, from?: string) =>
     apiRequest<EventsResponse>(`/securities/${encodeURIComponent(id)}/breakout-events`, t, {
-      query: { source, limit: "500", ...(cursor ? { cursor } : {}) },
+      query: { source, limit: "500", ...(cursor ? { cursor } : {}), ...(from ? { from } : {}) },
     }),
   dataQuality: (t: TokenSource, id: string) =>
     apiRequest<DataQuality>(`/securities/${encodeURIComponent(id)}/data-quality`, t),

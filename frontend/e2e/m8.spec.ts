@@ -137,3 +137,52 @@ test("the explanation panel shows the stored claims, in order, and their facts (
   await expect(claim.getByTestId("claim-facts").locator("tr")).toHaveCount(claims[index]!.quoted_values.length);
   await page.screenshot({ path: "test-results/m8-explanations.png", fullPage: true });
 });
+
+test("the current weekly state restates the snapshot's own current analysis, above the chart (Issue 2)", async ({ page }) => {
+  await signInAs(page, ADMIN);
+  const first = page.waitForResponse((r) => r.url().includes("/securities/SEC-P/chart?"));
+  await page.goto("/security/?id=SEC-P");
+  const chart = await (await first).json();
+  const doc = (await apiGet("/securities/SEC-P/analysis?sections=current,structure")).document;
+  const panel = page.getByTestId("current-state");
+  await expect(panel).toBeVisible();
+
+  // One snapshot: the panel names the chart's own snapshot and the engine's state date
+  // (the last complete weekly bar), never the forming week.
+  await expect(panel.getByTestId("state-snapshot")).toHaveText(chart.meta_version);
+  const stateDate = doc.current.state_date as string;
+  const [y, m, d] = stateDate.split("-").map(Number);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  await expect(panel.getByTestId("state-date")).toHaveText(`${d} ${months[m! - 1]} ${y}`);
+  const last = chart.weekly.bars.at(-1);
+  if (!last.is_complete) {
+    expect(last.last_session_date > stateDate).toBe(true); // the forming week is after the state date
+    await expect(panel.getByTestId("state-forming")).toBeVisible();
+  }
+
+  // The synthetic lake's data is old: its real date is shown as stale, not as today.
+  await expect(panel.getByTestId("state-stale")).toContainText("days old");
+
+  // Claims grouped under headings, verbatim and in stored order (the panel holds them).
+  await expect(panel.getByTestId("claim-group").first()).toBeVisible();
+  const stored = (await apiGet("/securities/SEC-P/explanations")).explanation.claims as { rendered_text: string }[];
+  await expect(panel.getByTestId("claims").getByTestId("claim-text")).toHaveText(stored.map((c) => c.rendered_text));
+
+  // Changes since the engine's trend `since`: exactly the stored structure events, and
+  // each breakout dataset on its own.
+  const since = doc.current.trend_since as string | null;
+  const events = (doc.structure.events as { bar_date: string }[]).filter((e) => since !== null && e.bar_date >= since);
+  await expect(panel.getByTestId("state-structure-events")).toContainText(`(${events.length})`);
+  if (since) {
+    const pattern = await apiGet(`/securities/SEC-P/breakout-events?source=pattern&from=${since}&limit=500`);
+    await expect(panel.getByTestId("state-pattern-breakouts")).toContainText(`(${pattern.rows.length})`);
+    await expect(panel.getByTestId("state-level-breakouts")).toBeVisible();
+  }
+  await expect(panel.getByTestId("state-limits")).toContainText("would change");
+
+  // It sits above the chart.
+  const panelBox = await panel.boundingBox();
+  const chartBox = await page.getByTestId("weekly-chart").boundingBox();
+  expect(panelBox!.y).toBeLessThan(chartBox!.y);
+  await page.screenshot({ path: "test-results/current-state.png", fullPage: true });
+});
