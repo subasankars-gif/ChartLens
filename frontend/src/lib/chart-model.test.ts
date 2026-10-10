@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WeeklyBar } from "./api";
-import { buildChartModel, type Palette } from "./chart-model";
+import { buildChartModel, RANGES, visibleRange, type Palette } from "./chart-model";
 
 const P: Palette = { up: "U", down: "D", upMuted: "u", downMuted: "d", forming: "F" };
 
@@ -82,5 +82,41 @@ describe("buildChartModel", () => {
 
   it("refuses duplicate labels rather than drawing them over each other", () => {
     expect(() => buildChartModel([bar({}), bar({})], "S@2006-01-02", causes, P)).toThrow(/two weekly bars/);
+  });
+});
+
+
+describe("the view never removes history (Issue 1)", () => {
+  // 1,084 weekly bars: a 20-year history like TCS in production.
+  const long = Array.from({ length: 1084 }, (_, i) => {
+    const d = new Date(Date.UTC(2006, 0, 2 + 7 * i)).toISOString().slice(0, 10);
+    return bar({ week_start_date: d, first_session_date: d, last_session_date: d, week_end_date: d });
+  });
+
+  it("the chart holds every bar the API returned, whatever the view", () => {
+    const model = buildChartModel(long, "S@2006-01-02", new Map(), P);
+    expect(model.series.reduce((n, s) => n + s.candles.length, 0)).toBe(long.length);
+    expect(model.barsByTime.size).toBe(long.length);
+  });
+
+  it("opens on the last three years, and every range stays inside the bars", () => {
+    expect(visibleRange(1084, undefined)).toEqual({ from: 1084 - 156, to: 1088 });
+    for (const r of RANGES) {
+      const v = visibleRange(1084, r.weeks)!;
+      expect(v.from).toBeGreaterThanOrEqual(0);
+      expect(v.to).toBe(1088);
+    }
+    expect(visibleRange(1084, null)).toEqual({ from: 0, to: 1088 }); // "All" reaches the first bar
+  });
+
+  it("a younger security shows exactly the history it has", () => {
+    expect(visibleRange(45, undefined)).toBeNull(); // fit: all 45 bars in view
+    expect(visibleRange(45, 156)).toEqual({ from: 0, to: 49 });
+    expect(visibleRange(0, null)).toBeNull();
+  });
+
+  it("with earlier segments shown, the view reaches back to a year before the last break", () => {
+    expect(visibleRange(1085, undefined, 1040)).toEqual({ from: 929, to: 1089 }); // the 3-year view already shows it
+    expect(visibleRange(1085, undefined, 500)).toEqual({ from: 448, to: 1089 }); // an older break pulls the view back
   });
 });

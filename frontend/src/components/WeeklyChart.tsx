@@ -13,7 +13,7 @@
 import type * as LC from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { WeeklyBar } from "@/lib/api";
-import { buildChartModel, type Palette } from "@/lib/chart-model";
+import { buildChartModel, RANGES, visibleRange, type Palette } from "@/lib/chart-model";
 import { formatDate, formatDecimal, formatQuantity, sessionTypeLabel } from "@/lib/format";
 import type { Drawn } from "@/lib/layers/types";
 import { BreakBands } from "./breakBands";
@@ -97,6 +97,7 @@ export function WeeklyChart({
   const [ready, setReady] = useState(0);
   const [hovered, setHovered] = useState<string | null>(null);
   const [hoveredObject, setHoveredObject] = useState<string | null>(null);
+  const [range, setRange] = useState<number | null | undefined>(undefined);
   const hoverCallback = useRef(onHoverObject);
   useEffect(() => {
     hoverCallback.current = onHoverObject;
@@ -180,11 +181,9 @@ export function WeeklyChart({
       current?.attachPrimitive(price);
       chart.panes()[1]?.setHeight(90);
       const times = [...model.barsByTime.keys()];
-      const total = times.length;
       const lastBreak = model.breaks.at(-1);
-      const breakIndex = lastBreak ? times.indexOf(lastBreak.time) : -1;
-      const from = Math.max(0, Math.min(total - 156, breakIndex >= 0 ? breakIndex - 52 : total - 156));
-      if (total > 160 || from > 0) chart.timeScale().setVisibleLogicalRange({ from, to: total + 4 });
+      const view = visibleRange(times.length, undefined, lastBreak ? times.indexOf(lastBreak.time) : -1);
+      if (view) chart.timeScale().setVisibleLogicalRange(view);
       else chart.timeScale().fitContent();
       chart.subscribeCrosshairMove((p) => {
         setHovered(p.time ? String(p.time) : null);
@@ -204,6 +203,14 @@ export function WeeklyChart({
       cleanup();
     };
   }, [model]);
+
+  // A chosen range only scrolls the view; every bar stays on the chart.
+  useEffect(() => {
+    const l = live.current;
+    if (!l || range === undefined) return;
+    const view = visibleRange(model.barsByTime.size, range);
+    if (view) l.chart.timeScale().setVisibleLogicalRange(view);
+  }, [range, model, ready]);
 
   // Layers change without rebuilding the chart.
   useEffect(() => {
@@ -280,6 +287,24 @@ export function WeeklyChart({
         ) : (
           <span className="text-muted">Point at a drawn object to see its stored facts.</span>
         )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-1.5 text-xs" data-testid="chart-range">
+        <span className="text-muted">
+          {model.barsByTime.size} weekly bars on the chart, from {formatDate(bars[0]?.first_session_date)}. View:
+        </span>
+        {RANGES.map((r) => (
+          <button
+            key={r.label}
+            type="button"
+            className={`rounded border px-1.5 py-0.5 ${range === r.weeks ? "border-accent text-accent" : "border-line text-ink hover:border-accent"}`}
+            onClick={() => setRange(r.weeks)}
+            aria-pressed={range === r.weeks}
+            data-testid={`range-${r.label}`}
+          >
+            {r.label}
+          </button>
+        ))}
+        <span className="text-muted">or drag and scroll the chart.</span>
       </div>
       <div ref={container} className="h-[560px] w-full" data-testid="weekly-chart" />
       <ChartKey />

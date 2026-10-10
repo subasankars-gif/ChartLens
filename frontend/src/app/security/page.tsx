@@ -83,6 +83,9 @@ function Security() {
   const { detail, quality } = loaded;
   const current = detail.segments.find((s) => s.continuity_segment_id === detail.current_segment_id);
   const earlier = detail.segments.length - 1;
+  const earlierSessions = detail.segments
+    .filter((s) => s.continuity_segment_id !== detail.current_segment_id)
+    .reduce((n, s) => n + s.sessions, 0);
 
   return (
     <article className="flex flex-col gap-6">
@@ -127,6 +130,13 @@ function Security() {
       )}
 
       <section aria-label="Weekly chart" className="flex flex-col gap-2">
+        {earlier > 0 && current && (
+          <p className="text-sm text-muted" data-testid="history-notice">
+            The analysed chart starts on {formatDate(current.segment_start)}, where a new continuity segment began (
+            {causeLabel(current.cause)}); no analysis crosses it. {earlierSessions} earlier{" "}
+            {earlierSessions === 1 ? "session is" : "sessions are"} kept and can be shown as bars, without analysis.
+          </p>
+        )}
         {earlier > 0 && (
           <label className="flex items-center gap-2 self-start text-sm">
             <input
